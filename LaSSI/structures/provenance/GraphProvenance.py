@@ -26,38 +26,41 @@ class GraphProvenance:
         self.existentials = self.services.getExistentials()
 
     def internal_graph(self) -> Graph:
-        self.G = self.graph_creation.runGraphCreation(self.gsm_json_graph, self.parmenides)
+        if self.is_simplistic_rewriting:
+            # Phase 0-4
+            self.gsm_json_graph = self.atts_global.groupGraphNodes(self.gsm_json_graph)
+            # Phase 5
+            self.atts_global.checkForNegation(self.gsm_json_graph)
 
-        # Phase 0-4
-        self.gsm_json_graph = self.atts_global.groupGraphNodes(self.gsm_json_graph)
-        # Phase 5
-        self.atts_global.checkForNegation(self.gsm_json_graph)
+            # Parmenides Information
+            rejected_edges = self.parmenides.getRejectedVerbs()
+            non_verbs = self.parmenides.getNonVerbs()
 
-        # Parmenides Information
-        rejected_edges = self.parmenides.getRejectedVerbs()
-        non_verbs = self.parmenides.getNonVerbs()
+            # Now, create the internal graph from now created edges
+            self._internal_graph = self.atts_global.constructIntermediateGraph(self.gsm_json_graph, rejected_edges,
+                                                                               non_verbs)
 
-        # Now, create the internal graph from now created edges
-        self._internal_graph = self.atts_global.constructIntermediateGraph(self.gsm_json_graph, rejected_edges,
-                                                                           non_verbs)
-        return self.G
+            return self._internal_graph
+        else:
+            self.G = self.graph_creation.runGraphCreation(self.gsm_json_graph, self.parmenides)
+            return self.G
 
     def sentence(self) -> Singleton:
         create_final_kernel_X = CreateFinalKernelX(self.G, self.graph_creation.negations, self.graph_creation.node_functions)
         self.x_sentence = create_final_kernel_X.constructSentence()
 
-        create_final_kernel = CreateFinalKernel(self.atts_global.nodes, self.gsm_json_graph, self.atts_global.edges, self.atts_global.negations, self.atts_global.node_functions)
-        self._sentence = create_final_kernel.constructSentence()
+        # create_final_kernel = CreateFinalKernel(self.atts_global.nodes, self.gsm_json_graph, self.atts_global.edges, self.atts_global.negations, self.atts_global.node_functions)
+        # self._sentence = create_final_kernel.constructSentence()
 
-        if (  # Sentences that have changed representation but might be better now?
-                not TestLaSSI.compare_internal_representations(TestLaSSI(), self.x_sentence.to_string(), self._sentence.to_string()) and
-                self.meu_db_row.first_sentence not in {
-                    'you score well on tests', 'a coin falls and rolls', 'grab it before it stops ringing',
-                    'be frightful and/or learning', 'privately administered region', 'come closer', 'the effect of dissolving the sugar',
-                    'the essence of seeing is everywhere', 'Saturdays have usually busy city centers', 'Newcastle has traffic but not in the city centre'
-                }
-        ):
-            assert False
-            print("FAiL")
+        # if (  # Sentences that have changed representation but might be better now?
+        #         not TestLaSSI.compare_internal_representations(TestLaSSI(), self.x_sentence.to_string(), self._sentence.to_string()) and
+        #         self.meu_db_row.first_sentence not in {
+        #             'you score well on tests', 'a coin falls and rolls', 'grab it before it stops ringing',
+        #             'be frightful and/or learning', 'privately administered region', 'come closer', 'the effect of dissolving the sugar',
+        #             'the essence of seeing is everywhere', 'Saturdays have usually busy city centers', 'Newcastle has traffic but not in the city centre'
+        #         }
+        # ):
+        #     assert False
+        #     print("FAiL")
 
         return self.x_sentence

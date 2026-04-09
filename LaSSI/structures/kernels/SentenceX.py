@@ -201,11 +201,15 @@ def create_cop(node, kernel, target_or_source):
 
 
 def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposition_labels, node_functions, prev_loop_settings, acl_relcl_map):
+    edges = list(edges)
     loop_settings = SimpleNamespace(shouldLoop=False, edgeForKernel=None, previousKernel=None)
 
     root_node = [node for node in nodes.items() if node[0] == root_sentence_id][0][1]['data']
     if root_node.type == 'verb' and len(edges) <= 0:
         return G, create_edge_kernel(G, root_node, node_functions), loop_settings, acl_relcl_map
+    elif len(edges) == 1:
+        if edges[0][3]['label'].named_entity == 'adv':
+            return G, root_node, loop_settings, acl_relcl_map
     elif len(edges) <= 0:
         return G, root_node, loop_settings, acl_relcl_map
 
@@ -441,7 +445,7 @@ def add_to_kernel_nodes(node, kernel_nodes):
             if not isinstance(properties_key_, str):
                 if isinstance(properties_key_, Singleton):
                     kernel_nodes = add_to_kernel_nodes(properties_key_, kernel_nodes)
-                else:
+                elif properties_key_ is not None:
                     for prop_node in properties_key_:
                         if isinstance(prop_node, Singleton):
                             kernel_nodes = add_to_kernel_nodes(prop_node, kernel_nodes)

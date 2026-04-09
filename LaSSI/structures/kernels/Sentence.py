@@ -778,8 +778,10 @@ def is_kernel_in_props(node, check_jj=True):
 
     if isinstance(node, Singleton):
         node_props = dict(node.properties)
-        return (('kernel' in node_props or 'root' in node_props) and (
-                'JJ' not in node.type and check_jj or not check_jj)) or 'verb' in node.type
+        return (
+                ('kernel' in node_props or 'root' in node_props) and
+                (isinstance(node.type, str) and ('JJ' not in node.type and check_jj or not check_jj) or not isinstance(node.type, str))
+        ) or ('verb' in node.type)
     elif isinstance(node, dict) and hasattr(node, 'properties'):
         node_props = node['properties']
         return 'kernel' in node_props or 'root' in node_props

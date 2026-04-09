@@ -4,7 +4,7 @@ from collections import defaultdict
 # from LaSSI.structures.extended_fol.Formulae import FUnaryPredicate
 # from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
 # from FunctionalMatch.utils import CountingDictionary
-from LaSSI.Parmenides import ParmenidesSingleton
+from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
 from Formulae import FUnaryPredicate, FAnd, FOr
 from FunctionalMatch.utils import CountingDictionary
 

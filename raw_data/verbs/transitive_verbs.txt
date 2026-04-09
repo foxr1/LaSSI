@@ -401,3 +401,6 @@ prove
 traffic
 traffick
 choose
+meet
+condemn
+pray

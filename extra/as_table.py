@@ -8,4 +8,4 @@ def from_matrix(file, output):
 
 if __name__ == "__main__":
     from_matrix("../catabolites/newcastle_mdpi/confusion_matrices_Logical_working.json",
-                "../similarity.csv")
+                "similarity.csv")

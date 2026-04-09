@@ -163,9 +163,6 @@ parmenides:abstract_entity a owl:ObjectProperty .
 parmenides:accept a parmenides:TransitiveVerb ;
     rdfs:label "accept"^^xsd:string .
 
-parmenides:choose a parmenides:TransitiveVerb ;
-    rdfs:label "choose"^^xsd:string .
-
 <https://logds.github.io/parmenides#according+to> a parmenides:ComplexPreposition ;
     rdfs:label "according to"^^xsd:string ;
     parmenides:alwaysOmit false ;
@@ -1824,6 +1821,9 @@ parmenides:chill a parmenides:StateVerb,
 <https://logds.github.io/parmenides#chip+in> a parmenides:PhrasalVerb ;
     rdfs:label "chip in"^^xsd:string .
 
+parmenides:choose a parmenides:TransitiveVerb ;
+    rdfs:label "choose"^^xsd:string .
+
 <https://logds.github.io/parmenides#choose+up> a parmenides:PhrasalVerb ;
     rdfs:label "choose up"^^xsd:string .
 
@@ -2091,6 +2091,9 @@ parmenides:concerning a parmenides:PrototypicalPreposition ;
 
 parmenides:conclusion a parmenides:AbstractEntity ;
     rdfs:label "conclusion"^^xsd:string .
+
+parmenides:condemn a parmenides:TransitiveVerb ;
+    rdfs:label "condemn"^^xsd:string .
 
 parmenides:confuse a parmenides:TransitiveVerb ;
     rdfs:label "confuse"^^xsd:string .
@@ -4330,12 +4333,6 @@ parmenides:he a parmenides:PersonalPronoun,
 parmenides:head a parmenides:TransitiveVerb ;
     rdfs:label "head"^^xsd:string .
 
-parmenides:inform a parmenides:TransitiveVerb ;
-    rdfs:label "inform"^^xsd:string .
-
-parmenides:applaud a parmenides:TransitiveVerb ;
-    rdfs:label "applaud"^^xsd:string .
-
 <https://logds.github.io/parmenides#head+for> a parmenides:MovementVerb,
         parmenides:PhrasalVerb ;
     rdfs:label "head for"^^xsd:string .
@@ -6402,6 +6399,9 @@ parmenides:measure a parmenides:CausativeVerb ;
 <https://logds.github.io/parmenides#measure+up> a parmenides:PhrasalVerb ;
     rdfs:label "measure up"^^xsd:string .
 
+parmenides:meet a parmenides:TransitiveVerb ;
+    rdfs:label "meet"^^xsd:string .
+
 <https://logds.github.io/parmenides#meet+with> a parmenides:PhrasalVerb ;
     rdfs:label "meet with"^^xsd:string .
 
@@ -7665,6 +7665,9 @@ parmenides:prance a parmenides:MovementVerb ;
 
 <https://logds.github.io/parmenides#prattle+on> a parmenides:PhrasalVerb ;
     rdfs:label "prattle on"^^xsd:string .
+
+parmenides:pray a parmenides:TransitiveVerb ;
+    rdfs:label "pray"^^xsd:string .
 
 parmenides:pre a parmenides:PrototypicalPreposition ;
     rdfs:label "pre"^^xsd:string ;

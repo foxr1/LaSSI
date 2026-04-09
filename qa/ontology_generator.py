@@ -24,8 +24,6 @@ def to_db(db_name, dict):
     db.close()
 
 def generate(conceptnet_path, wiktionary_path, load_from_db=False, test_limit=-1):
-
-    print("hi")
     adjacency = from_db("adjacency_list.db") if load_from_db else {}
     clusters = from_db("clusters.db") if load_from_db else {}
     # adjacency, clusters = SqliteDict("adjacency_list.db"), SqliteDict("clusters.db")
@@ -38,7 +36,6 @@ def generate(conceptnet_path, wiktionary_path, load_from_db=False, test_limit=-1
 
         to_db("adjacency_list.db", adjacency)
         to_db("clusters.db", clusters)
-
 
     def triplet_check(source, edge_label, target):
         return (not (source.startswith("Q") and source[1:].isdigit()) and
@@ -104,5 +101,5 @@ def generate(conceptnet_path, wiktionary_path, load_from_db=False, test_limit=-1
     #     clusters.close()
 
 
-
-
+if __name__ == '__main__':
+    generate("./supporting_files/edges.csv", "./supporting_files/wiktionary_data.json", True)

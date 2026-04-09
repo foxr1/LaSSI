@@ -16,10 +16,12 @@ from rdflib.namespace import OWL, RDF, RDFS
 #from LaSSI.Parmenides import Prepositions, SentenceStructure
 # --> import below from formula.py
 # from LaSSI.structures.extended_fol.Formulae import FUnaryPredicate
-from src.Formulae import FVariable, FUnaryPredicate, FBinaryPredicate, FNot # had to add "src." because then the type checks wont work cuz the rules txt imports with src
+# from src.Formulae import FVariable, FUnaryPredicate, FBinaryPredicate, FNot # had to add "qa." because then the type checks wont work cuz the rules txt imports with qa
 from FunctionalMatch.language.LanguageMainPoint import parse_query
+
+from LaSSI.structures.extended_fol.Formulae import FUnaryPredicate, FNot, FBinaryPredicate, FVariable
 from TBoxReasoning import KnowledgeExpansion
-from LaSSI.Parmenides import ParmenidesSingleton
+from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
 # from LaSSI.structures.extended_fol.TBoxReasoning import KnowledgeExpansion   #### tboxreasoning.py
 
 
@@ -278,8 +280,11 @@ class ParmenidesBuild():
 def make_ontology_from_raw():
     # p = ParmenidesBuild()
     ParmenidesSingleton.instance()
-    ParmenidesSingleton.init(cache_path=r"C:\Users\guygu\Downloads\FrancoDissertationProject",
-                             user="",password="",hostame="",port="",onStorage=False,path=None)
+    # ParmenidesSingleton.init(cache_path=r"C:\Users\guygu\Downloads\FrancoDissertationProject",
+    #                          user="",password="",hostame="",port="",onStorage=False,path=None)
+    ParmenidesSingleton.init("/home/parallels/PycharmProjects/LaSSI/cache", "lassi", "drowssap",
+                             "localhost", 5432, False, None)
+
     p = ParmenidesSingleton.get()
     _T = p.create_class("Dimensions")
     LOC_T = p.create_class("LOC", "Dimensions")
@@ -458,13 +463,17 @@ def parmenides_db_write():
     # ParmenidesSingleton.init("/home/giacomo/projects/LaSSI/cache", "giacomo", "omocaig",
     #                          "localhost", 5432, False, "franco_parmenides.ttl") # folder where intermediate computations will be kept, change to whatever
 
+    ParmenidesSingleton.instance()
+    ParmenidesSingleton.init("/home/parallels/PycharmProjects/LaSSI/cache", "lassi", "drowssap",
+                             "localhost", 5432, False, "franco_parmenides.ttl")
+
     #### do this:
     # pip install git+https://github.com/LogDS/FunctionalMatch.git
 
     # from FunctionalMatch.language.LanguageMainPoint import parse_query
-    queries = parse_query("/home/giacomo/projects/LaSSI/query_franco.txt") # change
+    queries = parse_query("/home/parallels/PycharmProjects/LaSSI/query_franco.txt") # change
 
-    ke = KnowledgeExpansion("/home/giacomo/projects/LaSSI/_kexp.pickle") # change to whatever
+    ke = KnowledgeExpansion("/home/parallels/PycharmProjects/LaSSI/_kexp.pickle") # change to whatever
 
     ### writing out the questions as logical rep as if other lassi module did it
     #from LaSSI.structures.extended_fol.Formulae import FVariable
@@ -911,7 +920,7 @@ def knowledge_expand(question, answer_set):
 def solve_questions():
     make_ontology_from_raw()
 
-    # rules = parse_query(r"C:\Users\guygu\Downloads\FrancoDissertationProject\src\queries_test.txt")#
+    # rules = parse_query(r"C:\Users\guygu\Downloads\FrancoDissertationProject\qa\queries_test.txt")#
     question_idx = 6 # set question number here (ranging from 1-9)
 
 

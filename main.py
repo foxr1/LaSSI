@@ -28,7 +28,7 @@ if __name__ == '__main__':
     if commonsense_qa:
         dataset_name = get_dataset()
     else:
-        dataset_name = "test_sentences/benchmarking/5.yaml"
+        dataset_name = "test_sentences/orig/newcastle_mdpi.yaml"
 
     fuzzyDBs = "connection.yaml"
 

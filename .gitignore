@@ -1,8 +1,8 @@
 .idea/
 venv/
 __pycache__/
-src/adjacency_list.db
-src/clusters.db
+qa/adjacency_list.db
+qa/clusters.db
 data/*
 /.venv/
 /catabolites/
@@ -12,7 +12,7 @@ data/*
 /.idea/
 *.pyc
 /connection_giacomo.yaml
-_trial_temp/
+_trial_temp*
 /catabolites_viz/
 # Byte-compiled / optimized / DLL files
 __pycache__/

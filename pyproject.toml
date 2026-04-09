@@ -5,8 +5,8 @@ build-backend = "flit_core.buildapi"
 [project]
 name = "LaSSI"
 authors = [
-    {name = "Giacomo Bergami", email = "bergamigiacomo@gmail.com"},
     {name = "Oliver R. Fox", email = "ollie.fox5@gmail.com"},
+    {name = "Giacomo Bergami", email = "bergamigiacomo@gmail.com"},
 ]
 #readme = "README.md"
 requires-python = "3.10"
@@ -38,7 +38,7 @@ dependencies = [
     "antlr4-python3-runtime==4.13.1",
     "StanfordNLPExtractor @ git+https://github.com/datagram-db/stanfordnlp_dg_server.git",
     "FunctionalMatch @ git+https://github.com/LogDS/FunctionalMatch.git",
-    "PyDatagramDB @ git+https://github.com/datagram-db/datagram-db.git#egg=PyDatagramDB&subdirectory=DatagramDB",
+    "PyDatagramDB @ git+https://github.com/foxr1/datagram-db.git@fix-macos-build#egg=PyDatagramDB&subdirectory=DatagramDB",
     "rdflib==7.0.0",
     "pandas==2.2.3",
     "dacite",
@@ -66,7 +66,7 @@ dependencies = [
     "lime",
     "shap",
     "accelerate<=0.26.0",
-    "intervaltree"
+    "sqlitedict",
 ]
 
 #[tool.scikit-build]

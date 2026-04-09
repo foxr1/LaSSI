@@ -1821,6 +1821,9 @@ parmenides:chill a parmenides:StateVerb,
 <https://logds.github.io/parmenides#chip+in> a parmenides:PhrasalVerb ;
     rdfs:label "chip in"^^xsd:string .
 
+parmenides:choose a parmenides:TransitiveVerb ;
+    rdfs:label "choose"^^xsd:string .
+
 <https://logds.github.io/parmenides#choose+up> a parmenides:PhrasalVerb ;
     rdfs:label "choose up"^^xsd:string .
 
@@ -3567,6 +3570,9 @@ parmenides:fry a parmenides:TransitiveVerb ;
 
 parmenides:fulfil a parmenides:TransitiveVerb ;
     rdfs:label "fulfil"^^xsd:string .
+
+parmenides:fulfill a parmenides:TransitiveVerb ;
+    rdfs:label "fulfill"^^xsd:string .
 
 parmenides:furnish a parmenides:TransitiveVerb ;
     rdfs:label "furnish"^^xsd:string .
@@ -6122,6 +6128,13 @@ parmenides:logrule%2F33 a parmenides:LogicalRewritingRule ;
         "while"^^xsd:string ;
     parmenides:rule_order 33 .
 
+parmenides:logrule%2F34 a parmenides:LogicalRewritingRule ;
+    rdfs:label "logrule/34"^^xsd:string ;
+    parmenides:hasNMod true ;
+    parmenides:logicalConstructName "specification"^^xsd:string ;
+    parmenides:logicalConstructProperty "inverse"^^xsd:string ;
+    parmenides:rule_order 34 .
+
 parmenides:logrule%2F4 a parmenides:LogicalRewritingRule ;
     rdfs:label "logrule/4"^^xsd:string ;
     parmenides:abstract_entity false ;
@@ -6382,6 +6395,9 @@ parmenides:measure a parmenides:CausativeVerb ;
 
 <https://logds.github.io/parmenides#measure+up> a parmenides:PhrasalVerb ;
     rdfs:label "measure up"^^xsd:string .
+
+parmenides:meet a parmenides:TransitiveVerb ;
+    rdfs:label "meet"^^xsd:string .
 
 <https://logds.github.io/parmenides#meet+with> a parmenides:PhrasalVerb ;
     rdfs:label "meet with"^^xsd:string .

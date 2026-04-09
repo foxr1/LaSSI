@@ -376,10 +376,10 @@ class RewriteKernels:
                     props_to_merge = []
                     src_old_props = get_props(src)
                     src = self.make_arg(src)
-                    p["src"] = []
+                    p["qa"] = []
                     p["dst"] = []
                     if src is not None:
-                        p["src"].append(src)
+                        p["qa"].append(src)
                         if src_old_props is not None:
                             props_to_merge.append((src, src_old_props))
                         if hasattr(src, "properties"):
@@ -399,7 +399,7 @@ class RewriteKernels:
                         if hasattr(dst, "properties"):
                             props_to_merge.append((dst, dst.properties))
                     prop = self.make_properties(p)
-                    del prop["src"]
+                    del prop["qa"]
                     del prop["dst"]
                     prop = self.derive_kernel_properties(props_to_merge, prop)
                     props_to_merge.append((None, prop))
@@ -470,19 +470,19 @@ class RewriteKernels:
                                 p[k] = tuple(j)
                         else:
                             p[k] = v
-                p["src"] = []
+                p["qa"] = []
                 p["dst"] = []
                 props_to_merge = []
                 src_old_props = get_props(src)
                 src = self.make_arg(src)
                 if src is not None:
-                    p["src"].append(src)
+                    p["qa"].append(src)
                     if src_old_props is not None:
                         props_to_merge.append((src, src_old_props))
                     if hasattr(src, "properties"):
                         props_to_merge.append((src, src.properties))
                 prop = self.make_properties(p)
-                del prop["src"]
+                del prop["qa"]
                 if "dst" in prop:
                     del prop["dst"]
                 prop = self.derive_kernel_properties(props_to_merge, prop)

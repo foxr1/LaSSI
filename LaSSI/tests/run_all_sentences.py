@@ -36,8 +36,8 @@ def get_and_run_all_sentences(folders, transformation=SentenceRepresentation.Log
             pbar.set_description(f"Rewriting sentences: {yaml_file.split('/')[-1]}")
             try:
                 with open(os.devnull, 'w') as devnull:
-                    sys.stdout = devnull
-                    pipeline = LaSSI(yaml_file, "/home/campus.ncl.ac.uk/b9063849/PycharmProjects/LaSSI/connection.yaml", transformation, transformer)
+                    # sys.stdout = devnull
+                    pipeline = LaSSI(yaml_file, "connection.yaml", transformation, transformer)
                     pipeline.run()
                     pipeline.close()
                 sys.stdout = sys.__stdout__
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         folders = sys.argv[1:]
     else:
-        folders = ["/home/giacomo/Scrivania/LaSSI/test_sentences/nc"]
+        folders = ["bbc"]
 
     all_outputs = True
     metrics_benchmark = Benchmark("Metrics")
@@ -62,8 +62,9 @@ if __name__ == '__main__':
             SentenceRepresentation.SimpleGraph,
              SentenceRepresentation.LogicalGraph,
             SentenceRepresentation.FullText,
-            # SentenceRepresentation.Logical,
-            SentenceRepresentation.SimpleGraphDisabledAPriori, SentenceRepresentation.LogicalGraphDisabledAPriori,
+            SentenceRepresentation.Logical,
+            SentenceRepresentation.SimpleGraphDisabledAPriori,
+            SentenceRepresentation.LogicalGraphDisabledAPriori,
              SentenceRepresentation.LogicalDisabledAPriori
         ]
 
@@ -85,4 +86,4 @@ if __name__ == '__main__':
     else:
         get_and_run_all_sentences(folders)
 
-    metrics_benchmark.to_csv("n.csv")
+    metrics_benchmark.to_csv("bbc.csv")

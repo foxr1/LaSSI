@@ -1,7 +1,6 @@
 from ontology_generator import generate
 from config import config
 from QA import solve_questions
-import argparse
 
 if __name__ == "__main__":
     # parser = argparse.ArgumentParser()
@@ -11,5 +10,5 @@ if __name__ == "__main__":
     #
     # args = parser.parse_args()
 
-    # generate(config["conceptnet_csv"], config["wiktionary_json"], load_from_db=True)
+    generate(config["conceptnet_csv"], config["wiktionary_json"], load_from_db=True)
     solve_questions()

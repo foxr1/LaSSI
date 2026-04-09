@@ -145,8 +145,52 @@ class CreateInternalGraph:
         )
 
     def resolveMultipleInDobj(self, G):
+        # TODO: Check if the concatenation of the node children with preposition for multiindobj is contained within Parmenides, e.g. (side)<-(side side)->(side)->(by)
+        # Hard coding for now...
+        parmenides_test = {'side by side'}
+
+        multiindobj_nodes = [node for node in G.nodes(data=True) if node[1]['data'].type == 'multipleindobj']
+        for node in multiindobj_nodes:
+            names = []
+            for child in sorted([G.nodes[edge[1]]['data'] for edge in G.out_edges(node[0], data=True)], key=lambda x: float(dict(x.properties)['pos'])):
+                child_pos = float(dict(child.properties)['pos'])
+                appended = False
+                for key, value in dict(child.properties).items():
+                    try:
+                        preposition = float(key)
+                        if preposition > child_pos:
+                            names.append(child.named_entity)
+                            names.append(value)
+                            appended = True
+                        else:
+                            names.append(value)
+                            names.append(child.named_entity)
+                            appended = True
+                    except ValueError:
+                        pass
+                if not appended:
+                    names.append(child.named_entity)
+
+            joined_name = ' '.join(names)
+            if joined_name in parmenides_test:
+                old_sing = G.nodes[node[0]]['data']
+                nx.set_node_attributes(G, {node[0]: Singleton(
+                    id=node[0],
+                    named_entity=joined_name,
+                    properties=old_sing.properties,
+                    min=old_sing.min,
+                    max=old_sing.max,
+                    type='ENTITY',
+                    confidence=1
+                )}, 'data')
+
+                edges_to_remove = [edge for edge in G.out_edges(node[0], data=True)]
+                for edge in edges_to_remove:
+                    G.remove_edge(*edge[:2])
+
         nodes_to_remove = []
-        for node in [node for node in G.nodes(data=True) if node[1]['data'].type == 'multipleindobj']:
+        multiindobj_nodes = [node for node in G.nodes(data=True) if node[1]['data'].type == 'multipleindobj']
+        for node in multiindobj_nodes:
             for parent in [edge for edge in G.in_edges(node[0], data=True)]:
                 for child in [edge for edge in G.out_edges(node[0])]:
                     G.add_edge(parent[0], child[1], label=parent[2]['label'], isNegated=parent[2]['isNegated'])
@@ -393,121 +437,122 @@ class CreateInternalGraph:
                 }, 'type')
 
             # Merge child into parent node
-            G = nx.contracted_nodes(G, edge[0], edge[1], self_loops=False)
+            if edge[0] in G and edge[1] in G:
+                G = nx.contracted_nodes(G, edge[0], edge[1], self_loops=False)
 
-            # Create SetOfSingleton nodes - conditions to wait before resolving contracted nodes
-            if ((
-                # If the next edge's source is NOT equal to current source AND edge's source is not equal to next edge's target
-                idx + 1 < len(merge_edges) and merge_edges[idx + 1][0] != edge[0] and merge_edges[idx + 1][1] != edge[0] or
-                    # [OR:] If the next edge's source IS equal to current source and edge labels are different
-                    (
-                        idx + 1 < len(merge_edges) and merge_edges[idx + 1][0] == edge[0] and
-                        merge_edges[idx + 1][2]['label'].named_entity != edge[2]['label'].named_entity
-                    )
-            # [OR:] This is the last edge in the array
-            ) or idx == len(merge_edges) - 1):
-                node = G.nodes[edge[0]]
-                node_type = node['type']
+                # Create SetOfSingleton nodes - conditions to wait before resolving contracted nodes
+                if ((
+                    # If the next edge's source is NOT equal to current source AND edge's source is not equal to next edge's target
+                    idx + 1 < len(merge_edges) and merge_edges[idx + 1][0] != edge[0] and merge_edges[idx + 1][1] != edge[0] or
+                        # [OR:] If the next edge's source IS equal to current source and edge labels are different
+                        (
+                            idx + 1 < len(merge_edges) and merge_edges[idx + 1][0] == edge[0] and
+                            merge_edges[idx + 1][2]['label'].named_entity != edge[2]['label'].named_entity
+                        )
+                # [OR:] This is the last edge in the array
+                ) or idx == len(merge_edges) - 1):
+                    node = G.nodes[edge[0]]
+                    node_type = node['type']
 
-                # Append recursively through all node 'contractions'
-                # TODO: NOTE: Currently excluding children with 'conj' as a property as likely they are accounted for by the 'orig' nodes
-                # grouped_nodes = (lambda f: f(f, node))(lambda f, node: ([node['data']] if 'data' in node and hasattr(node['data'], 'type') and not isinstance(node['data'].type, Grouping) else []) + [item for sub_node in node.get('contraction', {}).values() for item in f(f, sub_node)])
+                    # Append recursively through all node 'contractions'
+                    # TODO: NOTE: Currently excluding children with 'conj' as a property as likely they are accounted for by the 'orig' nodes
+                    # grouped_nodes = (lambda f: f(f, node))(lambda f, node: ([node['data']] if 'data' in node and hasattr(node['data'], 'type') and not isinstance(node['data'].type, Grouping) else []) + [item for sub_node in node.get('contraction', {}).values() for item in f(f, sub_node)])
 
-                grouped_nodes = (lambda f: f(f, node))(lambda f, node: ([node['data']] if 'data' in node and hasattr(node['data'], 'type') and not (isinstance(node['data'], Singleton) and 'conj' in dict(node['data'].properties)) else []) + [item for sub_node in node.get('contraction', {}).values() for item in f(f, sub_node)])
+                    grouped_nodes = (lambda f: f(f, node))(lambda f, node: ([node['data']] if 'data' in node and hasattr(node['data'], 'type') and not (isinstance(node['data'], Singleton) and 'conj' in dict(node['data'].properties)) else []) + [item for sub_node in node.get('contraction', {}).values() for item in f(f, sub_node)])
 
-                # Absorb all properties and merge
-                for n in grouped_nodes[1:]:
-                    if grouped_nodes[0].id in G.nodes:
-                        root_node = G.nodes[grouped_nodes[0].id]['data']
-                        new_properties = merge_properties(dict(root_node.properties), dict(n.properties), {'begin', 'end', 'pos'})
-                        nx.set_node_attributes(G, {root_node.id: root_node.update_node_props(new_properties)}, 'data')
+                    # Absorb all properties and merge
+                    for n in grouped_nodes[1:]:
+                        if grouped_nodes[0].id in G.nodes:
+                            root_node = G.nodes[grouped_nodes[0].id]['data']
+                            new_properties = merge_properties(dict(root_node.properties), dict(n.properties), {'begin', 'end', 'pos'})
+                            nx.set_node_attributes(G, {root_node.id: root_node.update_node_props(new_properties)}, 'data')
 
-                if node['type'] == 'conj':
-                    cc_nodes = [edge[1] for edge in G.out_edges(edge[0], data=True) if edge[2]['label'].named_entity == 'cc']
-                    if len(cc_nodes) > 0:
-                        cc_node = cc_nodes[0]
-                        node_type = self.get_group_enum(G.nodes[cc_node]['data'].named_entity)  # TODO: What if AND/OR, is this still AND?
-                        nodes_to_remove.append(cc_node)
+                    if node['type'] == 'conj':
+                        cc_nodes = [edge[1] for edge in G.out_edges(edge[0], data=True) if edge[2]['label'].named_entity == 'cc']
+                        if len(cc_nodes) > 0:
+                            cc_node = cc_nodes[0]
+                            node_type = self.get_group_enum(G.nodes[cc_node]['data'].named_entity)  # TODO: What if AND/OR, is this still AND?
+                            nodes_to_remove.append(cc_node)
+                        else:
+                            node_type = Grouping.AND
+                    elif node['type'] == 'existential':
+                        # If type is 'existential', we are unlikely wanting a group, and as properties have all been merged, we can just select 'root' node from group
+                        grouped_nodes = [G.nodes[grouped_nodes[0].id]['data']]
                     else:
-                        node_type = Grouping.AND
-                elif node['type'] == 'existential':
-                    # If type is 'existential', we are unlikely wanting a group, and as properties have all been merged, we can just select 'root' node from group
-                    grouped_nodes = [G.nodes[grouped_nodes[0].id]['data']]
-                else:
-                    # Get the Grouping type from the node, if we have a string, then find the type, if this is NONE, then just use the node_type if it is already a Grouping otherwise it is GROUPING
-                    node_type = self.get_group_enum(node_type) if not isinstance(node_type, Grouping) and self.get_group_enum(node_type) is not Grouping.NONE else node_type if isinstance(node_type, Grouping) else Grouping.GROUPING
+                        # Get the Grouping type from the node, if we have a string, then find the type, if this is NONE, then just use the node_type if it is already a Grouping otherwise it is GROUPING
+                        node_type = self.get_group_enum(node_type) if not isinstance(node_type, Grouping) and self.get_group_enum(node_type) is not Grouping.NONE else node_type if isinstance(node_type, Grouping) else Grouping.GROUPING
 
-                norm_confidence = 1.0
+                    norm_confidence = 1.0
 
-                # Create the SetOfSingletons
-                if len(grouped_nodes) > 1:
-                    new_node = SetOfSingletons(
-                        id=node['data'].id,
-                        type=node_type,
-                        entities=tuple(grouped_nodes),
-                        min=min(grouped_nodes, key=lambda x: x.min).min,
-                        max=max(grouped_nodes, key=lambda x: x.max).max,
-                        confidence=norm_confidence * math.prod([node.confidence for node in grouped_nodes]),
-                        root=any(map(is_kernel_in_props, grouped_nodes))
-                    )
-
-                    # Resolve to Singleton if type GROUPING
-                    new_node = GraphNER_withProperties(
-                        new_node,
-                        self.is_simplistic_rewriting,
-                        self.meu_db_row,
-                        self.services.getParmenides(),
-                        self.existentials
-                    ) if node_type == Grouping.GROUPING else new_node
-                else:
-                    new_node = grouped_nodes[0]
-
-                if new_node.id not in list(G.nodes):
-                    G.add_node(new_node.id, data=new_node)
-                else:
-                    nx.set_node_attributes(G, {node['data'].id: new_node}, 'data')
-                self.keepDataKey(G, node['data'].id)
-
-                # Re-check node type for new Singleton (meaning might have changed, i.e. compound_prt merge etc.)
-                if isinstance(new_node, Singleton):
-                    nx.set_node_attributes(G, {node['data'].id: self.nodeTypeResolution(new_node, self.associateNodeToBestMeuMatch(new_node), G)}, 'data')
-
-                # Check if this new Singleton has a BUT parent node
-                for parent_id in [n for n in [edge[0] for edge in G.in_edges(node['data'].id)] if (isinstance(G.nodes[n]['data'], Singleton) and G.nodes[n]['data'].named_entity == 'but') or (isinstance(G.nodes[n]['data'], SetOfSingletons) and G.nodes[n]['data'].entities[0].named_entity == 'but') and n not in nodes_to_remove]:
-                    nodes_to_remove.append(node['data'].id)
-
-                    # If BUT node has a negation, negate the newly created group
-                    negation_nodes = [
-                        e for e in G.out_edges(
-                            [n for n in [edge[0] for edge in G.in_edges(node['data'].id)]
-                             if (isinstance(G.nodes[n]['data'], Singleton) and G.nodes[n]['data'].named_entity == 'but') or (isinstance(G.nodes[n]['data'], SetOfSingletons) and G.nodes[n]['data'].entities[0].named_entity == 'but')][0], data=True
-                        ) if e[2]['label'].named_entity == 'neg'
-                    ]
-
-                    if len(negation_nodes) > 0:
+                    # Create the SetOfSingletons
+                    if len(grouped_nodes) > 1:
                         new_node = SetOfSingletons(
-                            id=new_node.id,
-                            type=Grouping.NOT,
+                            id=node['data'].id,
+                            type=node_type,
+                            entities=tuple(grouped_nodes),
+                            min=min(grouped_nodes, key=lambda x: x.min).min,
+                            max=max(grouped_nodes, key=lambda x: x.max).max,
+                            confidence=norm_confidence * math.prod([node.confidence for node in grouped_nodes]),
+                            root=any(map(is_kernel_in_props, grouped_nodes))# or is_kernel_in_props(node['data'])
+                        )
+
+                        # Resolve to Singleton if type GROUPING
+                        new_node = GraphNER_withProperties(
+                            new_node,
+                            self.is_simplistic_rewriting,
+                            self.meu_db_row,
+                            self.services.getParmenides(),
+                            self.existentials
+                        ) if node_type == Grouping.GROUPING else new_node
+                    else:
+                        new_node = grouped_nodes[0]
+
+                    if new_node.id not in list(G.nodes):
+                        G.add_node(new_node.id, data=new_node)
+                    else:
+                        nx.set_node_attributes(G, {node['data'].id: new_node}, 'data')
+                    self.keepDataKey(G, node['data'].id)
+
+                    # Re-check node type for new Singleton (meaning might have changed, i.e. compound_prt merge etc.)
+                    if isinstance(new_node, Singleton):
+                        nx.set_node_attributes(G, {node['data'].id: self.nodeTypeResolution(new_node, self.associateNodeToBestMeuMatch(new_node), G)}, 'data')
+
+                    # Check if this new Singleton has a BUT parent node
+                    for parent_id in [n for n in [edge[0] for edge in G.in_edges(node['data'].id)] if (isinstance(G.nodes[n]['data'], Singleton) and G.nodes[n]['data'].named_entity == 'but') or (isinstance(G.nodes[n]['data'], SetOfSingletons) and G.nodes[n]['data'].entities[0].named_entity == 'but') and n not in nodes_to_remove]:
+                        nodes_to_remove.append(node['data'].id)
+
+                        # If BUT node has a negation, negate the newly created group
+                        negation_nodes = [
+                            e for e in G.out_edges(
+                                [n for n in [edge[0] for edge in G.in_edges(node['data'].id)]
+                                 if (isinstance(G.nodes[n]['data'], Singleton) and G.nodes[n]['data'].named_entity == 'but') or (isinstance(G.nodes[n]['data'], SetOfSingletons) and G.nodes[n]['data'].entities[0].named_entity == 'but')][0], data=True
+                            ) if e[2]['label'].named_entity == 'neg'
+                        ]
+
+                        if len(negation_nodes) > 0:
+                            new_node = SetOfSingletons(
+                                id=new_node.id,
+                                type=Grouping.NOT,
+                                entities=tuple([new_node]),
+                                min=new_node.min,
+                                max=new_node.max,
+                                confidence=new_node.confidence,
+                                root=any(map(is_kernel_in_props, [new_node]))
+                            )
+                            nodes_to_remove.extend([m[1] for m in negation_nodes])
+
+                        nx.set_node_attributes(G, {parent_id: SetOfSingletons(
+                            id=parent_id,
+                            type=Grouping.AND,
                             entities=tuple([new_node]),
                             min=new_node.min,
                             max=new_node.max,
                             confidence=new_node.confidence,
-                            root=any(map(is_kernel_in_props, [new_node]))
-                        )
-                        nodes_to_remove.extend([m[1] for m in negation_nodes])
+                            root=new_node.root
+                        )}, 'data')
 
-                    nx.set_node_attributes(G, {parent_id: SetOfSingletons(
-                        id=parent_id,
-                        type=Grouping.AND,
-                        entities=tuple([new_node]),
-                        min=new_node.min,
-                        max=new_node.max,
-                        confidence=new_node.confidence,
-                        root=new_node.root
-                    )}, 'data')
-
-                # Check if newly grouped node has a negation, to ensure it's properly negated before perhaps being grouped further
-                self.check_for_negations(G, nodes_to_remove)
+                    # Check if newly grouped node has a negation, to ensure it's properly negated before perhaps being grouped further
+                    self.check_for_negations(G, nodes_to_remove)
 
         # Final check for negations incase there are nodes that weren't grouped that need to be negated
         self.check_for_negations(G, nodes_to_remove)
@@ -595,7 +640,7 @@ class CreateInternalGraph:
 
         # Draw nodes and node labels
         nx.draw_networkx_nodes(G, pos, node_size=node_size, node_color="skyblue")
-        node_labels = {node: f"{node}, {Singleton.get_node_string(data['data'])}" for node, data in G.nodes(data=True)}
+        node_labels = {node: f"[{data['data'].type}] {node}, {Singleton.get_node_string(data['data'])}" for node, data in G.nodes(data=True)}
         nx.draw_networkx_labels(G, pos, labels=node_labels, font_size=10)
 
         # Draw edges with different curvatures for parallel edges

@@ -2,7 +2,7 @@ import json
 import numpy as np
 from sentence_transformers import SentenceTransformer, util
 
-with open("../edge_mappings.json", "r") as f:
+with open("cn_edge_mappings.json", "r") as f:
     mappings = json.load(f)
 
 class HuggingFace:

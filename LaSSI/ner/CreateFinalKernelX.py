@@ -594,6 +594,32 @@ class CreateFinalKernelX:
                         kernel = kernel.update_kernel(properties_key[0], "target")
                         break
 
+        # TODO: Temporary patch, investigate how applicable this is to other scenarios
+        # be(ENTITY1, ?)[SENTENCE:verb(?, ENTITY2)[]]
+        if (
+            kernel.kernel.target is not None and
+            kernel.kernel.target.type == 'existential' and
+            kernel.kernel.edgeLabel.named_entity == 'be' and
+            'SENTENCE' in dict(kernel.properties)
+        ):
+            for key in dict(kernel.properties):
+                if key == 'SENTENCE':
+                    sentences = dict(kernel.properties)[key]
+                    for sentence in sentences:
+                        if sentence.kernel.source.type == 'existential':
+                            for sentence_key in dict(sentence.properties):
+                                sentence_properties = dict(sentence.properties)[sentence_key]
+                                for prop_node in sentence_properties:
+                                    if prop_node.id == kernel.kernel.source.id:
+                                        kernel = sentence.update_kernel(prop_node, "source")
+
+        # if kernel.kernel.source in [node[1][0] for node in dict(list(dict(kernel.properties)['SENTENCE'])[0].properties).items()]:
+        #     for key in dict(kernel.properties):
+        #         properties_key = dict(kernel.properties)[key]
+        #         for node in properties_key:
+        #     matched_key = [node[1][0] for node in dict(list(dict(kernel.properties)['SENTENCE'])[0].properties).items()]
+
+
         properties_to_keep = dict(kernel.properties)
         new_target = kernel.kernel.target
 

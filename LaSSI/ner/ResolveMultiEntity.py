@@ -21,15 +21,15 @@
 # # from gsmtosimilarity.levenshtein import lev
 #
 #
-# def build_loc_result(text, type, start_char, end_char, monad, conf, id, src):
+# def build_loc_result(text, type, start_char, end_char, monad, conf, id, qa):
 #     if isinstance(id, str):
-#         yield MeuDBEntry(text, type, start_char, end_char, monad, conf, id, src)
+#         yield MeuDBEntry(text, type, start_char, end_char, monad, conf, id, qa)
 #     from collections.abc import Iterable
 #     if isinstance(id, Iterable):
 #         for x in id:
-#             yield MeuDBEntry(text, type, start_char, end_char, monad, conf, x, src)
+#             yield MeuDBEntry(text, type, start_char, end_char, monad, conf, x, qa)
 #     else:
-#         yield MeuDBEntry(text, type, start_char, end_char, monad, conf, str(id), src)
+#         yield MeuDBEntry(text, type, start_char, end_char, monad, conf, str(id), qa)
 #
 # import asyncio
 #
@@ -41,7 +41,7 @@
 #
 # class ResolveMultiNamedEntity:
 #
-#     def __init__(self, threshold, forinsert, src, parmo=None, trustworthiness_source=1.0):
+#     def __init__(self, threshold, forinsert, qa, parmo=None, trustworthiness_source=1.0):
 #         self.trustworthiness_source = trustworthiness_source
 #         self.parmo = parmo
 #         self.threshold = threshold
@@ -49,14 +49,14 @@
 #         self.result = []
 #         self.s = None
 #         self.fa = None
-#         self.src = src
+#         self.qa = qa
 #
 #     def _test(self, current, rest, k, v, start, end, type: str | List[str]):
 #         if len(rest) == 0:
 #             if k >= self.forinsert:
 #                 if isinstance(type, list):
 #                     type = self.parmo.most_specific_type(type)
-#                 yield from build_loc_result(current, type, start, end, v, k * self.trustworthiness_source, v, self.src)
+#                 yield from build_loc_result(current, type, start, end, v, k * self.trustworthiness_source, v, self.qa)
 #         else:
 #             next = current + " " + rest[0][0]
 #             val = lev(next.lower(), v.lower())
@@ -65,7 +65,7 @@
 #                     if isinstance(type, list):
 #                         type = self.parmo.most_specific_type(type)
 #                     yield from build_loc_result(current, type, start, end, v, k * self.trustworthiness_source, v,
-#                                               self.src)
+#                                               self.qa)
 #             else:
 #                 yield from self._test(next, rest[1:], val, v, start, rest[0][2], type)
 #

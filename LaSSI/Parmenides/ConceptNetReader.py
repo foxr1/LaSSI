@@ -54,31 +54,32 @@ class ConceptNet:
 
 
 def getClusters(cnls:list[ConceptNet], db_name):
+    from LaSSI.Parmenides.conceptnet.transitive_closure import floyd_warshall, build_clusters
     """
     process_conceptnet_csv
     """
     count = 0
     S = {"wiki", "resource", "wn31", "2012", "umbel"}
-    if not os.path.exists("/data/adj_list.json"):
-        db = defaultdict(set)
-        for cn in cnls:
-            for r in cn:
-                if r.rel != "ExternalURL" or (r.lang != "en"): continue  ## gives a count of almost 420,000
-                if r.surfaceEnd in S:
-                    print(r.surfaceEnd)
-                    continue
-                count += 1
-                if count % 10000 == 0:
-                    print(count)
-                db[r.surfaceStart].add(r.surfaceEnd)
-                db[r.surfaceEnd].add(r.surfaceStart)
-            print("done")
-        from LaSSI.Parmenides.conceptnet.transitive_closure import floyd_warshall, build_clusters
-        db = {k:sorted(list(v)) for k,v in db.items()}
-        with open("/data/adj_list.json", "w", encoding="utf-8") as f:
-            json.dump(db, f, ensure_ascii=False, indent=4)
-    else:
-        db = json.load(open("/data/adj_list.json"))
+    # if not os.path.exists("/home/parallels/PycharmProjects/LaSSI/cache/adj_list.json"): # TODO: Make relative.
+    db = defaultdict(set)
+    for cn in cnls:
+        for r in cn:
+            if r.rel != "ExternalURL" or (r.lang != "en"): continue  ## gives a count of almost 420,000
+            if r.surfaceEnd in S:
+                print(r.surfaceEnd)
+                continue
+            count += 1
+            if count % 10000 == 0:
+                print(count)
+            db[r.surfaceStart].add(r.surfaceEnd)
+            db[r.surfaceEnd].add(r.surfaceStart)
+        print("done")
+
+    db = {k:sorted(list(v)) for k,v in db.items()}
+    with open("/home/parallels/PycharmProjects/LaSSI/cache/adj_list.json", "w", encoding="utf-8") as f: # TODO: Make relative.
+        json.dump(db, f, ensure_ascii=False, indent=4)
+    # else:
+    #     db = json.load(open("/home/parallels/PycharmProjects/LaSSI/cache/adj_list.json")) # TODO: Make relative.
 
     print("floyd_warshall")
     floyd_warshall(db)
@@ -91,6 +92,6 @@ def getClusters(cnls:list[ConceptNet], db_name):
 
 
 if __name__ == "__main__":
-    with ConceptNet("/home/gyankos/ontology_integration/data/conceptnet-assertions-5.7.0.csv.gz", ["uri", "relation_id", "start_id", "end_id", "data"]) as conceptnet1:
-        with ConceptNet("/home/gyankos/ontology_integration/data/edges.csv", ["id", "uri", "relation_id", "start_id", "end_id", "weight", "data"]) as conceptnet2:
-            getClusters([conceptnet1, conceptnet2], "/home/gyankos/ontology_integration/data/for_transitive.sqlite")
+    with ConceptNet("/home/parallels/PycharmProjects/LaSSI/qa/data/conceptnet_old.csv.gz", ["uri", "relation_id", "start_id", "end_id", "data"]) as conceptnet1:
+        with ConceptNet("/home/parallels/PycharmProjects/LaSSI/qa/supporting_files/edges.csv", ["id", "uri", "relation_id", "start_id", "end_id", "weight", "data"]) as conceptnet2:
+            getClusters([conceptnet1, conceptnet2], "/home/parallels/PycharmProjects/LaSSI/cache/for_transitive.sqlite")

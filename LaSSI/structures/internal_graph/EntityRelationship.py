@@ -376,6 +376,18 @@ class Singleton(NodeEntryPoint):  # Graph node representing just one entity
             properties=self.properties,
         )
 
+    def update_type(self, new_type):
+        return Singleton(
+            id=self.id,
+            named_entity=self.named_entity,
+            min=self.min,
+            max=self.max,
+            type=new_type,
+            confidence=self.confidence,
+            kernel=self.kernel,
+            properties=self.properties,
+        )
+
     def update_kernel(self, new_node, kernel_part):
         return Singleton(
             id=self.id,
@@ -458,7 +470,7 @@ class Singleton(NodeEntryPoint):  # Graph node representing just one entity
                 else:
                     if isinstance(properties_key_, Singleton):
                         properties_list[key].append(self.get_node_string(properties_key_))
-                    else:
+                    elif properties_key_ is not None:
                         for node in properties_key_:
                             if key == 'SENTENCE':  # It is a node with kernel (most likely)
                                 properties_list[key].append(self.to_string(node))

@@ -46,7 +46,7 @@ class Benchmark:
             print("No data to export.")
             return
 
-        filename = f"{filename}_{len(self.data)}.csv"
+        filename = f"results/sentence_length/{filename}_{len(self.data)}.csv"
 
         try:
             with open(filename, 'w', newline='') as csvfile:

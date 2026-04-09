@@ -1,0 +1,53 @@
+{
+  "preprocessRules": [
+    {
+      "edgeLabel": [
+        "mark",
+        "punct",
+        "amod",
+        "advmod",
+        "case"
+      ],
+      "actions": {
+        "remove": "edge"
+      },
+      "processType": {
+        "add": {
+          "edgeLabel": {
+            "target": "name"
+          }
+        }
+      },
+      "destination": {
+        "source": "properties"
+      },
+      "__comment": "Add target node from edge to properties of source node named as edge label"
+    },
+    {
+      "edgeLabel": [
+        "inherit_edge"
+      ],
+      "actions": {
+        "remove": "target"
+      },
+      "processType": {
+        "merge": "node"
+      },
+      "destination": {
+        "source": "properties"
+      },
+      "__comment": "Merge properties from target of edge into source node"
+    },
+    {
+      "edgeLabel": [
+        "cop"
+      ],
+      "actions": {
+        "remove": "edge"
+      },
+      "processType": {
+        "add": "edge"
+      }
+    }
+  ]
+}
