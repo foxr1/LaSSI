@@ -46,7 +46,7 @@ class ModelSearch:
         for rrr in rhsSet:
             rhs = rrr.bogusCopula() if isRightDrop else rrr
             from LaSSI.Parmenides.TBox.ExpandConstituents import test_pairwise_sentence_similarity
-            if (not isinstance(rhs, FNot)) and rhs.rel == "be" and rhs.arg.name == "traffic":
+            if (not isinstance(rhs, FNot)) and rhs.rel == "be" and isinstance(rhs.arg, FVariable) and rhs.arg.name == "traffic":
                 test_pairwise_sentence_similarity({}, lhs.bogusCopula(), rhs, shift=False)
             val = test_pairwise_sentence_similarity(self.pairwise_similarity_cache, lhs, rhs, shift=False)
             if (val == CasusHappening.EXCLUSIVES):

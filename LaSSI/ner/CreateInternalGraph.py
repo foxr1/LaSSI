@@ -569,7 +569,7 @@ class CreateInternalGraph:
 
     def check_for_negations(self, G, nodes_to_remove):
         for e in [n for n in [edge for edge in G.edges(data=True)] if
-                  G.nodes[n[1]]['data'].type == 'NEG' and n not in nodes_to_remove]:
+                  G.nodes[n[1]]['data'].type == 'NEG' and n[1] not in nodes_to_remove]:
             node = G.nodes[e[0]]['data']
 
             new_node = SetOfSingletons(
