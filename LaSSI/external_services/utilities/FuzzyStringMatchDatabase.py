@@ -19,12 +19,12 @@ from LaSSI.files.ReadFileContent import ReadFileContent
 class FuzzyStringMatchDatabase:
     _instance = None
 
-    def create(self, tablename, file, columns='(id integer NOT NULL, idx text, t text)'):
+    def create(self, tablename, file, columns='(id integer NOT NULL, idx text, t text)', force=False):
         exists = False
         with self.connection.cursor() as cursor:
             cursor.execute("SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = %s)", (tablename,))
             exists = cursor.fetchone()[0]
-        if not exists:
+        if not exists or force:
             print(f"Creating table {tablename}")
             with self.connection.cursor() as cursor:
                 cursor.execute(f"DROP TABLE IF EXISTS {tablename}")
@@ -44,7 +44,7 @@ class FuzzyStringMatchDatabase:
         else:
             print(f"Table {tablename} already loaded!")
 
-    def init(self, database_name, user="giacomo", password="omocaig", host="localhost", port="5432"):
+    def init(self, database_name, user="lassi", password="drowssap", host="localhost", port="5432"):
         self.db_params = {
             'database': database_name,
             'user': user,

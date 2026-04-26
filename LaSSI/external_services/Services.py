@@ -24,45 +24,62 @@ class Services:
             return Services._Services__instance
         raise RuntimeError("ERROR: cannot found instantiated field")
 
-    def setParmenides(self, parmenides):
-        self.parmenides = parmenides
-        from LaSSI.external_services.ParmenidesFuzzyMatch import ParmenidesFuzzyMatch
-        self.fuzzyParmenides = ParmenidesFuzzyMatch(self.postgres, self.stanza.nlp_token, self.parmenides)
+    def setHOnK(self, honk):
+        self.honk = honk
+        from LaSSI.external_services.HOnKFuzzyMatch import HOnKFuzzyMatch
+        self.fuzzyHOnK = HOnKFuzzyMatch(self.postgres, self.stanza.nlp_token, self.honk)
 
-    def getParmenides(self):
-        if self.parmenides is None:
+    def getHOnK(self):
+        if self.honk is None:
             # This exists for doing multiprocessing
-            from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
+            from LaSSI.HOnK.HOnK import HOnKSingleton
             fuzzyDBs = load_db_configuration("connection.yaml")
 
             (FuzzyStringMatchDatabase
              .instance()
              .init(fuzzyDBs.db, fuzzyDBs.uname, fuzzyDBs.pw, fuzzyDBs.host, fuzzyDBs.port))
 
-            ParmenidesSingleton.instance()
-            ## TODO: move parmenides.ttl to the resources
-            ParmenidesSingleton.init("catabolites", fuzzyDBs.uname, fuzzyDBs.pw,
-                                     fuzzyDBs.host, fuzzyDBs.port, False, "parmenides.ttl")
-            self.setParmenides(ParmenidesSingleton.get())
-            return ParmenidesSingleton.get()
-        return self.parmenides
+            HOnKSingleton.instance()
+            HOnKSingleton.init("cache", fuzzyDBs.uname, fuzzyDBs.pw,
+                                     fuzzyDBs.host, fuzzyDBs.port, False, "LaSSI/HOnK.ttl")
+            self.setHOnK(HOnKSingleton.get())
+            return HOnKSingleton.get()
+        return self.honk
 
-    def getFuzzyParmenides(self):
-        if self.fuzzyParmenides is None:
-            # This exists for doing multiprocessing
-            from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
+    def getFuzzyHOnK(self):
+        if self.fuzzyHOnK is None:
+            # This path is hit by spawned worker processes which cannot open the
+            # RocksDB store (the main process holds the exclusive write lock).
+            # The main process already built the "honk" postgres table
+            # before spawning workers, so workers only need a live DB connection
+            # and a parmo stub for most_specific_type (a pure string function
+            # that never touches the RDF store).
             fuzzyDBs = load_db_configuration("connection.yaml")
+            db = FuzzyStringMatchDatabase.instance()
+            db.init(fuzzyDBs.db, fuzzyDBs.uname, fuzzyDBs.pw, fuzzyDBs.host, fuzzyDBs.port)
 
-            (FuzzyStringMatchDatabase
-             .instance()
-             .init(fuzzyDBs.db, fuzzyDBs.uname, fuzzyDBs.pw, fuzzyDBs.host, fuzzyDBs.port))
+            with db.connection.cursor() as cur:
+                cur.execute(
+                    "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = %s)",
+                    ("honk",),
+                )
+                table_exists = cur.fetchone()[0]
 
-            with tempfile.NamedTemporaryFile() as parmenides_tab:
-                with open(parmenides_tab.name, 'w') as f:
-                    self.getParmenides().dumpTypedObjectsToTAB(f)
-                FuzzyStringMatchDatabase.instance().create("parmenides", parmenides_tab.name,
-                                                           '(id integer NOT NULL, idx text, t text, type text)')  # Typed
-        return self.fuzzyParmenides
+            if table_exists:
+                # Table is ready — skip opening the RocksDB store entirely.
+                # parmo=None is safe: ResolveMultiEntity guards every call to
+                # parmo.most_specific_type() with `and parmo`.
+                from LaSSI.external_services.HOnKFuzzyMatch import HOnKFuzzyMatch
+                self.fuzzyHOnK = HOnKFuzzyMatch(db, self.stanza.nlp_token, None)
+            else:
+                # Table not yet built (should not happen in normal flow, but
+                # fall back to the full initialisation path just in case).
+                with tempfile.NamedTemporaryFile() as honk_tab:
+                    with open(honk_tab.name, 'w') as f:
+                        self.getHOnK().dumpTypedObjectsToTAB(f)
+                    db.create("honk", honk_tab.name,
+                              '(id integer NOT NULL, idx text, t text, type text)')
+        return self.fuzzyHOnK
 
     def getGeoNames(self):
         return self.geonames
@@ -124,21 +141,21 @@ class Services:
             from LaSSI.external_services.utilities.FuzzyStringMatchDatabase import FuzzyStringMatchDatabase
             from LaSSI.external_services.ConceptNet5 import ConceptNetService
             from StanfordNLPExtractor.OldWrapper import OldWrapper
-            from LaSSI.external_services.ParmenidesFuzzyMatch import ParmenidesFuzzyMatch
+            from LaSSI.external_services.HOnKFuzzyMatch import HOnKFuzzyMatch
             self.logger = logger
 
-            self.logger("init parmenides")
-            self.parmenides = None
+            self.logger("init honk")
+            self.honk = None
             self.logger("retrieving postgres")
             self.postgres = FuzzyStringMatchDatabase.instance()
             self.logger("init stanza")
             self.stanza = StanzaService()
-            self.logger("init geonames wrapper")
-            self.geonames = GeoNamesService(self.postgres, self.stanza.nlp_token)
-            self.logger("init conceptnet wrapper")
-            self.conceptnet = ConceptNetService(self.postgres, self.stanza.nlp_token)
-            self.logger("init fuzzyParmenides wrapper")
-            self.fuzzyParmenides = None
+            # self.logger("init geonames wrapper")
+            # self.geonames = GeoNamesService(self.postgres, self.stanza.nlp_token)
+            # self.logger("init conceptnet wrapper")
+            # self.conceptnet = ConceptNetService(self.postgres, self.stanza.nlp_token)
+            # self.logger("init fuzzyHOnK wrapper")
+            self.fuzzyHOnK = None
             self.logger("init old java service")
             self.old_java_Service = None
             self.logger("init WordNet Lemmatizer")

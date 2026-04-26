@@ -12,7 +12,13 @@ def logger_func(x):
 
 def process_sentence_worker(args):
     from LaSSI.external_services.Services import Services
-    idx, sentence, with_time, recall_threshold, precision_threshold = args
+    
+    # Check if we have 5 or 6 arguments
+    if len(args) == 6:
+        idx, sentence, with_time, recall_threshold, precision_threshold, disable_fuzzy_honk = args
+    else:
+        idx, sentence, with_time, recall_threshold, precision_threshold = args
+        disable_fuzzy_honk = False
 
     global services, stanza_service
     if services is None:
@@ -24,14 +30,15 @@ def process_sentence_worker(args):
 
     multi_entity_unit = []
 
-    multi_entity_unit.extend(services.getFuzzyParmenides().resolve_u(
-        recall_threshold, precision_threshold, sentence))
+    if not disable_fuzzy_honk:
+        multi_entity_unit.extend(services.getFuzzyHOnK().resolve_u(
+            recall_threshold, precision_threshold, sentence))
 
-    multi_entity_unit.extend(services.getGeoNames().resolve_u(
-        recall_threshold, precision_threshold, sentence, "GPE"))
-
-    multi_entity_unit.extend(services.getConcepts().resolve_u(
-        recall_threshold, precision_threshold, sentence, "ENTITY"))
+    # multi_entity_unit.extend(services.getGeoNames().resolve_u(
+    #     recall_threshold, precision_threshold, sentence, "GPE"))
+    #
+    # multi_entity_unit.extend(services.getConcepts().resolve_u(
+    #     recall_threshold, precision_threshold, sentence, "ENTITY"))
 
     for time_info in with_time:
         time_entry = MeuDBEntry.from_dict_with_src(time_info, "SUTime")

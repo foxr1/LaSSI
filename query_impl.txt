@@ -43,14 +43,14 @@ nested match   FBinaryPredicate ( "have", var(src), var(dst) , var(score), var(p
 // query #4: If x has a property y and y is equivalent to z, then x has also z (also subsumes the original query 11)
 nested match   FBinaryPredicate ( "have", var(src), var(dst) , var(score), var(props) )
        replace var(x) with  jsonpath "$0:$.dst.name"
-       extend-with "getOutgoingNodes" with variable : "x"   result : "z"   rel : "eqTo"
+       extend-with "getOutgoingNodes" with variable : "x"   result : "z"   rel : "eq"
        as deep rewrite jsonpath "$0:$.dst.name" to var(z)
        ;
 
 // query #5: If x exists with y and y is equivalent to z, then x exists with z
 nested match   FUnaryPredicate ( "be", var(src)  , var(score), var(props)  )
        replace var(x) with  jsonpath "$0:$.arg.name"
-       extend-with "getOutgoingNodes" with variable : "x"   result : "z"   rel : "eqTo"
+       extend-with "getOutgoingNodes" with variable : "x"   result : "z"   rel : "eq"
        where call "nonEmptyMatch" with variable : "x"
        as deep rewrite jsonpath "$0:$.dst.name" to var(z)
        ;
@@ -100,14 +100,20 @@ nested match        FBinaryPredicate ( "have" , var(src), ( FVariable (var(z), v
 
 // query 12: replace equivalent verb names (binary ones)
 nested match   FBinaryPredicate ( var(rel), var(a), var(b) , var(c), var(d) )
-       extend-with "getOutgoingNodes" with variable : "rel"   result : "z"   rel : "eqTo"
+       extend-with "getOutgoingNodes" with variable : "rel"   result : "z"   rel : "eq"
        as deep rewrite jsonpath "$0:$.rel" to var(z)
        ;
 
 // query 13: replace equivalent verb names (unary ones)
 nested match   FUnaryPredicate ( var(rel),var(a), var(b) , var(c) )
-       extend-with "getOutgoingNodes" with variable : "rel"   result : "z"   rel : "eqTo"
+       extend-with "getOutgoingNodes" with variable : "rel"   result : "z"   rel : "eq"
        as deep rewrite jsonpath "$0:$.rel" to var(z)
+       ;
+
+// query 13b: if unary predicate rel is opposite to z, produce NOT(z(...))
+nested match   FUnaryPredicate ( var(rel), var(arg), var(score), var(props) )
+       extend-with "getOutgoingNodes" with variable : "rel"   result : "z"   rel : "neqTo"
+       as FNot( FUnaryPredicate ( var(z), var(arg), var(score), var(props) ) )
        ;
 
 // query 14: If the occurrence of an entity enables the possibility of deriving a specific action, then the latter is expanded as a new binary predicate
@@ -212,6 +218,6 @@ nested match        FBinaryPredicate ( "have", var(src), ( FVariable (var(y), va
 ;
 
 nested match        FBinaryPredicate ( "have", ( FVariable (var(y), var(a) ,var(b),var(c),var(d),var(e)) ) ,var(dst),  var(score), var(props) )
-       extend-with "getOutgoingNodes" with variable : "b"   result : "z"   rel : "eqTo"
+       extend-with "getOutgoingNodes" with variable : "b"   result : "z"   rel : "eq"
        as deep rewrite jsonpath "$0:$.src.specification" to var(z)
 ;

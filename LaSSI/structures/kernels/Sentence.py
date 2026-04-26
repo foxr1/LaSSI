@@ -355,7 +355,7 @@ def analyse_kernel_node(kernel, kernel_nodes, kernel_node_type):
                 dict(kernel_node.properties)['det'] == 'det') or
                 kernel_node.type == 'JJ' or
                 kernel_node.type == 'JJS'
-        ) and len({kernel_node.named_entity.lower()}.intersection(Services.getInstance().getParmenides().getPronouns())) != 0):
+        ) and len(Services.getInstance().getHOnK().getPronouns().intersection({kernel_node.named_entity.lower()})) != 0):
             kernel_node = Singleton(
                 id=kernel_node.id,
                 named_entity=kernel_node.named_entity,
@@ -545,22 +545,37 @@ def is_node_in_kernel_nodes(check_node, kernel_nodes):
 
 def assign_kernel(edges, kernel, negations, nodes, root_sentence_id, found_preposition_labels):
     chosen_edge = None
-    transitive_verbs = Services.getInstance().getParmenides().getTransitiveVerbs()
+    transitive_verbs = Services.getInstance().getHOnK().getTransitiveVerbs()
 
-    # Find chosen edge, edge label IS a verb, source is = root ID,
-    #  root ID in prepositions OR edge label NOT IN prepositions
-    found_preposition_values = set(found_preposition_labels.values())
+    # Priority 1: Find an edge that is explicitly marked as 'kernel' or 'root'
     for edge in edges:
+        edge_label_props = edge.edgeLabel.get_props()
+        source_props = edge.source.get_props()
         if (
-            edge.edgeLabel.type == "verb" and
+            (edge.edgeLabel.type == "verb" or edge.source.type == "verb") and
             (
-                    root_sentence_id in found_preposition_labels or
-                    edge.edgeLabel.named_entity not in found_preposition_values
+                'kernel' in edge_label_props or 'root' in edge_label_props or
+                'kernel' in source_props or 'root' in source_props
             ) and
             edge.source.id == root_sentence_id
         ):
             chosen_edge = edge
             break
+
+    # Priority 2: Standard verb-based search if no priority edge found
+    found_preposition_values = set(found_preposition_labels.values())
+    if chosen_edge is None:
+        for edge in edges:
+            if (
+                edge.edgeLabel.type == "verb" and
+                (
+                        root_sentence_id in found_preposition_labels or
+                        edge.edgeLabel.named_entity not in found_preposition_values
+                ) and
+                edge.source.id == root_sentence_id
+            ):
+                chosen_edge = edge
+                break
 
     for edge in edges:
         # If we have found a chosen edge OR we haven't but the source or edge label are verbs AND
@@ -610,7 +625,7 @@ def assign_kernel(edges, kernel, negations, nodes, root_sentence_id, found_prepo
 
             # If NOT a transitive verb, remove target as target reflects direct object
             lemmas = lemmatize_sentence(edge_label.named_entity)
-            if len({lemmatize_verb(x) for x in lemmas}.intersection(transitive_verbs)) == 0:
+            if len(transitive_verbs.intersection({lemmatize_verb(x) for x in lemmas})) == 0:
                 kernel = Relationship(
                     source=edge_source,
                     target=None,
@@ -736,16 +751,20 @@ def case_in_props(node_props, return_props=False):
 def get_prepositions(node):
     found_prepositions = []
     node_props = dict(node.properties)
+    _smart_apos = chr(0x2019)
     for key in node_props:
-        if key == "mark" or key == "adv" or key == "IN" or key == "TO":
-            found_prepositions.append(node_props[key].lower().replace('’', "'"))
+        if key in {"mark", "adv", "IN", "TO", "case"}:
+            value = node_props[key]
+            if isinstance(value, str):
+                found_prepositions.append(value.lower().replace(_smart_apos, "’"))
         try:
             case_position = float(key)
-            found_prepositions.append(node_props[key].lower().replace('’', "'"))
-        except ValueError:
+            found_prepositions.append(node_props[key].lower().replace(_smart_apos, "’"))
+        except (ValueError, AttributeError):
             continue
 
-    if node.type in {"IN", "TO"}: found_prepositions.append(node.named_entity)
+    if node.type in {"IN", "TO", "RB"}:
+        found_prepositions.append(node.named_entity.lower())
     return set(found_prepositions)
 
 

@@ -91,9 +91,11 @@ def update_property(prop, key, value):
     if key in d:
         assert not isinstance(d[key], list)
         if isinstance(d[key], tuple):
-            d[key] = d[key] + (value,)
+            if value not in d[key]:
+                d[key] = d[key] + (value,)
         else:
-            d[key] = (d[key], value)
+            if d[key] != value:
+                d[key] = (d[key], value)
     else:
         d[key] = (value,)
     return frozenset(d.items())

@@ -7,9 +7,9 @@ from typing import List
 import pandas
 from functools import reduce
 
-from LaSSI.Parmenides.TBox.ExpandConstituents import ExpandConstituents, isImplication, transformCaseWhenOneArgIsNegated
+from LaSSI.HOnK.TBox.ExpandConstituents import ExpandConstituents, isImplication, transformCaseWhenOneArgIsNegated
 from LaSSI.structures.extended_fol.Formulae import Formula, FNot
-from LaSSI.Parmenides.formula_utils import latex_rendering, latex_rendering_to_raster_file, getAtoms
+from LaSSI.HOnK.formula_utils import latex_rendering, latex_rendering_to_raster_file, getAtoms
 from FunctionalMatch.utils import CountingDictionary
 
 from LaSSI.structures.extended_fol.TBoxReasoning import non_redundant_constituents
@@ -65,7 +65,7 @@ def png_node(obj, key, dir, nodes_map,fillColor=None):
     return nodes_map
 
 def with_variables_from(f, l, minimal_constituents: CountingDictionary, fn, selection=False):
-    from LaSSI.Parmenides.formula_utils import semantic
+    from LaSSI.HOnK.formula_utils import semantic
     pdf = reduce(lambda x,y: x.merge(y, how="cross"),[pandas.DataFrame({str(x): [1,0]}) for x in l])
     L = []
     for x in pdf.to_dict(orient='records'):
@@ -78,7 +78,7 @@ def with_variables_from(f, l, minimal_constituents: CountingDictionary, fn, sele
     return pandas.DataFrame(L)
 
 def with_variables_from(f, l, minimal_constituents: CountingDictionary, fn, selection=False):
-    from LaSSI.Parmenides.formula_utils import semantic
+    from LaSSI.HOnK.formula_utils import semantic
     pdf = reduce(lambda x,y: x.merge(y, how="cross"),[pandas.DataFrame({str(x): [1,0]}) for x in l])
     L = []
     for x in pdf.to_dict(orient='records'):
@@ -114,7 +114,7 @@ class TabularCWASemantics:
         #getSentenceAtomsFromId
         for sentence_id in range(len(self.sentence_list)):
             # collect_sentence_constituents
-            from LaSSI.Parmenides.formula_utils import getAtomsWithNegations
+            from LaSSI.HOnK.formula_utils import getAtomsWithNegations
             # getSentenceAtomsFromId, for arg
             for x in getAtomsWithNegations(self.sentence_list[sentence_id]):
                 current_x = self.minimal_constituents.add(x)
@@ -162,7 +162,7 @@ class TabularCWASemantics:
         return self.get_straightforward_id_similarity(self.sentence_to_id[i], self.sentence_to_id[j])
 
     def determine(self, i, j):
-        from LaSSI.Parmenides.Parmenides import CasusHappening
+        from LaSSI.HOnK.HOnK import CasusHappening
         from LaSSI.structures.extended_fol.Enums import PairwiseCases
         x = self.minimal_constituents.fromId(i)
         y = self.minimal_constituents.fromId(j)
@@ -340,7 +340,7 @@ class TabularCWASemantics:
     def buildReport(self, file, mathJax = True):
         from bs4 import Tag, BeautifulSoup
         import pydot
-        from LaSSI.Parmenides.formula_utils import latex_formula_rendering
+        from LaSSI.HOnK.formula_utils import latex_formula_rendering
 
         from pathlib import Path
         Path(file+"_dir").mkdir(parents=True, exist_ok=True)

@@ -131,7 +131,7 @@ class RewriteKernels:
         self.meu_db_row = meu_db_row
         self.obj = obj
         from LaSSI.external_services.Services import Services
-        self.p = Services.getInstance().getParmenides()
+        self.p = Services.getInstance().getHOnK()
         self.e = Services.getInstance().getExistentials()
         self.dmin = None
         self.dmax = None
@@ -266,21 +266,18 @@ class RewriteKernels:
 
     def make_unary(self, rel, src, score, prop):
         if rel == "be":  # TODO: generalise
-            if src is not None and src.cop is not None and (prune_from_cop(src).type != "JJ"):  # TODO: generalise
-                return self.make_binary("have", prune_from_cop(src), src.cop, score, prop)
-            if src is not None and (
-                    src.type == "DATE" or src.type == "GPE" or src.type == "LOC" or src.type == "SPACE") and src.cop is not None:  # TODO: generalise
-                dstType = type_conversion.get(src.type, src.type)
-                if dstType not in prop:
-                    prop[dstType] = []
-                prop[dstType].append(src)
-                return self.make_unary(rel, src.cop, score, prop)
+            if src is not None and src.cop is not None:
+                # Copular 'be': produce binary be(subject, predicate-complement)
+                # so that modifiers on the complement (e.g. advmod:fully) are
+                # visible as properties of the second argument rather than being
+                # buried inside the subject's cop slot.
+                return self.make_binary("be", prune_from_cop(src), src.cop, score, prop)
         if "non_verb" in prop:
             prop.pop("non_verb")
         s = set(prop.keys())
         for x in s:
             if isinstance(prop[x], list):
-                if len(prop[x]) == 0:
+                if len(prop[x]) == 1:
                     prop[x] = prop[x][0]
                 else:
                     prop[x] = tuple(prop[x])
@@ -314,7 +311,7 @@ class RewriteKernels:
         s = set(prop.keys())
         for x in s:
             if isinstance(prop[x], list):
-                if len(prop[x]) == 0:
+                if len(prop[x]) == 1:
                     prop[x] = prop[x][0]
                 else:
                     prop[x] = tuple(prop[x])
@@ -339,6 +336,26 @@ class RewriteKernels:
                 if negated:
                     return make_not(self.make_prop(src, rel, False, score, properties, dst))
                 else:
+                    # Sentence 4 fix: when the source is a Singleton whose kernel's
+                    # edgeLabel carries a 'case' preposition (e.g. "due to"), it is a
+                    # causal/prepositional-phrase modifier rather than the agent of the
+                    # main verb.  Produce  rel(existential, dst)[(CAUSE: case_phrase)]
+                    # so that the actual patient (dst) becomes the direct argument.
+                    if (hasattr(src, 'kernel') and src.kernel is not None and
+                            src.kernel.edgeLabel is not None and
+                            hasattr(src.kernel.edgeLabel, 'properties') and
+                            'case' in dict(src.kernel.edgeLabel.properties)):
+                        cause_formula = self.make_arg(src)
+                        existential_id = self.e.increaseAndGetExistential()
+                        agent = FVariable(
+                            name=f"?{existential_id}", type="existential",
+                            specification=None, cop=None, id=None
+                        )
+                        cause_props = dict(properties)
+                        cause_props['CAUSE'] = [cause_formula]
+                        return self.make_binary(rel, agent, self.make_arg(dst), score,
+                                                cause_props)
+
                     result = None
                     p = dict()
                     foundSingleton = Grouping.NONE
@@ -406,7 +423,7 @@ class RewriteKernels:
                     prop = deepcopy(prop)
                     if "SENTENCE" in prop:
                         del prop["SENTENCE"]
-                    if src.name.lower() in bogus_src and rel.lower() == "be":
+                    if hasattr(src, 'name') and src.name.lower() in bogus_src and rel.lower() == "be":
                         if src.cop is None:
                             result = self.make_unary(rel, dst, score, prop)
                         else:
@@ -530,6 +547,9 @@ class RewriteKernels:
         for k, v in prop.items():
             if k in discard_properties or len(k) == 0 or isinstance(v, str):
                 continue
+            if not isinstance(v, (list, tuple, set, frozenset)):
+                d[k] = (v,)
+                continue
             if len(v)==1 or k in Grouping.__members__.keys() or k == "SPECIFICATION":
                 d[k] = tuple(set(v))
             else:
@@ -550,7 +570,11 @@ class RewriteKernels:
                     opp = 1-idx
                     if type_per_item[opp] == mst:
                         ## TODO: Both belong to the same type. It might be an error with the interpretation if I have a negation
-                        assert False
+                        # Wrap in FAnd if they are Formulae, to keep tuple length 1
+                        if all(isinstance(x, (FVariable, FNot)) for x in v):
+                            d[k] = (FAnd(tuple(set(v))),)
+                        else:
+                            d[k] = tuple(set(v))
                     else:
                         if idx in negated_args:
                             neg_arg = v[idx].arg

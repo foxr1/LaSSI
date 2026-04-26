@@ -22,7 +22,7 @@ class GraphProvenance:
         self.graph_creation = CreateInternalGraph(is_simplistic_rewriting, meu_db)
         self.atts_global = AssignTypeToSingleton(is_simplistic_rewriting, meu_db)
         self.services = Services.getInstance()
-        self.parmenides = self.services.getParmenides()
+        self.honk = self.services.getHOnK()
         self.existentials = self.services.getExistentials()
 
     def internal_graph(self) -> Graph:
@@ -32,9 +32,9 @@ class GraphProvenance:
             # Phase 5
             self.atts_global.checkForNegation(self.gsm_json_graph)
 
-            # Parmenides Information
-            rejected_edges = self.parmenides.getRejectedVerbs()
-            non_verbs = self.parmenides.getNonVerbs()
+            # HOnK Information
+            rejected_edges = self.honk.getRejectedVerbs()
+            non_verbs = self.honk.getNonVerbs()
 
             # Now, create the internal graph from now created edges
             self._internal_graph = self.atts_global.constructIntermediateGraph(self.gsm_json_graph, rejected_edges,
@@ -42,7 +42,7 @@ class GraphProvenance:
 
             return self._internal_graph
         else:
-            self.G = self.graph_creation.runGraphCreation(self.gsm_json_graph, self.parmenides)
+            self.G = self.graph_creation.runGraphCreation(self.gsm_json_graph, self.honk)
             return self.G
 
     def sentence(self) -> Singleton:

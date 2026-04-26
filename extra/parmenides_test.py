@@ -42,10 +42,10 @@ def tst_query(sentences = None):
     ## INIT PARMENIDES
     import os
     parmenides = "parmenides.ttl" if os.path.isfile("parmenides.ttl") else None
-    from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
+    from LaSSI.HOnK.HOnK import HOnKSingleton
     logging.basicConfig(level=logging.INFO)
-    ParmenidesSingleton.instance()
-    ParmenidesSingleton.init("/home/giacomo/PyCharmProjects/FunctionalMatch/data/cache", "giacomo", "omocaig",
+    HOnKSingleton.instance()
+    HOnKSingleton.init("/home/giacomo/PyCharmProjects/FunctionalMatch/data/cache", "giacomo", "omocaig",
                              "localhost", 5432, False, parmenides)
 
     # queries = parse_query("/query_impl.txt")
@@ -85,12 +85,12 @@ def tst_query(sentences = None):
     #     print(result)
 
     ## STOP PARMENIDES
-    ParmenidesSingleton.stop()
+    HOnKSingleton.stop()
 
 def parmenides_db_write():
-    from LaSSI.Parmenides.Parmenides import Parmenides
+    from LaSSI.HOnK.HOnK import HOnK
     logging.basicConfig(level=logging.INFO)
-    p = Parmenides("/home/giacomo/PyCharmProjects/FunctionalMatch/data/cache","giacomo", "omocaig", "localhost", 5432, onStorage=False)
+    p = HOnK("/home/giacomo/PyCharmProjects/FunctionalMatch/data/cache","giacomo", "omocaig", "localhost", 5432, onStorage=False)
     import os
 
     p.start("parmenides.ttl" if os.path.isfile("parmenides.ttl") else None)
@@ -110,10 +110,10 @@ def simpler_test():
     ## INIT PARMENIDES
     import os
     parmenides = "parmenides.ttl" if os.path.isfile("parmenides.ttl") else None
-    from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
+    from LaSSI.HOnK.HOnK import HOnKSingleton
     logging.basicConfig(level=logging.INFO)
-    ParmenidesSingleton.instance()
-    ParmenidesSingleton.init("/home/giacomo/PyCharmProjects/FunctionalMatch/data/cache", "giacomo", "omocaig",
+    HOnKSingleton.instance()
+    HOnKSingleton.init("/home/giacomo/PyCharmProjects/FunctionalMatch/data/cache", "giacomo", "omocaig",
                              "localhost", 5432, False, parmenides)
     queries = parse_query("/home/giacomo/PyCharmProjects/FunctionalMatch/query_test.txt")
     ke = KnowledgeExpansion("/home/giacomo/PyCharmProjects/FunctionalMatch/data/cache/_kexp.pickle")
@@ -125,19 +125,19 @@ def simpler_test():
             print(element)
 
     ## STOP PARMENIDES
-    ParmenidesSingleton.stop()
+    HOnKSingleton.stop()
 
 
 # def formulae_rewriting_test():
 #     # import os
 #     # parmenides = "parmenides.ttl" if os.path.isfile("parmenides.ttl") else None
-#     # from FunctionalMatch.example.parmenides.Parmenides import ParmenidesSingleton
+#     # from FunctionalMatch.example.parmenides.Parmenides import HOnKSingleton
 #     # logging.basicConfig(level=logging.INFO)
-#     # ParmenidesSingleton.instance()
-#     # ParmenidesSingleton.init("/home/giacomo/PyCharmProjects/FunctionalMatch/data/cache","giacomo", "omocaig", "localhost", 5432, False, parmenides)
+#     # HOnKSingleton.instance()
+#     # HOnKSingleton.init("/home/giacomo/PyCharmProjects/FunctionalMatch/data/cache","giacomo", "omocaig", "localhost", 5432, False, parmenides)
 #
-#     # l = ParmenidesSingleton.get().getOutgoingNodes("flow", "adjectivalForm")
-#     # ParmenidesSingleton.stop()
+#     # l = HOnKSingleton.get().getOutgoingNodes("flow", "adjectivalForm")
+#     # HOnKSingleton.stop()
 
 
 if __name__ == '__main__':

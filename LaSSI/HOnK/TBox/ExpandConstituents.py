@@ -10,7 +10,7 @@ from LaSSI.structures.extended_fol.Enums import PairwiseCases
 from LaSSI.structures.extended_fol.ModelSearch import ModelSearch, ModelSearchBasis
 from LaSSI.structures.extended_fol.TBoxReasoning import TBoxReasoningSingleton
 from LaSSI.structures.extended_fol.Formulae import FVariable, FNot, FBinaryPredicate, FUnaryPredicate
-from LaSSI.Parmenides.Parmenides import CasusHappening, ParmenidesSingleton
+from LaSSI.HOnK.HOnK import CasusHappening, HOnKSingleton
 
 def isImplication(x):
     return x == CasusHappening.GENERAL_IMPLICATION or x == CasusHappening.LOSE_SPEC_IMPLICATION or x == CasusHappening.INSTANTIATION_IMPLICATION or x == CasusHappening.MISSING_1ST_IMPLICATION
@@ -61,7 +61,7 @@ def compare_variable(d, lhs, rhs):
     else:
         assert isinstance(lhs, FVariable)
         assert isinstance(rhs, FVariable)
-        kb = ParmenidesSingleton.get()
+        kb = HOnKSingleton.get()
         nameEQ = kb.name_eq(lhs.name, rhs.name)
         specEQ = kb.name_eq(lhs.specification, rhs.specification)
         specEQInv = kb.name_eq(rhs.specification, lhs.specification)

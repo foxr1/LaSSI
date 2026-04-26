@@ -5,7 +5,7 @@ from LaSSI.ner.node_functions import create_props_for_singleton
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton, SetOfSingletons
 
 
-def score_from_meu(min_value, max_value, node_type, meu_db_row, parmenides):
+def score_from_meu(min_value, max_value, node_type, meu_db_row, honk):
     # max_value = max_value
     matched_meus = []
 
@@ -14,7 +14,7 @@ def score_from_meu(min_value, max_value, node_type, meu_db_row, parmenides):
         end_meu = meu.end_char
         if min_value == start_meu and end_meu == max_value:
             # TODO: mgu or its opposite...
-            if (parmenides.most_specific_type([node_type, meu.type]) == meu.type or
+            if (honk.most_specific_type([node_type, meu.type]) == meu.type or
                     node_type == meu.type or
                     node_type == "None"):
                 matched_meus.append(meu)
@@ -23,11 +23,11 @@ def score_from_meu(min_value, max_value, node_type, meu_db_row, parmenides):
         return 0, "None"
     else:
         max_score = max(map(lambda x: x.confidence, matched_meus))
-        return max_score, parmenides.most_specific_type(
+        return max_score, honk.most_specific_type(
             list(map(lambda x: x.type, filter(lambda x: x.confidence == max_score, matched_meus))))
 
 
-def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, parmenides, existentials):
+def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, existentials):
     from LaSSI.structures.internal_graph.EntityRelationship import Singleton
     from LaSSI.utils.allChunks import allChunks
     import numpy
@@ -44,7 +44,18 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, parmenide
     # sorted_entities = sorted(resulting_entities, key=lambda x: float(dict(x.properties)['pos']))
 
     # Sort entities based on word position to keep correct order
-    sorted_entities = sorted(node.entities, key=lambda x: float(dict(x.properties)['pos']))
+    from LaSSI.structures.internal_graph.EntityRelationship import Grouping
+    flattened_entities = []
+    has_negation = False
+    for entity in node.entities:
+        if isinstance(entity, SetOfSingletons):
+            flattened_entities.extend(entity.entities)
+            if entity.type == Grouping.NOT:
+                has_negation = True
+        else:
+            flattened_entities.append(entity)
+
+    sorted_entities = sorted(flattened_entities, key=lambda x: x.pos_f())
 
     sorted_entity_names = list(map(getattr, sorted_entities, repeat('named_entity')))
     d = dict(zip(range(len(sorted_entity_names)), sorted_entity_names))  # dictionary for storing the replacing elements
@@ -64,14 +75,14 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, parmenide
             max_value = max(map(lambda z: sorted_entities[z].max, x))
 
             all_types = [sorted_entities[z].type for z in x]
-            specific_type = parmenides.most_specific_type(all_types)
+            specific_type = honk.most_specific_type(all_types)
 
             # TODO: Is this okay to do? This is done because min/max no match in MEU, but VERB is important to keep...
             if specific_type == "VERB":
                 candidate_meu_score, candidate_meu_type = 1.0, "VERB"
             else:
                 candidate_meu_score, candidate_meu_type = score_from_meu(min_value, max_value, specific_type,
-                                                                         meu_db_row, parmenides)
+                                                                         meu_db_row, honk)
             all_meu_score_prod = numpy.prod(list(map(lambda z: sorted_entities[z].confidence, x)))
 
             # if (score_from_meu(exp, min_value, max_value, specific_type, stanza_row) >=
@@ -80,11 +91,11 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, parmenide
                     ((candidate_meu_score >= all_meu_score_prod)
                      or
                      ((specific_type != candidate_meu_type) and (
-                             parmenides.most_specific_type([specific_type, candidate_meu_type]) == candidate_meu_type)))
+                             honk.most_specific_type([specific_type, candidate_meu_type]) == candidate_meu_type)))
                     or
                     (len(resolved_d) > 0 and all(candidate_meu_score >= subarray[1] for subarray in resolved_d) and (
                             specific_type != candidate_meu_type) and (all(
-                        parmenides.most_specific_type([subarray[2], candidate_meu_type]) == candidate_meu_type for
+                        honk.most_specific_type([subarray[2], candidate_meu_type]) == candidate_meu_type for
                         subarray in resolved_d)))  # Check if current score is greater than previous resolutions
             ):
                 if candidate_meu_score > max_score:
@@ -131,22 +142,35 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, parmenide
     extra_max = None
     extra_props = None
 
+    extra_names_list = []
     # TODO: Remove time-space information and add as properties
     for entity in sorted_entities:
         norm_confidence *= entity.confidence
 
-        fusion_properties = merge_properties(dict(entity.properties), fusion_properties)
+        fusion_properties = merge_properties(fusion_properties, entity.get_props())
         if (entity.named_entity == list(d.values())[0] and len(resolved_d) > 0) or entity.type.lower() == "verb":
             chosen_entity = entity
         else:
-            extra_name = " ".join((extra_name, entity.named_entity))  # Ensure there is no leading space
+            extra_names_list.append(entity.named_entity)
             extra_min = entity.min if extra_min is None else extra_min if extra_min < entity.min else entity.min
             extra_max =  entity.max if extra_max is None else extra_max if extra_max > entity.max else entity.max
 
             # Only keep "core" properties, as other properties will be added to "chosen entity" instead, to make rewriting "easier" later on
-            entity_props = {k: v for k, v in dict(entity.properties).items() if k in {'begin', 'end', 'number', 'pos', 'specification'}}
+            entity_props = {k: v for k, v in entity.get_props().items() if k in {'begin', 'end', 'number', 'pos', 'specification'}}
             extra_props = entity_props if extra_props is None else merge_properties(entity_props, extra_props)
-    extra_name = extra_name.strip()  # Remove whitespace
+    
+    # Use split words to keep order while removing duplicates across potentially overlapping entity names
+    # and ensuring we don't repeat words already in the chosen_entity's name.
+    chosen_words = set(chosen_entity.named_entity.split()) if chosen_entity else set()
+    unique_words = []
+    seen_words = set()
+    for name in extra_names_list:
+        for word in name.split():
+            if word not in seen_words and word not in chosen_words:
+                unique_words.append(word)
+                seen_words.add(word)
+    
+    extra_name = " ".join(unique_words).strip()
 
     if norm_confidence > candidate_meu_score:
         candidate_meu_score = norm_confidence
@@ -156,7 +180,7 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, parmenide
             "specification": "none",
             "begin": str(sorted_entities[0].min),
             "end": str(sorted_entities[len(sorted_entities) - 1].max),
-            "pos": str(dict(sorted_entities[0].properties)['pos']),
+            "pos": str(sorted_entities[0].pos_f()),
             "number": "none"
         }
 
@@ -193,7 +217,7 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, parmenide
             "specification": "none",
             "begin": str(min_value),
             "end": str(max_value),
-            "pos": str(dict(sorted_entities[0].properties)['pos']),
+            "pos": str(sorted_entities[0].pos_f()),
             "number": "none"
         }
         if extra_name != '':
@@ -202,9 +226,9 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, parmenide
 
         # Get score and type for newly created Singleton
         concat_candidate_meu_score, concat_candidate_meu_type = (
-            score_from_meu(min_value, max_value, sing_type, meu_db_row, parmenides))
+            score_from_meu(min_value, max_value, sing_type, meu_db_row, honk))
 
-        candidate_meu_type = parmenides.most_specific_type([concat_candidate_meu_type, candidate_meu_type])
+        candidate_meu_type = honk.most_specific_type([concat_candidate_meu_type, candidate_meu_type])
 
         merged_node = Singleton(
             id=node.id,
@@ -217,7 +241,7 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, parmenide
         )
     elif chosen_entity is not None:  # Not simplistic and found chosen entity
         # Convert back from frozenset to append new "extra" attribute
-        new_properties = merge_properties(fusion_properties, dict(chosen_entity.properties))
+        new_properties = merge_properties(fusion_properties, chosen_entity.get_props())
         if extra_name != '':
             new_properties['extra'] = [generate_extra_singleton(extra_name, extra_min, extra_max, extra_props)]
 
@@ -233,6 +257,18 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, parmenide
     else:
         print("Error")
         merged_node = None
+
+    if has_negation and merged_node is not None:
+        from LaSSI.structures.kernels.Sentence import is_kernel_in_props
+        merged_node = SetOfSingletons(
+            id=node.id,
+            type=Grouping.NOT,
+            entities=tuple([merged_node]),
+            min=merged_node.min,
+            max=merged_node.max,
+            confidence=merged_node.confidence,
+            root=is_kernel_in_props(merged_node)
+        )
 
     return merged_node
 
@@ -273,6 +309,22 @@ def merge_properties(orig_props, new_props, ignore_values=None):
                     orig_props[key] = str(min(float(orig_props[key]), float(new_value)))
                 elif key == 'end':
                     orig_props[key] = str(max(float(orig_props[key]), float(new_value)))
+                elif key == 'extra':
+                    # Merge extra singletons and deduplicate by name (since id=-1 for extra)
+                    existing_extras = orig_props[key] if isinstance(orig_props[key], list) else [orig_props[key]]
+                    new_extras = new_value if isinstance(new_value, list) else [new_value]
+                    
+                    # Deduplicate by name and ID
+                    combined = existing_extras + new_extras
+                    unique_extras = []
+                    seen_names = set()
+                    for node in combined:
+                        if hasattr(node, 'named_entity') and node.named_entity not in seen_names:
+                            unique_extras.append(node)
+                            seen_names.add(node.named_entity)
+                        elif not hasattr(node, 'named_entity') and node not in unique_extras:
+                            unique_extras.append(node)
+                    orig_props[key] = unique_extras
             else:
                 orig_props[key] = new_value
         elif ignore_values is None:

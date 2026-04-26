@@ -1,7 +1,7 @@
 from bs4 import Tag, BeautifulSoup
 import plotly.express as px
 
-from LaSSI.Parmenides.formula_utils import latex_rendering
+from LaSSI.HOnK.formula_utils import latex_rendering
 from LaSSI.structures.extended_fol.TabularCWASemantics import ExplainSentence
 
 

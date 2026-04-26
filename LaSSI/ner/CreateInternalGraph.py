@@ -31,10 +31,10 @@ class CreateInternalGraph:
         self.meu_db_row = meu_db_row
         self.shouldDrawGraphs = False
 
-    def runGraphCreation(self, gsm_json, parmenides):
+    def runGraphCreation(self, gsm_json, honk):
         self.max_id = max(map(lambda x: int(x["id"]), gsm_json)) + 1
         self.node_functions = NodeFunctions(self.max_id)
-        self.parmenides = parmenides
+        self.honk = honk
 
         # Phase 1 (Convert to graphs to NetworkX representation, and convert to Singletons)
         G = self.convertToGraph(gsm_json)
@@ -47,6 +47,9 @@ class CreateInternalGraph:
             nx.set_node_attributes(G, {
                 node[0]: self.nodeTypeResolution(node[1]['data'], self.associateNodeToBestMeuMatch(node[1]['data']), G)
             }, 'data')
+
+        # Phase 2.5 (Merge nodes based on multi-entity units)
+        G = self.mergeMeuNodes(G)
 
         # Phase 3 (Pre-processing: Merging, adding properties etc.)
         G = self.preProcessGraph(G)
@@ -75,9 +78,9 @@ class CreateInternalGraph:
 
                 # Ensure these IDs exist in newly created list of nodes
                 if parent_id in G and child_id in G:
-                    edge_label_text = edge.get('containment', '').strip()
+                    edge_label_text = edge.get('containment', '').strip().replace(":", "_")
 
-                    non_verbs = self.parmenides.getNonVerbs()
+                    non_verbs = self.honk.getNonVerbs()
                     non_verb_set = {nv.strip() for nv in non_verbs}
                     if edge_label_text in non_verb_set:
                         edge_type = "non_verb"
@@ -145,9 +148,9 @@ class CreateInternalGraph:
         )
 
     def resolveMultipleInDobj(self, G):
-        # TODO: Check if the concatenation of the node children with preposition for multiindobj is contained within Parmenides, e.g. (side)<-(side side)->(side)->(by)
+        # TODO: Check if the concatenation of the node children with preposition for multiindobj is contained within HOnK, e.g. (side)<-(side side)->(side)->(by)
         # Hard coding for now...
-        parmenides_test = {'side by side'}
+        test_phrases = {'side by side'}
 
         multiindobj_nodes = [node for node in G.nodes(data=True) if node[1]['data'].type == 'multipleindobj']
         for node in multiindobj_nodes:
@@ -172,7 +175,7 @@ class CreateInternalGraph:
                     names.append(child.named_entity)
 
             joined_name = ' '.join(names)
-            if joined_name in parmenides_test:
+            if joined_name in test_phrases:
                 old_sing = G.nodes[node[0]]['data']
                 nx.set_node_attributes(G, {node[0]: Singleton(
                     id=node[0],
@@ -221,6 +224,97 @@ class CreateInternalGraph:
 
         return meu_entities
 
+    # Phase 2.5
+    def mergeMeuNodes(self, G):
+        if self.meu_db_row is None:
+            return G
+
+        # Identify MEUs that are more than one word (contain spaces)
+        multi_word_meus = [meu for meu in self.meu_db_row.multi_entity_unit if " " in meu.text]
+        
+        # Sort by length descending to handle overlapping MEUs
+        multi_word_meus.sort(key=lambda x: len(x.text), reverse=True)
+
+        for meu in multi_word_meus:
+            # Find all nodes that are contained within this MEU's character range
+            meu_nodes_ids = []
+            for node_id, node_data in G.nodes(data=True):
+                singleton = node_data['data']
+                if singleton.min >= meu.start_char and singleton.max <= meu.end_char:
+                    meu_nodes_ids.append(node_id)
+            
+            if len(meu_nodes_ids) > 1:
+                # SAFE MERGING: Only merge nodes if they are connected by an edge within the MEU
+                # This ensures we don't skip over intermediate structure and cause cycles.
+                
+                # Sort by position
+                meu_nodes_ids.sort(key=lambda nid: G.nodes[nid]['data'].min)
+                
+                # Use nx.contracted_nodes ONLY for adjacent nodes in the MEU
+                # Only merge across lexical-cohesion edges, never across semantic argument edges.
+                # Semantic edges like obl/nmod/acl introduce genuine structural relationships that
+                # must survive as separate nodes in the graph (e.g. "open" → obl → "public").
+                LEXICAL_MERGE_EDGES = {"compound", "inherit_edge", "orig", "flat", "fixed", "mwe"}
+
+                def _has_lexical_edge(G, u, v):
+                    for src, dst, data in G.edges(data=True):
+                        if {src, dst} == {u, v}:
+                            label = data.get('label', '')
+                            label_name = label.named_entity if hasattr(label, 'named_entity') else str(label)
+                            if label_name in LEXICAL_MERGE_EDGES:
+                                return True
+                    return False
+
+                changed = True
+                while changed:
+                    changed = False
+                    for i in range(len(meu_nodes_ids)):
+                        for j in range(len(meu_nodes_ids)):
+                            if i == j: continue
+                            u_id = meu_nodes_ids[i]
+                            v_id = meu_nodes_ids[j]
+                            if u_id in G and v_id in G and _has_lexical_edge(G, u_id, v_id):
+                                # Combine data manually before contraction to preserve information
+                                u_data = G.nodes[u_id]['data']
+                                v_data = G.nodes[v_id]['data']
+                                
+                                # Decide on target (keep the one with lower min for stability)
+                                target, source = (u_id, v_id) if u_data.min <= v_data.min else (v_id, u_id)
+                                
+                                # Merge data
+                                target_data = G.nodes[target]['data']
+                                source_data = G.nodes[source]['data']
+                                
+                                combined_props = dict(target_data.properties)
+                                for k, v in dict(source_data.properties).items():
+                                    if k not in combined_props:
+                                        combined_props[k] = v
+                                
+                                new_name = target_data.named_entity if target_data.min < source_data.min else source_data.named_entity
+                                if source_data.named_entity not in new_name:
+                                    if target_data.min < source_data.min:
+                                        new_name = target_data.named_entity + " " + source_data.named_entity
+                                    else:
+                                        new_name = source_data.named_entity + " " + target_data.named_entity
+
+                                new_singleton = Singleton(
+                                    id=target_data.id,
+                                    named_entity=new_name,
+                                    properties=frozenset(combined_props.items()),
+                                    min=min(target_data.min, source_data.min),
+                                    max=max(target_data.max, source_data.max),
+                                    type=meu.type if (meu.type != "None" and (target_data.min == meu.start_char or source_data.min == meu.start_char)) else target_data.type,
+                                    confidence=max(target_data.confidence, source_data.confidence)
+                                )
+                                
+                                G = nx.contracted_nodes(G, target, source, self_loops=False)
+                                nx.set_node_attributes(G, {target: new_singleton}, 'data')
+                                changed = True
+                                break
+                        if changed: break
+                        
+        return G
+
     # Phase 2.2
     def nodeTypeResolution(self, item, meu_entities, G):
         if len(meu_entities) > 0:
@@ -239,7 +333,7 @@ class CreateInternalGraph:
                 best_score = 1
             else:
                 if item.type == '∃' or item.type.startswith("JJ") or item.type.startswith("IN") or item.type.startswith(
-                        "NEG"):
+                        "NEG") or item.type == "RB":
                     best_score = item.confidence
                     best_item = item
                     best_type = item.type
@@ -260,15 +354,49 @@ class CreateInternalGraph:
                             return item
                         if len(best_items) == 1:
                             best_item = best_items[0]
-                            best_type = best_item.type
+                            # Apply the same disambiguation conditions as the multi-item case:
+                            # A node with a case preposition (float key) or passive-subject marker
+                            # is a noun/location, not a verb, even if meuDB says verb at top confidence.
+                            if best_item.type in ("VERB", "verb") and (
+                                'subjpass' in dict(item.properties) or
+                                case_in_props(dict(item.properties))
+                            ):
+                                non_verb_items = sorted(
+                                    [y for y in meu_entities if y.type not in ("VERB", "verb")],
+                                    key=lambda y: y.confidence,
+                                    reverse=True
+                                )
+                                if non_verb_items:
+                                    best_item = non_verb_items[0]
+                                    best_type = non_verb_items[0].type
+                                else:
+                                    best_type = item.type
+                            else:
+                                best_type = best_item.type
                         else:
                             best_types = list(set(map(lambda best_item: best_item.type, best_items)))
                             if len(best_types) == 1:
-                                best_type = best_types[0]
+                                # Apply disambiguation before committing to a single-type result.
+                                # Nodes with a passive-subject marker or case preposition are nouns, not verbs.
+                                if best_types[0] in ("VERB", "verb") and (
+                                    'subjpass' in dict(item.properties) or
+                                    case_in_props(dict(item.properties))
+                                ):
+                                    non_verb_items = sorted(
+                                        [y for y in meu_entities if y.type not in ("VERB", "verb")],
+                                        key=lambda y: y.confidence,
+                                        reverse=True
+                                    )
+                                    best_type = non_verb_items[0].type if non_verb_items else item.type
+                                else:
+                                    best_type = best_types[0]
                             ## TODO! type disambiguation, in future works, needs to take into account also the verb associated to it!
                             elif ("VERB" in best_types or "verb" in best_types) and (
                                 # If a node is marked with a det, never consider this as a verb
                                 'det' not in dict(item.properties)
+                                and
+                                # OBL nodes from passive constructions carry subjpass - these are nouns not verbs
+                                'subjpass' not in dict(item.properties)
                                 and
                                 # TODO: This condition may need to be revised
                                 # 'on' is very unlikely to lead to a verb
@@ -349,8 +477,10 @@ class CreateInternalGraph:
             edge_label = edge_label['label'].named_entity
 
             if 'inherit_edge' in edge_label:
-                if not target['data'].type in dict(source['data'].properties):
-                    new_properties = merge_properties(dict(source['data'].properties), dict(target['data'].properties), {'begin', 'end', 'pos'})
+                source_props = source['data'].get_props()
+                target_props = target['data'].get_props()
+                if not target['data'].type in source_props:
+                    new_properties = merge_properties(source_props, target_props, {'begin', 'end', 'pos'})
                     nx.set_node_attributes(G, {edge[0]: source['data'].update_node_props(new_properties)}, 'data')
                 if edge[1] not in nodes_to_remove:
                     nodes_to_remove.append(edge[1])
@@ -358,15 +488,15 @@ class CreateInternalGraph:
                 if isinstance(target['data'], Singleton):
                     type_key = self.node_functions.get_node_type(target['data']) if edge_label != 'case' else 'case'
                 else:
-                    type_key = self.parmenides.most_general_type(
+                    type_key = self.honk.most_general_type(
                         map(lambda x: x.type, target['data'].entities))
 
                 if type_key != 'existential':
-                    diff_props = [(k, dict(target['data'].properties).get(k) or dict(source['data'].properties).get(k)) for k in dict(target['data'].properties).keys() ^ dict(source['data'].properties).keys()]
-                    for k, v in diff_props:
-                        nx.set_node_attributes(G, {
-                            edge[0]: source['data'].add_property(k, v)}, 'data')
-                    nx.set_node_attributes(G, {edge[0]: source['data'].add_property(edge_label, target['data'].named_entity)}, 'data')
+                    target_props = target['data'].get_props()
+                    source_props = source['data'].get_props()
+                    new_properties = merge_properties(source_props, target_props, {'begin', 'end', 'pos'})
+                    nx.set_node_attributes(G, {edge[0]: source['data'].update_node_props(new_properties)}, 'data')
+                    nx.set_node_attributes(G, {edge[0]: source['data'].add_property(edge_label, target['data'].get_name())}, 'data')
                     if edge[1] not in nodes_to_remove:
                         edges_to_remove.append(edge)
             elif edge_label in {'cop'} and target['data'].type.lower() == 'verb':
@@ -405,11 +535,11 @@ class CreateInternalGraph:
             target = G.nodes[edge[1]]['data']
             parts = [source, target]
 
-            sorted_entities = sorted(parts, key=lambda x: float(dict(x.properties)['pos']))
-            sorted_entity_names = list(map(getattr, sorted_entities, itertools.repeat('named_entity')))
+            sorted_entities = sorted(parts, key=lambda x: x.pos_f())
+            sorted_entity_names = [x.get_name() for x in sorted_entities]
 
             all_types = list(map(getattr, sorted_entities, itertools.repeat('type')))
-            specific_type = self.parmenides.most_specific_type(all_types)
+            specific_type = self.honk.most_specific_type(all_types)
             name = " ".join(sorted_entity_names)
 
             new_node = Singleton(
@@ -433,7 +563,7 @@ class CreateInternalGraph:
 
             if G.nodes[edge[0]]['type'] == Grouping.NONE:
                 nx.set_node_attributes(G, {
-                    edge[0]: Grouping.AND if 'conj' in dict(G.nodes[edge[0]]['data'].properties) else Grouping.NONE
+                    edge[0]: Grouping.AND if 'conj' in G.nodes[edge[0]]['data'].get_props() else Grouping.NONE
                 }, 'type')
 
             # Merge child into parent node
@@ -460,11 +590,17 @@ class CreateInternalGraph:
 
                     grouped_nodes = (lambda f: f(f, node))(lambda f, node: ([node['data']] if 'data' in node and hasattr(node['data'], 'type') and not (isinstance(node['data'], Singleton) and 'conj' in dict(node['data'].properties)) else []) + [item for sub_node in node.get('contraction', {}).values() for item in f(f, sub_node)])
 
-                    # Absorb all properties and merge
+                    # Absorb all properties and merge (only Singletons have .properties;
+                    # SetOfSingletons can appear in the contraction tree but cannot be merged here)
                     for n in grouped_nodes[1:]:
                         if grouped_nodes[0].id in G.nodes:
                             root_node = G.nodes[grouped_nodes[0].id]['data']
-                            new_properties = merge_properties(dict(root_node.properties), dict(n.properties), {'begin', 'end', 'pos'})
+
+                            if isinstance(root_node, SetOfSingletons) and root_node.type == Grouping.NOT and len(
+                                    root_node.entities) == 1:
+                                root_node = root_node.entities[0]
+
+                            new_properties = merge_properties(root_node.get_props(), n.get_props(), {'begin', 'end', 'pos'})
                             nx.set_node_attributes(G, {root_node.id: root_node.update_node_props(new_properties)}, 'data')
 
                     if node['type'] == 'conj':
@@ -501,7 +637,7 @@ class CreateInternalGraph:
                             new_node,
                             self.is_simplistic_rewriting,
                             self.meu_db_row,
-                            self.services.getParmenides(),
+                            self.services.getHOnK(),
                             self.existentials
                         ) if node_type == Grouping.GROUPING else new_node
                     else:
@@ -561,6 +697,38 @@ class CreateInternalGraph:
 
         # Remove isolated nodes, as long as it is not a 'root' node, and there is more than one node in the graph
         G.remove_nodes_from([node for node in nx.isolates(G) if (isinstance(G.nodes[node]['data'], Singleton) and 'kernel' not in dict(G.nodes[node]['data'].properties))]) if len(G.nodes()) > 1 else None
+
+        # Reconnect isolated nodes that carry a case preposition to the root/kernel node.
+        # These can arise when a passive construction has multiple obl children but the grammar
+        # rule only captures one (the other obl then loses its parent edge when V is deleted).
+        if len(G.nodes()) > 1:
+            root_node_ids = [
+                nid for nid in G.nodes()
+                if isinstance(G.nodes[nid]['data'], Singleton) and is_kernel_in_props(G.nodes[nid]['data'])
+            ]
+            if root_node_ids:
+                root_id = root_node_ids[0]
+                for node_id in list(nx.isolates(G)):
+                    if node_id == root_id:
+                        continue
+                    node_data = G.nodes[node_id]['data']
+                    # Get the innermost Singleton to inspect its preposition properties
+                    inner_data = node_data
+                    if isinstance(node_data, SetOfSingletons) and node_data.entities:
+                        inner_data = node_data.entities[0]
+                        if isinstance(inner_data, SetOfSingletons) and inner_data.entities:
+                            inner_data = inner_data.entities[0]
+                    if isinstance(inner_data, Singleton) and case_in_props(dict(inner_data.properties)):
+                        obl_label = Singleton(
+                            id=self.node_functions.fresh_id(),
+                            named_entity='obl',
+                            properties=frozenset(),
+                            min=-1,
+                            max=-1,
+                            type='non_verb',
+                            confidence=1.0
+                        )
+                        G.add_edge(root_id, node_id, label=obl_label, isNegated=False)
 
         if self.shouldDrawGraphs:
             self.drawNetworkXGraph(G)

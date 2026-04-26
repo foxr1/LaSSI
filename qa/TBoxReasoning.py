@@ -2,9 +2,9 @@ import os
 from collections import defaultdict
 
 # from LaSSI.structures.extended_fol.Formulae import FUnaryPredicate
-# from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
+# from LaSSI.HOnK.HOnK import HOnKSingleton
 # from FunctionalMatch.utils import CountingDictionary
-from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
+from LaSSI.HOnK.HOnK import HOnKSingleton
 from Formulae import FUnaryPredicate, FAnd, FOr
 from FunctionalMatch.utils import CountingDictionary
 
@@ -13,8 +13,8 @@ def knowledge_expansion_legacy(sentence, queries, filter=None):
     """
     :param sentence:    Single atom/proposition
     """
-    #from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
-    assert ParmenidesSingleton.isReady()
+    #from LaSSI.HOnK.HOnK import HOnKSingleton
+    assert HOnKSingleton.isReady()
     #from LaSSI.structures.extended_fol.Formulae import FAnd, FOr
     assert (not isinstance(sentence, FAnd)) and (not isinstance(sentence, FOr))
     S = dict()
@@ -153,8 +153,8 @@ class KnowledgeExpansion:
         if isinstance(queries, list) or isinstance(queries, tuple):
             queries = {idx:q for idx, q in enumerate(queries)}
         assert isinstance(alreadyVisitedIdx, set)
-        #from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
-        assert ParmenidesSingleton.isReady()
+        #from LaSSI.HOnK.HOnK import HOnKSingleton
+        assert HOnKSingleton.isReady()
         #from LaSSI.structures.extended_fol.Formulae import FAnd, FOr
         assert (not isinstance(sentence, FAnd)) and (not isinstance(sentence, FOr))
         idx, wasAlreadyPresent = self.constituents.add_with_wasPresent(sentence)
@@ -226,8 +226,8 @@ class KnowledgeExpansion:
 
 
 def non_redundant_constituents(f, strictTyping = True):
-    assert ParmenidesSingleton.isReady()
-    p = ParmenidesSingleton.get()
+    assert HOnKSingleton.isReady()
+    p = HOnKSingleton.get()
     from Formulae import is_selfstanding_variable
     return not (isinstance(f, FUnaryPredicate) and (f.rel == "be") and ((f.properties is None) or ((len(f.properties) == 0))) and ((is_selfstanding_variable(f.arg) and ((not strictTyping) or p.hasTypedObject(f.arg.name)))))
 

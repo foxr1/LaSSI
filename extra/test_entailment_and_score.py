@@ -1,7 +1,7 @@
 import unittest
 
-from LaSSI.Parmenides.Parmenides import ParmenidesSingleton, CasusHappening
-from LaSSI.Parmenides.TBox.ExpandConstituents import test_pairwise_sentence_similarity, compare_variable
+from LaSSI.HOnK.HOnK import HOnKSingleton, CasusHappening
+from LaSSI.HOnK.TBox.ExpandConstituents import test_pairwise_sentence_similarity, compare_variable
 
 from LaSSI.structures.extended_fol.Formulae import FUnaryPredicate, FVariable, FNot, FAnd
 from extra.test_allex import ncc, ncl, all_ncc, all_ncl
@@ -17,8 +17,8 @@ s_3 = FAnd((t, n_tcc))
 
 class DirectionTests(unittest.TestCase):
     def setUp(self):
-        ParmenidesSingleton.instance()
-        ParmenidesSingleton.init("/home/giacomo/projects/LaSSI/catabolites", "giacomo", "omocaig",
+        HOnKSingleton.instance()
+        HOnKSingleton.init("/home/giacomo/projects/LaSSI/catabolites", "giacomo", "omocaig",
                                  "localhost", 5432, False, "/home/giacomo/projects/LaSSI/parmenides.ttl")
 
     def _cmpConcepts(self, x, y, case):
@@ -56,8 +56,8 @@ if __name__ == "__main__":
     # print(val)
     # val = test_pairwise_sentence_similarity({}, t, tcc, shift=False)
     # print(val)
-    ParmenidesSingleton.instance()
-    ParmenidesSingleton.init("/home/giacomo/projects/LaSSI/catabolites", "giacomo", "omocaig",
+    HOnKSingleton.instance()
+    HOnKSingleton.init("/home/giacomo/projects/LaSSI/catabolites", "giacomo", "omocaig",
                              "localhost", 5432, False, "/home/giacomo/projects/LaSSI/parmenides.ttl")
 
     val = test_pairwise_sentence_similarity({}, tn, n_tcc, shift=False)

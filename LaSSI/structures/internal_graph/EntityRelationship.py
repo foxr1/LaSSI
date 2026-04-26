@@ -130,16 +130,17 @@ class SetOfSingletons(NodeEntryPoint):  # Graph node representing conjunction/di
             return ''
 
         props_to_ignore = ['begin', 'pos', 'end', 'kernel', 'lemma', 'specification', 'number', 'root', 'expl', 'cc',
-                           'conj', 'neg']
+                           'conj', 'neg', 'adv', 'subjpass']
         properties_list = defaultdict(list)
         for key in dict(node_to_use.properties):
             if key not in props_to_ignore:
                 properties_key_ = dict(node_to_use.properties)[key]
                 if isinstance(properties_key_, str) and properties_key_ != '':
                     try:
-                        key = str(int(float(key)))
+                        float(key)
+                        continue  # Skip float-keyed preposition properties (handled by assign_kernel)
                     except ValueError:
-                        key = key
+                        pass
 
                     properties_list[key].append(properties_key_)
                 else:
@@ -455,16 +456,20 @@ class Singleton(NodeEntryPoint):  # Graph node representing just one entity
         if node_to_use is None or not isinstance(node_to_use, Singleton):
             return ''
 
-        props_to_ignore = ['begin', 'pos', 'end', 'kernel', 'lemma', 'specification', 'number', 'root', 'expl']
+        # 'adv' is consumed by phrasal-verb construction (check_for_adv). Any remaining
+        # 'adv' string property was not a phrasal verb and is spurious display noise.
+        props_to_ignore = ['begin', 'pos', 'end', 'kernel', 'lemma', 'specification', 'number', 'root', 'expl', 'adv',
+                           'subjpass']
         properties_list = defaultdict(list)
         for key in dict(node_to_use.properties):
             if key not in props_to_ignore:
                 properties_key_ = dict(node_to_use.properties)[key]
                 if isinstance(properties_key_, str) and properties_key_ != '':
                     try:
-                        key = str(int(float(key)))
+                        float(key)
+                        continue  # Skip float-keyed preposition properties (handled by assign_kernel)
                     except ValueError:
-                        key = key
+                        pass
 
                     properties_list[key].append(properties_key_)
                 else:

@@ -1,21 +1,102 @@
 import dataclasses
 import io
-import pickle
+import shutil
+import time
+from collections import defaultdict, deque
 from dataclasses import dataclass
 import os.path
-from collections import defaultdict
 from enum import Enum
 from functools import lru_cache
 from typing import Optional, List
 
-import dacite
-from rdflib import Literal, XSD
+from FunctionalMatch.rdf.RDFGraph import Literal, XSD, RDFGraph
 
-from LaSSI.Parmenides import SentenceStructure, Prepositions
-from FunctionalMatch.rdf.RDFGraph import RDFGraph
+from LaSSI.HOnK import SentenceStructure, Prepositions
 
 
 import logging
+
+
+def _equivalence_closure(pairs):
+    """
+    Build a synonym dict from equivalence (eq) pairs using Union-Find.
+
+    This replaces the naive O(n²·d) iterative transitive_closure for the
+    special case of a symmetric+transitive (equivalence) relation.  Union-Find
+    runs in O(n·α(n)) ≈ O(n) and produces the same result.
+
+    Returns a defaultdict(set): term → set of all synonymous terms (excluding
+    itself), matching the shape expected by getSynonymy().
+    """
+    parent: dict = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        # Path compression
+        while parent[x] != root:
+            parent[x], x = root, parent[x]
+        return root
+
+    def union(x, y):
+        parent.setdefault(x, x)
+        parent.setdefault(y, y)
+        px, py = find(x), find(y)
+        if px != py:
+            parent[px] = py
+
+    for x, y in pairs:
+        union(x, y)
+
+    # Group all terms by their equivalence-class root
+    groups: dict = defaultdict(set)
+    for x in list(parent):
+        groups[find(x)].add(x)
+
+    # Build the bidirectional lookup dict.
+    # The original transitive_closure produces self-loops (A,A) from symmetric
+    # pairs, so tmp[A] ends up containing A itself.  Replicate that here so
+    # getSynonymy always returns a set that includes the queried term.
+    # Using the shared group set object instead of copying it saves memory.
+    result: defaultdict = defaultdict(set)
+    for group in groups.values():
+        for term in group:
+            result[term] = group
+    return result
+
+
+def _dag_transitive_closure(pairs):
+    """
+    Compute the transitive closure of a directed relation (isA/partOf) using
+    BFS from every source node.
+
+    Replaces the naive O(n²·d) iterative approach.  BFS is O(V·(V+E)) which
+    for sparse hierarchies is much faster in practice.
+
+    Returns a set of (src, dst) pairs, matching the shape expected by
+    getTransitiveClosureHier().
+    """
+    adj: defaultdict = defaultdict(set)
+    nodes: set = set()
+    for x, y in pairs:
+        adj[x].add(y)
+        nodes.add(x)
+        nodes.add(y)
+
+    closure: set = set()
+    for start in nodes:
+        visited = {start}
+        queue = deque([start])
+        while queue:
+            node = queue.popleft()
+            for neighbour in adj[node]:
+                if neighbour not in visited:
+                    visited.add(neighbour)
+                    closure.add((start, neighbour))
+                    queue.append(neighbour)
+    return closure
 
 @dataclass()
 class LogicalRewritingRule:
@@ -48,7 +129,7 @@ class CasusHappening(Enum):
     MISSING_1ST_IMPLICATION = 12 #miss
 
 
-class ParmenidesSingleton(object):
+class HOnKSingleton(object):
     _instance = None
 
     def __init__(self):
@@ -56,52 +137,81 @@ class ParmenidesSingleton(object):
 
     @staticmethod
     def isReady():
-        return (ParmenidesSingleton._instance is not None) and (ParmenidesSingleton._instance.parmenides is not None)
+        return (HOnKSingleton._instance is not None) and (HOnKSingleton._instance.honk is not None)
 
     @classmethod
     def instance(cls):
         if cls._instance is None:
             print('Creating new instance')
             cls._instance = cls.__new__(cls)
-            cls._instance.parmenides = None
+            cls._instance.honk = None
         return cls._instance
 
     @staticmethod
     def init(cache_path, user, password, hostame, port, onStorage, path):
-        if ParmenidesSingleton._instance.parmenides is None:
-            ParmenidesSingleton._instance.parmenides = Parmenides(cache_path, user, password, hostame, port, onStorage)
-            ParmenidesSingleton._instance.parmenides.start(path)
+        if HOnKSingleton._instance.honk is None:
+            HOnKSingleton._instance.honk = HOnK(cache_path, user, password, hostame, port, onStorage)
+            HOnKSingleton._instance.honk.start(path)
 
     @staticmethod
     def stop():
-        if ParmenidesSingleton._instance is not None and ParmenidesSingleton._instance.parmenides is not None:
-            ParmenidesSingleton._instance.parmenides.stop()
-            ParmenidesSingleton._instance.parmenides = None
-        ParmenidesSingleton._instance = None
+        if HOnKSingleton._instance is not None and HOnKSingleton._instance.honk is not None:
+            HOnKSingleton._instance.honk.stop()
+            HOnKSingleton._instance.honk = None
+        HOnKSingleton._instance = None
 
     @staticmethod
-    def get() -> 'Parmenides':
-        return ParmenidesSingleton._instance.parmenides
+    def get() -> 'HOnK':
+        return HOnKSingleton._instance.honk
 
 
-class Parmenides(RDFGraph):
+class HOnK(RDFGraph):
 
     def __init__(self, cache_path, user, password, hostame, port, onStorage =True):
-        super().__init__("parmenides", "https://logds.github.io/parmenides#", user, password, hostame, port, "parmenides", databaseConn=onStorage)
+        super().__init__("honk", "https://ofox.co.uk/honk#", user, password, hostame, port, "parmenides", databaseConn=onStorage)
         self.loaded = False
-        assert os.path.exists(cache_path) and os.path.isdir(cache_path)
         self.cache_path = cache_path
-        if not os.path.exists(self.cache_path):
-            os.makedirs(self.cache_path)
-        self.logger = logging.getLogger("Parmenides")
+        os.makedirs(self.cache_path, exist_ok=True)
+        self.logger = logging.getLogger("HOnK")
         self.onStorage = onStorage
+        self._store_path = None  # Set before super().start() to use RocksDB cache
 
     def start(self, filename=None):
+        use_cache = False
+
+        if not self.onStorage and filename is not None:
+            store_dir = os.path.join(self.cache_path, "honk_oxstore")
+            mtime_file = store_dir + ".mtime"
+            ttl_mtime = os.path.getmtime(filename)
+
+            if os.path.exists(store_dir) and os.path.exists(mtime_file):
+                try:
+                    with open(mtime_file) as f:
+                        use_cache = float(f.read().strip()) >= ttl_mtime
+                except (ValueError, OSError):
+                    use_cache = False
+
+            if not use_cache and os.path.exists(store_dir):
+                shutil.rmtree(store_dir)
+
+            # Point _actual_start() at the persistent RocksDB path
+            self._store_path = store_dir
+
         result = super().start()
         if result:
-            self.logger.info("Parmenides started")
+            self.logger.info("HOnK started")
             if not self.onStorage and filename is not None:
-                self.parse(filename)
+                if not use_cache:
+                    print(f"[HOnK] Parsing TTL (first-time, result will be cached): {filename}")
+                    t0 = time.time()
+                    self.parse(filename)
+                    print(f"[HOnK] TTL parsed in {time.time() - t0:.1f}s — compacting store...")
+                    self.graph.optimize()
+                    print(f"[HOnK] Store compacted in {time.time() - t0:.1f}s total.")
+                    with open(mtime_file, "w") as f:
+                        f.write(str(ttl_mtime))
+                else:
+                    print(f"[HOnK] Loaded from RocksDB store cache ({store_dir}).")
             self._load()
         return result
 
@@ -117,75 +227,98 @@ class Parmenides(RDFGraph):
         if self.loaded:
             return True
 
-        self.trcl = defaultdict(set)
-        self.syn = defaultdict(set)
+        _t0 = time.time()
+        print("[HOnK] Loading ontology data...")
+
         self.st = defaultdict(set)
-        self.semi_modal_verbs = set(self.get_label_is_a("SemiModalVerb"))
-        self.pronouns = set(self.get_label_is_a("Pronoun"))
-        self.prototypical_prepositions = set(self.get_label_is_a("PrototypicalPreposition"))
-        self.transitive_verbs = set(self.get_label_is_a("TransitiveVerb"))
-        self.causative_verbs = set(self.get_label_is_a("CausativeVerb"))
-        self.movement_verbs = set(self.get_label_is_a("MovementVerb"))
-        self.means_verbs = set(self.get_label_is_a("MeansVerb"))
-        self.state_verbs = set(self.get_label_is_a("StateVerb"))
-        self.materialisation_verbs = set(self.get_label_is_a("MaterialisationVerb"))
-        self.phrasal_verbs = set(self.get_label_is_a("PhrasalVerb"))
-        self.units_of_measure = set(self.get_label_is_a("UnitOfMeasure"))
-        self.abstract_entities = set(self.get_label_is_a("AbstractEntity"))
-        self.rejected_edges = set(self.get_label_is_a("Rejectable"))
-        self.non_verbs = set(self.get_label_is_a("dependency"))
+
+        # Batch all 14 type-label lookups into a single SPARQL query instead of
+        # making 14 individual round-trips.
+        _type_map = {
+            "SemiModalVerb":           "semi_modal_verbs",
+            "Pronoun":                 "pronouns",
+            "PrototypicalPreposition": "prototypical_prepositions",
+            "TransitiveVerb":          "transitive_verbs",
+            "CausativeVerb":           "causative_verbs",
+            "MotionVerb":              "movement_verbs",
+            "MeansVerb":               "means_verbs",
+            "StateVerb":               "state_verbs",
+            "MaterialisationVerb":     "materialisation_verbs",
+            "PhrasalVerb":             "phrasal_verbs",
+            "UnitOfMeasure":           "units_of_measure",
+            "AbstractEntity":          "abstract_entities",
+            "Rejectable":              "rejected_edges",
+            "Dependency":              "non_verbs",
+        }
+        _values_clause = " ".join(f"honk:{t}" for t in _type_map)
+        _batch_query = f"""
+            SELECT DISTINCT ?type_uri ?c
+            WHERE {{
+                VALUES ?type_uri {{ {_values_clause} }}
+                ?a a ?type_uri.
+                ?a rdfs:label ?c.
+            }}"""
+        _ns = str(self.namespace)
+        _buckets = {attr: set() for attr in _type_map.values()}
+        for row in self._iter_rows(_batch_query):
+            type_local = str(row.type_uri)[len(_ns):]
+            attr = _type_map.get(type_local)
+            if attr is not None:
+                _buckets[attr].add(str(row.c))
+        for attr, s in _buckets.items():
+            setattr(self, attr, s)
+        print(f"[HOnK]   type labels loaded ({time.time()-_t0:.1f}s)")
 
         ## get_logical_rewriting_rules
+        print(f"[HOnK]   loading logical rewriting rules...")
         knows_query = """
-                 SELECT DISTINCT ?label ?rule_order ?preposition ?logicalConstructName ?logicalConstructProperty ?verb_of_motion ?SingletonHasBeenMatchedBy ?not ?abstract_entity ?hasNMod ?hasNModPartOf ?hasNModIsA ?isSymmetricalIfComparedToNMod ?hasNumber ?hasUnitOfMeasure ?verb_of_aims ?verb_of_state ?verb_of_means ?causative_verb ?isMaterializationVerb
+                 SELECT DISTINCT ?label ?rule_order ?Preposition ?logicalConstructName ?logicalConstructProperty ?MotionVerb ?SingletonHasBeenMatchedBy ?not ?AbstractEntity ?hasNMod ?hasNModPartOf ?hasNModIsA ?isSymmetricalIfComparedToNMod ?Number ?UnitOfMeasure ?StateVerb ?MeansVerb ?CausativeVerb ?MaterialisationVerb
                  WHERE {
-                     ?a a parmenides:LogicalRewritingRule.
+                     ?a a honk:LogicalRewritingRule.
                      ?a rdfs:label ?label .
-                     ?a parmenides:logicalConstructName ?logicalConstructName .
-                     ?a parmenides:rule_order ?rule_order .
-                     OPTIONAL { ?a parmenides:preposition ?preposition }
-                     OPTIONAL { ?a parmenides:logicalConstructProperty ?logicalConstructProperty }
-                     OPTIONAL { ?a parmenides:SingletonHasBeenMatchedBy ?SingletonHasBeenMatchedBy }
-                     OPTIONAL { ?a parmenides:not ?not }
-                     OPTIONAL { ?a parmenides:abstract_entity ?abstract_entity }
-                     OPTIONAL { ?a parmenides:hasNMod ?hasNMod }
-                     OPTIONAL { ?a parmenides:hasNModPartOf ?hasNModPartOf }
-                     OPTIONAL { ?a parmenides:hasNModIsA ?hasNModIsA }
-                     OPTIONAL { ?a parmenides:isSymmetricalIfComparedToNMod ?isSymmetricalIfComparedToNMod }
-                     OPTIONAL { ?a parmenides:causative_verb ?causative_verb }
-                     OPTIONAL { ?a parmenides:hasNumber ?hasNumber }
-                     OPTIONAL { ?a parmenides:hasUnitOfMeasure ?hasUnitOfMeasure }
-                     OPTIONAL { ?a parmenides:verb_of_motion ?verb_of_motion }
-                     OPTIONAL { ?a parmenides:verb_of_aims ?verb_of_aims }
-                     OPTIONAL { ?a parmenides:verb_of_state ?verb_of_state }
-                     OPTIONAL { ?a parmenides:verb_of_means ?verb_of_means }
-                     OPTIONAL { ?a parmenides:isMaterializationVerb ?isMaterializationVerb }
+                     ?a honk:logicalConstructName ?logicalConstructName .
+                     ?a honk:rule_order ?rule_order .
+                     OPTIONAL { ?a honk:Preposition ?Preposition }
+                     OPTIONAL { ?a honk:logicalConstructProperty ?logicalConstructProperty }
+                     OPTIONAL { ?a honk:SingletonHasBeenMatchedBy ?SingletonHasBeenMatchedBy }
+                     OPTIONAL { ?a honk:not ?not }
+                     OPTIONAL { ?a honk:AbstractEntity ?AbstractEntity }
+                     OPTIONAL { ?a honk:hasNMod ?hasNMod }
+                     OPTIONAL { ?a honk:hasNModPartOf ?hasNModPartOf }
+                     OPTIONAL { ?a honk:hasNModIsA ?hasNModIsA }
+                     OPTIONAL { ?a honk:isSymmetricalIfComparedToNMod ?isSymmetricalIfComparedToNMod }
+                     OPTIONAL { ?a honk:CausativeVerb ?CausativeVerb }
+                     OPTIONAL { ?a honk:Number ?Number }
+                     OPTIONAL { ?a honk:UnitOfMeasure ?UnitOfMeasure }
+                     OPTIONAL { ?a honk:MotionVerb ?MotionVerb }
+                     OPTIONAL { ?a honk:StateVerb ?StateVerb }
+                     OPTIONAL { ?a honk:MeansVerb ?MeansVerb }
+                     OPTIONAL { ?a honk:MaterialisationVerb ?MaterialisationVerb }
                  }"""
         # return self._single_unary_query(knows_query, lambda x: x)
 
         not_query = """
-                 SELECT DISTINCT ?preposition ?verb_of_motion ?SingletonHasBeenMatchedBy ?abstract_entity ?hasNMod ?hasNModPartOf ?hasNModIsA ?isSymmetricalIfComparedToNMod ?hasNumber ?hasUnitOfMeasure ?verb_of_aims ?verb_of_state ?verb_of_means ?causative_verb ?isMaterializationVerb
+                 SELECT DISTINCT ?Preposition ?MotionVerb ?SingletonHasBeenMatchedBy ?AbstractEntity ?hasNMod ?hasNModPartOf ?hasNModIsA ?isSymmetricalIfComparedToNMod ?Number ?UnitOfMeasure ?StateVerb ?MeansVerb ?CausativeVerb ?MaterialisationVerb
                  WHERE {
-                     OPTIONAL { ?a parmenides:preposition ?preposition }
-                     OPTIONAL { ?a parmenides:SingletonHasBeenMatchedBy ?SingletonHasBeenMatchedBy }
-                     OPTIONAL { ?a parmenides:abstract_entity ?abstract_entity }
-                     OPTIONAL { ?a parmenides:hasNMod ?hasNMod }
-                     OPTIONAL { ?a parmenides:hasNModPartOf ?hasNModPartOf }
-                     OPTIONAL { ?a parmenides:hasNModIsA ?hasNModIsA }
-                     OPTIONAL { ?a parmenides:isSymmetricalIfComparedToNMod ?isSymmetricalIfComparedToNMod }
-                     OPTIONAL { ?a parmenides:causative_verb ?causative_verb }
-                     OPTIONAL { ?a parmenides:hasNumber ?hasNumber }
-                     OPTIONAL { ?a parmenides:hasUnitOfMeasure ?hasUnitOfMeasure }
-                     OPTIONAL { ?a parmenides:verb_of_motion ?verb_of_motion }
-                     OPTIONAL { ?a parmenides:verb_of_aims ?verb_of_aims }
-                     OPTIONAL { ?a parmenides:verb_of_state ?verb_of_state }
-                     OPTIONAL { ?a parmenides:verb_of_means ?verb_of_means }
-                     OPTIONAL { ?a parmenides:isMaterializationVerb ?isMaterializationVerb }
+                     OPTIONAL { ?a honk:Preposition ?Preposition }
+                     OPTIONAL { ?a honk:SingletonHasBeenMatchedBy ?SingletonHasBeenMatchedBy }
+                     OPTIONAL { ?a honk:AbstractEntity ?AbstractEntity }
+                     OPTIONAL { ?a honk:hasNMod ?hasNMod }
+                     OPTIONAL { ?a honk:hasNModPartOf ?hasNModPartOf }
+                     OPTIONAL { ?a honk:hasNModIsA ?hasNModIsA }
+                     OPTIONAL { ?a honk:isSymmetricalIfComparedToNMod ?isSymmetricalIfComparedToNMod }
+                     OPTIONAL { ?a honk:CausativeVerb ?CausativeVerb }
+                     OPTIONAL { ?a honk:Number ?Number }
+                     OPTIONAL { ?a honk:UnitOfMeasure ?UnitOfMeasure }
+                     OPTIONAL { ?a honk:MotionVerb ?MotionVerb }
+                     OPTIONAL { ?a honk:StateVerb ?StateVerb }
+                     OPTIONAL { ?a honk:MeansVerb ?MeansVerb }
+                     OPTIONAL { ?a honk:MaterialisationVerb ?MaterialisationVerb }
                  }"""
 
-        str_premises = {"preposition", "verb_of_motion", "SingletonHasBeenMatchedBy", "abstract_entity", "hasNMod",
-                        "hasNModPartOf", "hasNModIsA", "isSymmetricalIfComparedToNMod", "hasNumber", "hasUnitOfMeasure",
-                        "verb_of_aims", "verb_of_state", "verb_of_means", "causative_verb", "isMaterializationVerb"}
+        str_premises = {"Preposition", "MotionVerb", "SingletonHasBeenMatchedBy", "AbstractEntity", "hasNMod",
+                        "hasNModPartOf", "hasNModIsA", "isSymmetricalIfComparedToNMod", "Number", "UnitOfMeasure",
+                        "StateVerb", "MeansVerb", "CausativeVerb", "MaterialisationVerb"}
 
         self.logical_rewriting_rules = defaultdict()
 
@@ -207,7 +340,7 @@ class Parmenides(RDFGraph):
                     if hasattr(rule, str_premise) and getattr(rule, str_premise) is not None:
                         premises[str_premise].append(getattr(rule, str_premise).value)
                 if hasattr(rule, "not") and getattr(rule, "not") is not None:
-                    not_query_premises = self.graph.query(not_query, initBindings={'a': getattr(rule, "not")})
+                    not_query_premises = list(self._iter_rows(not_query, {'a': getattr(rule, "not")}))
                     for not_query_premise in not_query_premises:
                         for str_premise in str_premises:
                             if hasattr(not_query_premise, str_premise) and getattr(not_query_premise,
@@ -236,15 +369,17 @@ class Parmenides(RDFGraph):
                 logicalConstructProperty=logical_construct_property
             )
         self.logger.info("Logical rewriting rules loaded")
+        print(f"[HOnK]   logical rewriting rules loaded ({time.time()-_t0:.1f}s)")
         ## End: get_logical_rewriting_rules
 
         ## Nouuns with properties
+        print(f"[HOnK]   loading nouns...")
         knows_query = """
                  SELECT DISTINCT ?hasProperty ?label
                  WHERE {
-                     ?a a parmenides:Noun.
+                     ?a a honk:Noun.
                      ?a rdfs:label ?label .
-                     ?a parmenides:hasProperty ?hasProperty .
+                     ?a honk:hasProperty ?hasProperty .
                  }"""
 
         self.logger.info("nouns_with_properties loaded")
@@ -255,102 +390,44 @@ class Parmenides(RDFGraph):
         knows_query = """
                          SELECT DISTINCT ?isA ?label
                          WHERE {
-                             ?a a parmenides:Noun.
+                             ?a a honk:Noun.
                              ?a rdfs:label ?label .
-                             ?a parmenides:isA ?isA .
+                             ?a honk:isA ?isA .
                          }"""
         self.nouns_with_a = set(self._single_unary_query(knows_query, lambda x: x))
         self.logger.info("nouns_with_a loaded")
+        print(f"[HOnK]   nouns loaded ({time.time()-_t0:.1f}s)")
         ## End: nouns_with_a
 
-        self.syn = None
-        syn_pickle = os.path.join(self.cache_path, "syn.pickle")
-        if os.path.exists(syn_pickle):
-            with open(syn_pickle, "rb") as f:
-                self.syn = pickle.load(f)
-        else:
-            self.syn = self.extractPureHierarchy("eqTo", True) | self.extractPureHierarchy("eqTo", False)
-            self.logger.info("syn eqTo extracted")
-            from FunctionalMatch.utils import transitive_closure
-            self.syn = transitive_closure(self.syn)
-            self.logger.info("syn eqTo transitive closure")
-            tmp = defaultdict(set)
-            for (x, y) in self.syn:
-                tmp[x].add(y)
-                tmp[y].add(x)
-            self.syn = tmp
-            self.logger.info("syn eqTo transitive closure storing")
-            with open(syn_pickle, "wb") as f:
-                pickle.dump(self.syn, f, protocol=pickle.HIGHEST_PROTOCOL)
+        # syn is now computed lazily on demand in getSynonymy() to avoid
+        # extracting and materialising all ~210K eq-pairs from the store at load
+        # time, which causes OOM on large (WordNet-scale) TTL files.
+        self._syn_cache: dict = {}
 
-        hier_pickle = os.path.join(self.cache_path, "hier.pickle")
-        if os.path.exists(hier_pickle):
-            with open(hier_pickle, "rb") as f:
-                self.trcl = pickle.load(f)
-        if len(self.trcl) == 0:
-            from FunctionalMatch.utils import transitive_closure
-            s = self.extractPureHierarchy("isA", True) | self.extractPureHierarchy("partOf", False)
-            self.logger.info("syn isA/partOf extracted")
-            self.trcl = transitive_closure(s)
-            self.logger.info("syn isA/partOf transitive closure")
-            with open(hier_pickle, "wb") as f:
-                pickle.dump(self.trcl, f, protocol=pickle.HIGHEST_PROTOCOL)
+        # trcl is now computed lazily on demand in _get_reachable() to avoid
+        # materialising the full transitive closure of ~788K isA/partOf pairs
+        # at load time, which causes OOM on large (WordNet-scale) TTL files.
+        self._trcl_cache: dict = {}
 
 
-        ## Prepositions
-        self.prepositions = None
-        prep_pickle = os.path.join(self.cache_path, "prepositions.pickle")
-        if os.path.exists(prep_pickle):
-            with open(prep_pickle, "rb") as f:
-                self.prepositions = pickle.load(f)
-        if self.prepositions is None or len(self.prepositions) == 0:
-            from LaSSI.Parmenides.Prepositions import Preposition
-            query = """
-            SELECT *
-            WHERE {
-                { ?src a <https://logds.github.io/parmenides#Preposition>. }
-                UNION
-            { ?s a ?t. ?t rdfs:subClassOf  <https://logds.github.io/parmenides#Preposition>. }
-             ?src rdfs:label ?src_label.
-            }"""
-            result = defaultdict(dict)
-            for d in self._run_custom_sparql_query(query):
-                rel = str(d.get("t", ""))[len(self.namespace):]
-                # rel = str(d.get("rel", ""))[len(Parmenides.parmenides_ns):]
-                label = str(d["src_label"])
-                local = result[label]
-                # print(label)
-                result[label] = Preposition.update_with_label(local, rel)
-            query = """
-                    SELECT *
-                    WHERE {
-                     ?src ?prop ?value.
-                     ?prop a owl:ObjectProperty.
-                     ?src rdfs:label ?label.
-                    }"""
-            for k in result.keys():
-                binding = {"label": Literal(k, datatype=XSD.string)}
-                for d in self._run_custom_sparql_query(query, bindings=binding):
-                    rel = str(d.get("prop", ""))[len(self.namespace):]
-                    if isinstance(d["value"], Literal):
-                        # print(rel)
-                        result[k][rel] = d["value"].value
-            self.prepositions = dict()
-            for k, v in result.items():
-                v["name"] = k
-                self.prepositions[k] = dacite.from_dict(Preposition, v)
-            ## Prepositions: end
-            with open(prep_pickle, "wb") as f:
-                pickle.dump(self.prepositions, f, protocol=pickle.HIGHEST_PROTOCOL)
+        # self.prepositions (full Preposition objects) is not used by the active
+        # pipeline — collect_prepositions() has no call sites.  The only
+        # preposition data the pipeline consumes is self.prototypical_prepositions,
+        # which is already populated above by the batched type-label query.
+        # The old loading block also contained a broken SPARQL UNION that left
+        # ?src unbound in one branch, producing a cartesian product with every
+        # labeled resource in the store and causing OOM on large TTL files.
+        self.prepositions = {}
         self.loaded = True
+        print(f"[HOnK] Ontology fully loaded in {time.time()-_t0:.1f}s.")
         return True
 
 
 
     def most_specific_type(self, types):
         types = list(map(lambda x: str(x).lower(), types))
-        ### TODO: within .ttl and type inference
-        if any(map(lambda x: "verb" in x, types)):
+        # Match plain "verb" OR any verb subclass (e.g. ChangeVerb → "changeverb" ends with "verb")
+        if any(map(lambda x: x == "verb" or (x.endswith("verb") and not x.endswith("adverb")), types)):
             return "verb"
         elif "gpe" in types:
             return "GPE"
@@ -358,12 +435,17 @@ class Parmenides(RDFGraph):
             return "LOC"
         elif "org" in types:
             return "ORG"
-        elif "noun" in types:
+        elif any(map(lambda x: x == "noun" or x.endswith("noun"), types)):
             return "noun"
         elif "entity" in types:
             return "ENTITY"
-        elif "adjective" in types:
+        elif any(map(lambda x: x == "adjective" or x.endswith("adjective"), types)):
             return "JJ"
+        elif any(map(lambda x: x == "adverb" or x.endswith("adverb"), types)):
+            return "RB"
+        elif any(map(lambda x: x in {"preposition", "prepositionalphrase", "dependency"}
+                                    or x.endswith("preposition") or x.endswith("prepositionalphrase"), types)):
+            return "IN"
         else:
             return "None"
 
@@ -413,7 +495,7 @@ class Parmenides(RDFGraph):
         knows_query = """
          SELECT DISTINCT ?c
          WHERE {
-             ?a a parmenides:%s.
+             ?a a honk:%s.
              ?a rdfs:label ?c .
          }""" % label
         return self.string_query(knows_query, "c")
@@ -425,11 +507,115 @@ class Parmenides(RDFGraph):
         else:
             return {x["x"] for x in ye}
 
+    def _getOutgoingNodesByClassInstance(self, srcLabel, classType):
+        """Find outgoing nodes where the predicate is an instance of classType (numbered variant pattern)."""
+        knows_query = """
+         SELECT DISTINCT ?dst_label
+         WHERE {
+             ?pred_inst a ?class_uri .
+             ?src ?pred_inst ?dst .
+             ?src rdfs:label ?src_label .
+             ?dst rdfs:label ?dst_label .
+         }"""
+        bindings = {
+            "src_label": Literal(srcLabel, datatype=XSD.string),
+            "class_uri": self.namespace[classType]
+        }
+        S = set()
+        for d in self._run_custom_sparql_query(knows_query, bindings=bindings):
+            if "dst_label" in d:
+                S.add(str(d["dst_label"]))
+        return S
+
+    def _extractPureHierarchyByClass(self, classType):
+        """Extract all (src, dst) pairs where predicate is an instance of classType."""
+        knows_query = """
+         SELECT DISTINCT ?src_label ?dst_label
+         WHERE {
+             ?pred_inst a ?class_uri .
+             ?src ?pred_inst ?dst .
+             ?src rdfs:label ?src_label .
+             ?dst rdfs:label ?dst_label .
+         }"""
+        bindings = {"class_uri": self.namespace[classType]}
+        S = set()
+        for d in self._run_custom_sparql_query(knows_query, bindings=bindings):
+            if "src_label" in d and "dst_label" in d:
+                S.add((str(d["src_label"]), str(d["dst_label"])))
+        return S
+
+    def getOutgoingNodes(self, srcLabel, edgeType):
+        """Override to support both direct predicates and numbered instance predicates."""
+        S = super().getOutgoingNodes(srcLabel, edgeType)
+        if S:
+            return S
+        return self._getOutgoingNodesByClassInstance(srcLabel, edgeType)
+
+    def extractPureHierarchy(self, t, flip=False):
+        """Override to support numbered instance predicates."""
+        ye = list(self.single_edge("^src", t, "^dst"))
+        if len(ye) > 0:
+            if flip:
+                return {(x["dst"], x["src"]) for x in ye}
+            return {(x["src"], x["dst"]) for x in ye}
+        pairs = self._extractPureHierarchyByClass(t)
+        if flip:
+            return {(y, x) for x, y in pairs}
+        return pairs
+
+    # SPARQL template used by getSynonymy for a single-term BFS step.
+    # Finds all labels reachable from ?src_label in one hop via any predicate
+    # that is an instance of honk:eq (both directions, since the TTL
+    # stores symmetric pairs).
+    _SYN_QUERY = """
+        SELECT DISTINCT ?equiv_label
+        WHERE {
+            ?pred a honk:eq .
+            {
+                ?src rdfs:label ?src_label .
+                ?src ?pred ?equiv .
+                ?equiv rdfs:label ?equiv_label .
+            }
+            UNION
+            {
+                ?equiv rdfs:label ?src_label .
+                ?equiv ?pred ?src .
+                ?src rdfs:label ?equiv_label .
+            }
+        }"""
+
     def getSynonymy(self, k):
-        if k in self.syn:
-            return self.syn[k]
-        else:
-            return {k}
+        """Return the set of all labels equivalent to *k* (including *k* itself).
+
+        Uses SPARQL 1.1 property paths to follow all eq-instance edges in the
+        store in one step. Results are cached across entire synonym groups.
+        """
+        if k in self._syn_cache:
+            return self._syn_cache[k]
+
+        # Use property paths (^?pred|?pred)* to follow symmetric eq edges.
+        # This handles the full transitive/symmetric closure in one engine-level step.
+        query = """
+            SELECT DISTINCT ?equiv_label
+            WHERE {
+                ?src rdfs:label ?src_label .
+                ?pred a honk:eq .
+                ?src (^?pred|?pred)* ?equiv .
+                ?equiv rdfs:label ?equiv_label .
+            }"""
+        bindings = {"src_label": Literal(k, datatype=XSD.string)}
+        
+        synonyms = {k}
+        for row in self._iter_rows(query, bindings):
+            if row.equiv_label:
+                synonyms.add(str(row.equiv_label))
+
+        # Cache the result for every discovered member.
+        for t in synonyms:
+            self._syn_cache[t] = synonyms
+        return synonyms
+
+        return visited
 
     def typeOf2(self, src):
         knows_query = """
@@ -437,9 +623,8 @@ class Parmenides(RDFGraph):
          WHERE {
              ?src rdfs:subClassOf ?dst.
          }"""
-        qres = self.graph.query(knows_query, initBindings={"src": src})
         s = set()
-        for x in qres:
+        for x in self._iter_rows(knows_query, {"src": src}):
             s.add(str(x.dst))
         return s
 
@@ -453,25 +638,37 @@ class Parmenides(RDFGraph):
              ?src a ?dst.
              ?src rdfs:label ?src_label.
          }"""
-        qres = self.graph.query(knows_query, initBindings={"src_label": Literal(src, datatype=XSD.string)})
         s = set()
-        for x in qres:
+        for x in self._iter_rows(knows_query, {"src_label": Literal(src, datatype=XSD.string)}):
             s.add(str(x.dst))
         return s
 
     def getSuperTypes(self, src):
+        """Return the set of all superclasses of the entity *src* (including direct types and their ancestors).
+        
+        Uses SPARQL property paths (rdfs:subClassOf*) for fast, engine-level traversal.
+        Results are cached in self.st.
+        """
         if src in self.st:
             return self.st[src]
-        s = list(self.typeOf(src))
-        visited = set()
-        while len(s) > 0:
-            x = s.pop()
-            if x not in visited:
-                visited.add(x)
-                for y in self.typeOf2(self.namespace[str(x)[len(self.namespace):]]):
-                    s.append(y)
-        self.st[src] = visited
-        return visited
+            
+        query = """
+            SELECT DISTINCT ?super
+            WHERE {
+                ?s rdfs:label ?label .
+                ?s a ?type .
+                ?type rdfs:subClassOf* ?super .
+            }"""
+        bindings = {"label": Literal(src, datatype=XSD.string)}
+        
+        supertypes = set()
+        for row in self._iter_rows(query, bindings):
+            if row.super:
+                # Store full URIs as strings, matching previous behavior
+                supertypes.add(str(row.super))
+        
+        self.st[src] = supertypes
+        return supertypes
 
     def getTypedObjects(self):
             typing = """
@@ -480,9 +677,8 @@ class Parmenides(RDFGraph):
        ?s a ?dst .
        ?s rdfs:label ?src_label.
     } """
-            qres = self.graph.query(typing)
             d = defaultdict(set)
-            for x in qres:
+            for x in self._iter_rows(typing):
                 d[str(x.src_label)].add(str(x.dst)[len(self.namespace):])
             return d
 
@@ -494,10 +690,14 @@ class Parmenides(RDFGraph):
             f = filename
         else:
             f = open(str(filename), "w")
+        # Write a header row so FuzzyStringMatchDatabase.create()'s next(f) skip is harmless
+        f.write(f"id\tidx\tt\ttype{os.linesep}")
         count = 1
         for k, v in l.items():
-            k, t = k, self.most_specific_type(v)
-            f.write(f"{count}\t{k}\t{k}\t{t}")
+            t = self.most_specific_type(v)
+            # Escape backslashes so PostgreSQL COPY doesn't treat them as escape sequences
+            k_escaped = k.replace("\\", "\\\\")
+            f.write(f"{count}\t{k_escaped}\t{k_escaped}\t{t}")
             count += 1
             if count <= n:
                 f.write(os.linesep)
@@ -526,21 +726,87 @@ class Parmenides(RDFGraph):
             elif len(isect) == 0:
                 return CasusHappening.INDIFFERENT
             else:
+                srcS = self.getSynonymy(src)
+                dstS = self.getSynonymy(dst)
                 for k in isect:
-                    if len(list(self.single_edge(src, "neqTo", dst))) > 0:
+                    # Check direct neqTo (both directions) via direct predicate and numbered instances
+                    neqTo_src = (set(x["x"] for x in self.single_edge(src, "neqTo", "^x") if x.get("@^hasResult"))
+                                 | self._getOutgoingNodesByClassInstance(src, "neqTo"))
+                    neqTo_dst = (set(x["x"] for x in self.single_edge(dst, "neqTo", "^x") if x.get("@^hasResult"))
+                                 | self._getOutgoingNodesByClassInstance(dst, "neqTo"))
+                    # src neqTo dst, or any synonym of dst is neqTo of src
+                    if dst in neqTo_src or len(set(dstS).intersection(neqTo_src)) > 0:
                         return CasusHappening.EXCLUSIVES
-                    srcS = self.getSynonymy(src)
-                    dstS = self.getSynonymy(dst)
+                    # dst neqTo src, or any synonym of src is neqTo of dst
+                    if src in neqTo_dst or len(set(srcS).intersection(neqTo_dst)) > 0:
+                        return CasusHappening.EXCLUSIVES
                     if len(set(srcS).intersection(set(dstS))) > 0:
                         return CasusHappening.EQUIVALENT
                     for lhs in self.getSynonymy(src):
                         for rhs in self.getSynonymy(dst):
-                            if (lhs, rhs) in self.getTransitiveClosureHier(k):
+                            if self._is_reachable(lhs, rhs):
                                 return CasusHappening.GENERAL_IMPLICATION
                 return CasusHappening.INDIFFERENT
 
+    # SPARQL template used by _get_reachable for a single BFS step.
+    # Reflects the two edge directions from the original trcl construction:
+    #   isA  with flip=True  → edges run supertype → subtype
+    #                          (lhs is destination; we follow incoming isA edges)
+    #   partOf with flip=False → edges run part → whole
+    #                          (lhs is source; we follow outgoing partOf edges)
+    _HIER_QUERY = """
+        SELECT DISTINCT ?next_label
+        WHERE {
+            {
+                ?pred a honk:isA .
+                ?next ?pred ?cur .
+                ?cur  rdfs:label ?cur_label .
+                ?next rdfs:label ?next_label .
+            }
+            UNION
+            {
+                ?pred a honk:partOf .
+                ?cur  ?pred ?next .
+                ?cur  rdfs:label ?cur_label .
+                ?next rdfs:label ?next_label .
+            }
+        }"""
+
+    def _get_reachable(self, term: str) -> set:
+        """Return the set of all terms reachable from *term* via isA/partOf
+        edges (lazy closure using SPARQL property paths)."""
+        if term in self._trcl_cache:
+            return self._trcl_cache[term]
+
+        # Use SPARQL property paths to find the closure of isA/partOf in one step.
+        # This handles the full reachability from *term* at the engine level.
+        query = """
+            SELECT DISTINCT ?dst_label
+            WHERE {
+                ?src rdfs:label ?src_label .
+                ?pred_isa    a honk:isA .
+                ?pred_partof a honk:partOf .
+                ?src (^?pred_isa|?pred_partof)* ?dst .
+                ?dst rdfs:label ?dst_label .
+            }"""
+        bindings = {"src_label": Literal(term, datatype=XSD.string)}
+        
+        reachable = {term}
+        for row in self._iter_rows(query, bindings):
+            if row.dst_label:
+                reachable.add(str(row.dst_label))
+
+        self._trcl_cache[term] = reachable
+        return reachable
+
+    def _is_reachable(self, lhs: str, rhs: str) -> bool:
+        """Return True if *rhs* is reachable from *lhs* via isA/partOf edges."""
+        return rhs in self._get_reachable(lhs)
+
     def getTransitiveClosureHier(self, t):
-        return self.trcl
+        # Kept for API compatibility; internal code uses _is_reachable directly.
+        # Returns the cached reachable set for t (lazy, not the full closure).
+        return self._get_reachable(t)
 
     def getNounsWithProperties(self):
         return self.nouns_with_properties
@@ -597,7 +863,13 @@ class Parmenides(RDFGraph):
         return self.prepositions
 
     def _clear(self):
-        self.trcl.clear()
+        # Clear lru_cache entries that hold strong references to this instance,
+        # otherwise the cache prevents GC and keeps the pyoxigraph Store open.
+        self.name_eq.cache_clear()
+        self.get_logical_functions.cache_clear()
+        self.loaded = False
+        self._syn_cache.clear()
+        self._trcl_cache.clear()
         self.nouns_with_properties.clear()
         self.nouns_with_a.clear()
         self.semi_modal_verbs.clear()
@@ -619,30 +891,34 @@ class Parmenides(RDFGraph):
     @lru_cache(maxsize=128)
     def get_logical_functions(self, logical_construct_name, logical_construct_property):
         knows_query = """
-         SELECT DISTINCT ?label ?attachTo ?argument
+         SELECT DISTINCT ?label ?attachTo ?argument ?logicalConstructProperty
          WHERE {
-             ?a a parmenides:LogicalFunction.
+             ?a a honk:LogicalFunction.
              ?a rdfs:label ?label .
-             ?a parmenides:logicalConstructName ?logicalConstructName .
-             OPTIONAL { ?a parmenides:logicalConstructProperty ?logicalConstructProperty }
-             ?a parmenides:attachTo ?attachTo .
-             ?a parmenides:argument ?argument .
+             ?a honk:logicalConstructName ?logicalConstructName .
+             OPTIONAL { ?a honk:logicalConstructProperty ?logicalConstructProperty }
+             ?a honk:attachTo ?attachTo .
+             ?a honk:argument ?argument .
          }"""
 
         logical_functions = list()
-        query_functions = self.graph.query(knows_query, initBindings={'logicalConstructName': Literal(logical_construct_name, datatype=XSD.string), 'logicalConstructProperty': Literal(logical_construct_property, datatype=XSD.string)})
-
-        for function in query_functions:
-            logical_functions.append(LogicalRewritingRule(
-                label=function.label.value,
-                attachTo=function.attachTo.value,
-                logicalConstructName=logical_construct_name,
-                logicalConstructProperty=logical_construct_property
-            ))
+        bindings = {
+            'logicalConstructName': Literal(logical_construct_name, datatype=XSD.string),
+        }
+        for function in self._iter_rows(knows_query, bindings):
+            # Manually filter by property to avoid OPTIONAL binding issues in SPARQL
+            actual_prop = function.logicalConstructProperty.value if hasattr(function, 'logicalConstructProperty') and function.logicalConstructProperty is not None else None
+            if actual_prop == logical_construct_property:
+                logical_functions.append(LogicalRewritingRule(
+                    label=function.label.value,
+                    attachTo=function.attachTo.value,
+                    logicalConstructName=logical_construct_name,
+                    logicalConstructProperty=actual_prop
+                ))
 
         return logical_functions
 
-def load_from_txt_file(p:Parmenides, path:str, classes:list, to_reject:set):
+def load_from_txt_file(p:HOnK, path:str, classes:list, to_reject:set):
     with open(path, "r") as dep:
         for line in dep:
             line = line.strip()
@@ -650,7 +926,7 @@ def load_from_txt_file(p:Parmenides, path:str, classes:list, to_reject:set):
                 classes.append("Rejectable")
             p.create_entity(line, classes)
 
-def generate_parmenides_graph(p:Parmenides, data_path:str, result_path:str=None):
+def generate_honk_graph(p:HOnK, data_path:str, result_path:str=None):
     p.create_property("hasAdjective")
     p.create_property("subject")
     p.create_property("d_object")
@@ -668,7 +944,7 @@ def generate_parmenides_graph(p:Parmenides, data_path:str, result_path:str=None)
     p.create_relationship("capableOf")
     p.create_relationship("adjectivalForm")
     p.create_relationship("adverbialForm")
-    p.create_relationship("eqTo")
+    p.create_relationship("eq")
     p.create_relationship("neqTo")
     _T = p.create_class("Dimensions")
     LOC_T = p.create_class("LOC", "Dimensions")
@@ -772,7 +1048,7 @@ def generate_parmenides_graph(p:Parmenides, data_path:str, result_path:str=None)
     p.create_concept("fabulous", "Adjective")
     p.create_concept("center", "Adjective")
     p.create_concept("centre", "Adjective")
-    p.create_relationship_instance("center", "eqTo", "centre", True)
+    p.create_relationship_instance("center", "eq", "centre", True)
     p.create_concept("busy", "Adjective")
     p.create_concept("crowded", "Adjective")
     p.create_concept("fast", "Adjective")
@@ -801,10 +1077,10 @@ def generate_parmenides_graph(p:Parmenides, data_path:str, result_path:str=None)
     p.create_concept("busy city", ["Noun"], hasAdjective="busy", entryPoint="city")
     p.create_concept("traffic jam", ["Noun"], composite_with=["traffic#n", "jam"], entryPoint="traffic#n")
     p.create_concept("traffic congestion", ["Noun"], composite_with=["traffic#n", "congestion"], entryPoint="traffic#n")
-    p.create_relationship_instance("traffic jam", "eqTo", "traffic congestion", True)
-    p.create_relationship_instance("traffic jam", "eqTo", "traffic congestion", True)
+    p.create_relationship_instance("traffic jam", "eq", "traffic congestion", True)
+    p.create_relationship_instance("traffic jam", "eq", "traffic congestion", True)
     p.create_concept("flow fast", "CompoundForm", hasAdjective="fast", entryPoint="flow#v")
-    p.create_relationship_instance("flow in", "eqTo", "flow#v", True)
+    p.create_relationship_instance("flow in", "eq", "flow#v", True)
     p.create_concept("traffic jam can slow traffic", "CompoundForm", entryPoint="slow", subject="traffic jam", d_object="traffic#n")
     p.create_concept("city centers", "LOC", hasAdjective="center", entryPoint="city")
     p.create_concept("city centres", "LOC", hasAdjective="centre", entryPoint="city")
@@ -812,22 +1088,22 @@ def generate_parmenides_graph(p:Parmenides, data_path:str, result_path:str=None)
     p.create_concept("city centre", "LOC", hasAdjective="centre", entryPoint="city")
     p.create_relationship_instance("city", "hasProperty", "busy", True)
     p.create_relationship_instance("city center", "partOf", "city")
-    p.create_relationship_instance("city center", "eqTo", "city centre", True)
+    p.create_relationship_instance("city center", "eq", "city centre", True)
     p.create_relationship_instance("city centre", "partOf", "city")
     p.create_relationship_instance("city centers", "partOf", "city")
     p.create_relationship_instance("city centres", "partOf", "city")
-    p.create_relationship_instance("city center", "eqTo", "city centers", True)
-    p.create_relationship_instance("city center", "eqTo", "city centres", True)
-    p.create_relationship_instance("city centre", "eqTo", "city centers", True)
-    p.create_relationship_instance("city centre", "eqTo", "city centres", True)
-    p.create_relationship_instance("city centers", "eqTo", "city centres", True)
+    p.create_relationship_instance("city center", "eq", "city centers", True)
+    p.create_relationship_instance("city center", "eq", "city centres", True)
+    p.create_relationship_instance("city centre", "eq", "city centers", True)
+    p.create_relationship_instance("city centre", "eq", "city centres", True)
+    p.create_relationship_instance("city centers", "eq", "city centres", True)
     p.create_relationship_instance("busy", "relatedTo", "crowd#n", True)
     p.create_relationship_instance("congestion", "relatedTo", "traffic congestion", True)
     p.create_relationship_instance("crowd#n", "relatedTo", "congestion", True)
     p.create_relationship_instance("busy city", "relatedTo", "crowd#n", True)
     p.create_relationship_instance("traffic jam", "capableOf", "traffic jam can slow traffic")
     p.create_relationship_instance("hectic", "hasProperty", "traffic#n", True)
-    p.create_relationship_instance("hectic", "eqTo", "busy", True)
+    p.create_relationship_instance("hectic", "eq", "busy", True)
 
     ## This is a tumor: single entity match in post-processing
     p.create_concept("embryoma_of_the_kidney#n", "Noun", entity_name="embryoma of the kidney")
@@ -850,5 +1126,5 @@ def generate_parmenides_graph(p:Parmenides, data_path:str, result_path:str=None)
     p.create_relationship_instance("chess#n", "isA", "game#n") #(isSymmetricalIfComparedToNMod,hasNModIsA)
 
     if result_path is None:
-        result_path = "parmenides.ttl"
+        result_path = "HOnK.ttl"
     p.serialize(result_path)

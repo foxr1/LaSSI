@@ -9,8 +9,7 @@ from functools import lru_cache
 from typing import Optional, List
 
 import dacite
-from rdflib import Literal, XSD
-from FunctionalMatch.rdf.RDFGraph import RDFGraph
+from FunctionalMatch.rdf.RDFGraph import Literal, XSD, RDFGraph
 import logging
 
 
@@ -48,7 +47,7 @@ class CasusHappening(Enum):
 
 
 
-class ParmenidesSingleton(object):
+class HOnKSingleton(object):
     _instance = None
 
     def __init__(self):
@@ -56,7 +55,7 @@ class ParmenidesSingleton(object):
 
     @staticmethod
     def isReady():
-        return (ParmenidesSingleton._instance is not None) and (ParmenidesSingleton._instance.parmenides is not None)
+        return (HOnKSingleton._instance is not None) and (HOnKSingleton._instance.parmenides is not None)
 
     @classmethod
     def instance(cls):
@@ -68,20 +67,20 @@ class ParmenidesSingleton(object):
 
     @staticmethod
     def init(cache_path, user, password, hostame, port, onStorage, path):
-        if ParmenidesSingleton._instance.parmenides is None:
-            ParmenidesSingleton._instance.parmenides = Parmenides(cache_path, user, password, hostame, port, onStorage)
-            ParmenidesSingleton._instance.parmenides.start(path)
+        if HOnKSingleton._instance.parmenides is None:
+            HOnKSingleton._instance.parmenides = Parmenides(cache_path, user, password, hostame, port, onStorage)
+            HOnKSingleton._instance.parmenides.start(path)
 
     @staticmethod
     def stop():
-        if ParmenidesSingleton._instance is not None and ParmenidesSingleton._instance.parmenides is not None:
-            ParmenidesSingleton._instance.parmenides.stop()
-            ParmenidesSingleton._instance.parmenides = None
-        ParmenidesSingleton._instance = None
+        if HOnKSingleton._instance is not None and HOnKSingleton._instance.parmenides is not None:
+            HOnKSingleton._instance.parmenides.stop()
+            HOnKSingleton._instance.parmenides = None
+        HOnKSingleton._instance = None
 
     @staticmethod
     def get() -> 'Parmenides':
-        return ParmenidesSingleton._instance.parmenides
+        return HOnKSingleton._instance.parmenides
 
 
 class Parmenides(RDFGraph):
@@ -304,7 +303,7 @@ class Parmenides(RDFGraph):
             with open(prep_pickle, "rb") as f:
                 self.prepositions = pickle.load(f)
         if self.prepositions is None or len(self.prepositions) == 0:
-            # from LaSSI.Parmenides.Prepositions import Preposition
+            # from LaSSI.HOnK.Prepositions import Preposition
             from Prepositions import Preposition
             query = """
             SELECT *

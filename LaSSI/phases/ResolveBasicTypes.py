@@ -14,9 +14,10 @@ from LaSSI.tests.benchmark import Benchmark
 
 
 class ResolveBasicTypes:
-    def __init__(self, recall_threshold: float, precision_threshold: float, disable_a_priori: bool, use_multiprocessing: bool):
+    def __init__(self, recall_threshold: float, precision_threshold: float, disable_a_priori: bool, use_multiprocessing: bool, disable_fuzzy_honk: bool = False):
         from LaSSI.external_services.Services import Services
         self.disable_a_priori = disable_a_priori
+        self.disable_fuzzy_honk = disable_fuzzy_honk
         self.recall_threshold = recall_threshold
         self.precision_threshold = precision_threshold
         self.services = Services.getInstance()
@@ -38,7 +39,8 @@ class ResolveBasicTypes:
                 sentence,
                 all_time_units[i],
                 self.recall_threshold,
-                self.precision_threshold
+                self.precision_threshold,
+                self.disable_fuzzy_honk
             )
             tasks_args.append(args)
 
@@ -66,5 +68,5 @@ class ResolveBasicTypes:
         return db
 
 
-def ExplainTextWithNER(self, sentences):
-    return ResolveBasicTypes(self.recall_threshold, self.precision_threshold, self.disable_a_priori, self.use_multiprocessing).resolve_basic_types(sentences)
+def ExplainTextWithNER(self, sentences, disable_fuzzy_honk=False):
+    return ResolveBasicTypes(self.recall_threshold, self.precision_threshold, self.disable_a_priori, self.use_multiprocessing, disable_fuzzy_honk).resolve_basic_types(sentences)

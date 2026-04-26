@@ -1,10 +1,10 @@
-# from LaSSI.Parmenides.TBox.ExpandConstituents import CasusHappening, test_pairwise_sentence_similarity, isImplication
+# from LaSSI.HOnK.TBox.ExpandConstituents import CasusHappening, test_pairwise_sentence_similarity, isImplication
 # from logical_repr.Sentences import FUnaryPredicate, FBinaryPredicate, FNot
 # from logical_repr.rewrite_kernels import make_not
 from pydatagramdb import result
 
 from LaSSI.structures.extended_fol.Formulae import *
-from LaSSI.Parmenides.Parmenides import CasusHappening
+from LaSSI.HOnK.HOnK import CasusHappening
 
 
 class ModelSearchBasis:
@@ -45,7 +45,7 @@ class ModelSearch:
         foundEquivalence = False
         for rrr in rhsSet:
             rhs = rrr.bogusCopula() if isRightDrop else rrr
-            from LaSSI.Parmenides.TBox.ExpandConstituents import test_pairwise_sentence_similarity
+            from LaSSI.HOnK.TBox.ExpandConstituents import test_pairwise_sentence_similarity
             if (not isinstance(rhs, FNot)) and rhs.rel == "be" and isinstance(rhs.arg, FVariable) and rhs.arg.name == "traffic":
                 test_pairwise_sentence_similarity({}, lhs.bogusCopula(), rhs, shift=False)
             val = test_pairwise_sentence_similarity(self.pairwise_similarity_cache, lhs, rhs, shift=False)
@@ -56,7 +56,7 @@ class ModelSearch:
             if (val == CasusHappening.EQUIVALENT): ## To check: if I found at least one equivalence after rewriting, then that's it.
                 # test_pairwise_sentence_similarity({}, lhs, rhs, shift=False)
                 return CasusHappening.EQUIVALENT
-            from LaSSI.Parmenides.TBox.ExpandConstituents import isImplication
+            from LaSSI.HOnK.TBox.ExpandConstituents import isImplication
             if isImplication(val):
                 # val = test_pairwise_sentence_similarity(dict(), lhs, rhs, kb=self.kb)
                 # test_pairwise_sentence_similarity({}, lhs, rhs, shift=False)
@@ -116,7 +116,7 @@ class ModelSearch:
                     if firstConst is None:
                         firstConst = val
                     # return val
-            from LaSSI.Parmenides.TBox.ExpandConstituents import simplifyConstituentsAcross
+            from LaSSI.HOnK.TBox.ExpandConstituents import simplifyConstituentsAcross
             result = simplifyConstituentsAcross(elems)
             if result != CasusHappening.INDIFFERENT:
                 self.main_cache[cp] = result

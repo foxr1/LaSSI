@@ -1,4 +1,4 @@
-from LaSSI.Parmenides.TBox.ExpandConstituents import compare_variable
+from LaSSI.HOnK.TBox.ExpandConstituents import compare_variable
 from LaSSI.structures.extended_fol.Formulae import FVariable
 
 ncl = FVariable("Newcastle", "GPE", None, None, 1)
@@ -17,12 +17,12 @@ nc = FVariable("Newcastle", "GPE", "city", None, 1)
 all_nc = nc.makeAsAll()
 
 import unittest
-from LaSSI.Parmenides.Parmenides import ParmenidesSingleton, CasusHappening
+from LaSSI.HOnK.HOnK import HOnKSingleton, CasusHappening
 
 class DirectionTests(unittest.TestCase):
     def setUp(self):
-        ParmenidesSingleton.instance()
-        ParmenidesSingleton.init("/home/giacomo/projects/LaSSI/catabolites", "giacomo", "omocaig",
+        HOnKSingleton.instance()
+        HOnKSingleton.init("/home/giacomo/projects/LaSSI/catabolites", "giacomo", "omocaig",
                                  "localhost", 5432, False, "/home/giacomo/projects/LaSSI/parmenides.ttl")
 
     def _cmpVariables(self, x, y, case):
@@ -117,11 +117,11 @@ class DirectionTests(unittest.TestCase):
     #     self._cmpVariables( ncc, all_ncc,CasusHappening.INDIFFERENT)
 
     def tearDown(self):
-        ParmenidesSingleton.stop()
+        HOnKSingleton.stop()
 
 
 if __name__ == '__main__':
-    ParmenidesSingleton.instance()
-    ParmenidesSingleton.init("/home/giacomo/projects/LaSSI/catabolites", "giacomo", "omocaig",
+    HOnKSingleton.instance()
+    HOnKSingleton.init("/home/giacomo/projects/LaSSI/catabolites", "giacomo", "omocaig",
                                      "localhost", 5432, False, "/home/giacomo/projects/LaSSI/parmenides.ttl")
     print(compare_variable(dict(), nc, cc))  #Indifferent

@@ -8,7 +8,7 @@ import numpy
 
 from LaSSI.external_services.Services import Services
 from LaSSI.ner.MergeSetOfSingletons import merge_properties
-from LaSSI.ner.ParmenidesLogicalRewriting import get_matching_logical_rules
+from LaSSI.ner.HOnKLogicalRewriting import get_matching_logical_rules
 from LaSSI.ner.node_functions import create_props_for_singleton, get_min_position
 from LaSSI.ner.string_functions import is_label_verb, check_semi_modal
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton, SetOfSingletons, Relationship, Grouping
@@ -197,7 +197,7 @@ class CreateFinalKernel:
 
         if len(self.edges) > 0:
             # A single word that precedes a noun phrase complement and expresses spatial relations (*in* the house)
-            prototypical_prepositions = Services.getInstance().getParmenides().getPrototypicalPrepositions()
+            prototypical_prepositions = Services.getInstance().getHOnK().getPrototypicalPrepositions()
             edge_labels = defaultdict(set)  # (source ID, target ID) : edge label name
             for edge in self.edges:
                 edge_labels[(edge.source.id, edge.target.id)].add(edge.edgeLabel.named_entity)
@@ -245,6 +245,15 @@ class CreateFinalKernel:
                     self.nodes[edge.target.id] = edge.target.strip_root_properties()
                     new_edge = edge.update_vertex(self.nodes[edge.target.id], 'target')
 
+                # acl (participial clause) edges: target should never be a top-level kernel
+                if (
+                        not found_subsentence and
+                        edge.edgeLabel.named_entity == 'acl' and
+                        edge.target.type != 'existential'
+                ):
+                    self.nodes[edge.target.id] = edge.target.strip_root_properties()
+                    new_edge = edge.update_vertex(self.nodes[edge.target.id], 'target')
+
                 # If edge has had 'root' added or removed
                 if new_edge is None:
                     new_edges.append(edge)
@@ -262,9 +271,11 @@ class CreateFinalKernel:
         if source_props is not None and 'adv' in source_props and source_props['adv']:
             new_edge_label_name = f"{kernel.kernel.edgeLabel.named_entity} {source_props['adv']}"
 
-            # If the concatenation is not present in the list of phrasal verbs, reject and return kernel as it was
-            phrasal_verbs = Services.getInstance().getParmenides().getPhrasalVerbs()
-            if len({new_edge_label_name.replace(" ", "")}.intersection(x.replace(" ", "") for x in phrasal_verbs)) == 0:
+            # If the concatenation is not present in the list of phrasal verbs, strip the spurious adv property
+            phrasal_verbs = Services.getInstance().getHOnK().getPhrasalVerbs()
+            if len(phrasal_verbs.intersection({new_edge_label_name})) == 0:
+                edge_source = kernel.kernel.source.remove_prop('adv')
+                kernel = kernel.update_kernel(edge_source, "source")
                 return kernel
 
             edge_label = kernel.kernel.edgeLabel.update_name(new_edge_label_name)
@@ -368,7 +379,7 @@ class CreateFinalKernel:
             return kernel
 
     def rewrite_node_logically(self, kernel, initial_node, properties, has_nmod=False, return_key=False, type_key=None):
-        parmenides = Services.getInstance().getParmenides()
+        honk = Services.getInstance().getHOnK()
         prop_node, selected_rule = get_matching_logical_rules(kernel, initial_node, has_nmod)
         prepositions = get_prepositions(prop_node)
         number_value = dict(prop_node.properties)["nummod"] if "nummod" in dict(prop_node.properties) else None
@@ -386,7 +397,7 @@ class CreateFinalKernel:
             )}
             # prop_node = Singleton.update_node_props(prop_node, node_props)  # TODO: If we do not remove the properties, then rewriting of source/target might re-rewrite the same preposition? We might lose information however
 
-            selected_function = parmenides.get_logical_functions(selected_rule.logicalConstructName, selected_rule.logicalConstructProperty)
+            selected_function = honk.get_logical_functions(selected_rule.logicalConstructName, selected_rule.logicalConstructProperty)
 
             if len(selected_function) > 0:
                 selected_function = selected_function[0]  # Use first function in list
@@ -409,12 +420,21 @@ class CreateFinalKernel:
                         elif logical_type is not None:
                             node_props["type"] = logical_type  # TODO: node_props[key] and properties[key] would be duplicated, so use "type" instead?
                         prop_node = prop_node.update_node_props(node_props)
-                    properties[type_key].append(prop_node if number_value is None or (number_value is not None and not hasattr(selected_function, "hasNumber")) else number_value)  # Check if the rewriting function hasNumber, and append the number instead of the entire node
+                    
+                    val_to_add = prop_node if number_value is None or (number_value is not None and not hasattr(selected_function, "hasNumber")) else number_value
+                    if isinstance(val_to_add, Singleton):
+                        if val_to_add.id not in [x.id for x in properties[type_key] if isinstance(x, Singleton)]:
+                            properties[type_key].append(val_to_add)
+                    else:
+                        if val_to_add not in properties[type_key]:
+                            properties[type_key].append(val_to_add)
+
                 elif selected_function.attachTo == "Kernel":
                     if logical_type is not None:
                         node_props["type"] = logical_type
                         prop_node = prop_node.update_node_props(node_props)
-                    properties[type_key].append(prop_node)
+                    if prop_node.id not in [x.id for x in properties[type_key] if isinstance(x, Singleton)]:
+                        properties[type_key].append(prop_node)
 
         if return_key:
             return prop_node, type_key
@@ -422,10 +442,11 @@ class CreateFinalKernel:
             # If we don't find a rule, or function, add the initial node to its original key
             if selected_rule is None or (isinstance(selected_function, list) and len(selected_function) == 0):
                 type_key = type_key if type_key is not None else initial_node.type
-                if isinstance(properties[type_key], list or tuple):
-                    properties[type_key].append(initial_node)
-                else:
+                if not isinstance(properties[type_key], list or tuple):
                     properties[type_key] = [initial_node]
+                else:
+                    if initial_node.id not in [x.id for x in properties[type_key] if isinstance(x, Singleton)]:
+                        properties[type_key].append(initial_node)
             return properties
 
     def check_property_replacement(self, kernel, properties):

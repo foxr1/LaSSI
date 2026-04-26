@@ -1,6 +1,6 @@
 from sqlitedict import SqliteDict
 
-from LaSSI.Parmenides.conceptnet.parse_conceptnet_file import CompactRelation
+from LaSSI.HOnK.conceptnet.parse_conceptnet_file import CompactRelation
 import csv
 
 def process_conceptnet_csv(csv_file, db):

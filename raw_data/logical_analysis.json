@@ -281,7 +281,7 @@
         "SingletonHasBeenMatchedBy": [
           "SUTime"
         ],
-        "preposition": [
+        "Preposition": [
           "on",
           "in",
           "at",
@@ -305,11 +305,12 @@
         "SingletonHasBeenMatchedBy": [
           "SUTime"
         ],
-        "preposition": [
+        "Preposition": [
           "during",
           "before",
           "after",
-          "while"
+          "while",
+          "until"
         ]
       },
       "classification": [
@@ -324,10 +325,10 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "on"
         ],
-        "abstract_entity": false
+        "AbstractEntity": false
       },
       "classification": [
         {
@@ -350,13 +351,13 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "to",
           "at",
           "for"
         ],
-        "abstract_entity": false,
-        "verb_of_motion": true,
+        "AbstractEntity": false,
+        "MotionVerb": true,
         "not": {
           "SingletonHasBeenMatchedBy": [
             "SUTime"
@@ -378,10 +379,10 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "to"
         ],
-        "causative_verb": true
+        "CausativeVerb": true
       },
       "classification": [
         {
@@ -394,13 +395,60 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
+          "due",
+          "due to"
+        ]
+      },
+      "classification": [
+        {
+          "type": "causation"
+        }
+      ],
+      "__sentence_examples": [
+        "closed due to fire safety concerns",
+        "delayed due to bad weather",
+        "cancelled due to illness"
+      ]
+    },
+    {
+      "premise": {
+        "Preposition": [
           "to",
           "at"
         ],
         "not": {
           "SingletonHasBeenMatchedBy": [
-            "SUTime"
+            "SUTime",
+            "LOC",
+            "GPE"
+          ],
+          "CausativeVerb": true
+        }
+      },
+      "classification": [
+        {
+          "type": "ofTerm"
+        }
+      ],
+      "__sentence_examples": [
+        "open to the public",
+        "providing access to others",
+        "laughing at humor",
+        "aim at a tree"
+      ]
+    },
+    {
+      "premise": {
+        "Preposition": [
+          "to",
+          "at"
+        ],
+        "not": {
+          "SingletonHasBeenMatchedBy": [
+            "SUTime",
+            "LOC",
+            "GPE"
           ]
         }
       },
@@ -420,7 +468,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "from"
         ],
         "hasNMod": true
@@ -438,10 +486,10 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "from"
         ],
-        "verb_of_motion": true
+        "MotionVerb": true
       },
       "classification": [
         {
@@ -455,7 +503,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "from"
         ]
       },
@@ -470,12 +518,12 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "in",
           "into"
         ],
-        "verb_of_motion": true,
-        "abstract_entity": false
+        "MotionVerb": true,
+        "AbstractEntity": false
       },
       "classification": [
         {
@@ -489,9 +537,10 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "in",
-          "into"
+          "into",
+          "at"
         ],
         "SingletonHasBeenMatchedBy": [
           "GPE",
@@ -525,11 +574,12 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "in",
-          "into"
+          "into",
+          "at"
         ],
-        "abstract_entity": false
+        "AbstractEntity": false
       },
       "classification": [
         {
@@ -558,10 +608,10 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "in"
         ],
-        "abstract_entity": true
+        "AbstractEntity": true
       },
       "classification": [
         {
@@ -574,10 +624,10 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "across"
         ],
-        "verb_of_motion": true
+        "MotionVerb": true
       },
       "classification": [
         {
@@ -591,7 +641,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "across"
         ]
       },
@@ -606,7 +656,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "than"
         ]
       },
@@ -621,7 +671,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "about"
         ]
       },
@@ -639,7 +689,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "by"
         ]
       },
@@ -655,7 +705,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "as"
         ]
       },
@@ -671,7 +721,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "of"
         ],
         "hasNMod": true,
@@ -693,11 +743,11 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "of"
         ],
         "hasNMod": true,
-        "verb_of_means": true
+        "MeansVerb": true
       },
       "classification": [
         {
@@ -710,7 +760,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "'s",
           "’s"
         ],
@@ -731,7 +781,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "of"
         ],
         "hasNMod": true,
@@ -750,7 +800,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "of"
         ],
         "hasNMod": true
@@ -776,7 +826,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "of"
         ],
         "hasNMod": false
@@ -792,10 +842,10 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "into"
         ],
-        "isMaterializationVerb": true
+        "MaterialisationVerb": true
       },
       "classification": [
         {
@@ -810,8 +860,8 @@
     },
     {
       "premise": {
-        "hasNumber": true,
-        "hasUnitOfMeasure": true
+        "Number": true,
+        "UnitOfMeasure": true
       },
       "classification": [
         {
@@ -824,7 +874,7 @@
     },
     {
       "premise": {
-        "hasNumber": true
+        "Number": true
       },
       "classification": [
         {
@@ -837,7 +887,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "with"
         ]
       },
@@ -855,10 +905,10 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "for"
         ],
-        "causative_verb": true
+        "CausativeVerb": true
       },
       "classification": [
         {
@@ -877,7 +927,7 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "for"
         ]
       },
@@ -895,11 +945,11 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "on"
         ],
-        "verb_of_motion": false,
-        "verb_of_state": false
+        "MotionVerb": false,
+        "StateVerb": false
       },
       "classification": [
         {
@@ -914,11 +964,12 @@
     },
     {
       "premise": {
-        "preposition": [
+        "Preposition": [
           "during",
           "before",
           "after",
-          "while"
+          "while",
+          "until"
         ]
       },
       "classification": [

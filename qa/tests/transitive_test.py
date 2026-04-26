@@ -1,6 +1,6 @@
 import pytest
 import time
-from LaSSI.Parmenides.conceptnet.transitive_closure import floyd_warshall, DSU
+from LaSSI.HOnK.conceptnet.transitive_closure import floyd_warshall, DSU
 
 def sort_adjacency_list(adj):
     for k, v in adj.items():

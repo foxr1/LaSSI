@@ -158,8 +158,8 @@ def test(current, rest, k, v, start, end, type_val, forinsert, trustworthiness_s
     # No more tokens to check in the sequence
     if not rest:
         if k >= forinsert:
-            if isinstance(type_val, list) and parmo:
-                type_val = parmo.most_specific_type(type_val)
+            if isinstance(type_val, list):
+                type_val = parmo.most_specific_type(type_val) if parmo else (type_val[0] if type_val else "None")
             results.extend(
                 _build_loc_result_worker(current, type_val, start, end, v, k * trustworthiness_source, v, src)
             )
@@ -172,8 +172,8 @@ def test(current, rest, k, v, start, end, type_val, forinsert, trustworthiness_s
     if val < k:
         # Similarity dropped, so chain ends, current match might still be valid
         if k >= forinsert:
-            if isinstance(type_val, list) and parmo:
-                type_val = parmo.most_specific_type(type_val)
+            if isinstance(type_val, list):
+                type_val = parmo.most_specific_type(type_val) if parmo else (type_val[0] if type_val else "None")
             results.extend(
                 _build_loc_result_worker(current, type_val, start, end, v, k * trustworthiness_source, v, src)
             )
@@ -195,42 +195,62 @@ def process_sentence(args):
         if services is None:
             services = Services(logger=logger_func)
 
-        s = DBFuzzyStringMatching(services.postgres, "parmenides")
-        parmo = services.getParmenides()
+        s = DBFuzzyStringMatching(services.postgres, "honk")
+        parmo = services.getHOnK()
 
     sentence_results = []
 
     ls = [(text, start, end) for text, start, end in tokens_data] + \
          [(lemmatize_verb(text), start, end) for text, start, end in tokens_data]
 
+    half_len = len(ls) // 2
     for i in range(len(ls)):
-        text, start_char, end_char = ls[i]
-        term = text.lower()
+        # Try matching n-grams (up to 3 words) starting at i
+        # But ensure we only combine tokens from the same half (original vs lemmatized)
+        max_n = 3
+        current_limit = half_len if i < half_len else len(ls)
+        
+        for n in range(1, min(max_n + 1, current_limit - i + 1)):
+            n_gram_tokens = ls[i:i+n]
+            text = " ".join([t[0] for t in n_gram_tokens])
+            start_char = n_gram_tokens[0][1]
+            end_char = n_gram_tokens[-1][2]
+            term = text.lower()
 
-        if type_info is None:
-            m = s.typedFuzzyMatch(threshold, term)
-            for k, v_list in m.items():
-                for candidate, candidate_type in v_list:
-                    newK = lev(term, candidate.lower())
-                    if newK >= threshold:
-                        sentence_results.extend(
-                            test(
-                                text, ls[i + 1:], newK, candidate, start_char, end_char,
-                                [candidate_type], forinsert, trustworthiness_source, src, parmo
+            if type_info is None:
+                m = s.typedFuzzyMatch(threshold, term)
+                # If term is also a noun, avoid mis-tagging capitalized common nouns as LOC/GPE
+                has_noun_match = any(cand_type.lower() == 'noun' for cands in m.values() for _, cand_type in cands)
+
+                for k, v_list in m.items():
+                    for candidate, candidate_type in v_list:
+                        # Reject GPE/LOC matches when the original text starts lowercase
+                        # OR when it's capitalized at the start of the sentence but we have a common noun match
+                        if candidate_type in {"GPE", "LOC"}:
+                            if not text[0].isupper():
+                                continue
+                            if has_noun_match:
+                                continue
+                        newK = lev(term, candidate.lower())
+                        if newK >= threshold:
+                            sentence_results.extend(
+                                test(
+                                    text, ls[i + n:], newK, candidate, start_char, end_char,
+                                    [candidate_type], forinsert, trustworthiness_source, src, parmo
+                                )
                             )
-                        )
-        else:
-            m = s.fuzzyMatch(threshold, term)
-            for k, v_list in m.items():
-                for candidate in v_list:
-                    newK = lev(term, candidate.lower())
-                    if newK >= threshold:
-                        sentence_results.extend(
-                            test(
-                                text, ls[i + 1:], newK, candidate, start_char, end_char,
-                                type_info, forinsert, trustworthiness_source, src, parmo
+            else:
+                m = s.fuzzyMatch(threshold, term)
+                for k, v_list in m.items():
+                    for candidate in v_list:
+                        newK = lev(term, candidate.lower())
+                        if newK >= threshold:
+                            sentence_results.extend(
+                                test(
+                                    text, ls[i + n:], newK, candidate, start_char, end_char,
+                                    type_info, forinsert, trustworthiness_source, src, parmo
+                                )
                             )
-                        )
     return sentence_results
 
 

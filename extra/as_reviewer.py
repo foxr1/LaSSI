@@ -36,7 +36,7 @@ def load_and_html_print(yaml_file, json_file):
         html.append(x)
     body = Tag(name="body")
     ol = Tag(name="ol")
-    from LaSSI.Parmenides.formula_utils import latex_rendering
+    from LaSSI.HOnK.formula_utils import latex_rendering
     for text, formula in zip(sentences, sentence_list):
         li = Tag(name="li")
         li.append(text)

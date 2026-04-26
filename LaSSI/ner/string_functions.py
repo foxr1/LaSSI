@@ -1,17 +1,18 @@
 import re
 from functools import lru_cache
 
-from LaSSI.Parmenides.paremenides import Parmenides
 from LaSSI.external_services.Services import Services
+
+HONK_NS = "https://ofox.co.uk/honk#"
 
 negations = {'not', 'no'}
 
 @lru_cache(maxsize = 1024)
 def is_label_verb(edge_label_name):
     edge_label_name = lemmatize_verb(edge_label_name).lower()
-    parmenides_types = {str(x)[len(Parmenides.parmenides_ns):] for x in
-                        Services.getInstance().getParmenides().typeOf(edge_label_name)}
-    is_verb = any(map(lambda x: 'Verb' in x, parmenides_types)) or len(parmenides_types) == 0
+    honk_types = {str(x)[len(HONK_NS):] for x in
+                  Services.getInstance().getHOnK().typeOf(edge_label_name)}
+    is_verb = any(map(lambda x: 'Verb' in x, honk_types))
     return is_verb
 
 def does_string_have_negations(edge_label_name):
@@ -44,7 +45,7 @@ def has_auxiliary(label):
 
 @lru_cache(maxsize = 1024)
 def check_semi_modal(label):
-    return len({label}.intersection(Services.getInstance().getParmenides().getSemiModalVerbs())) != 0
+    return len(Services.getInstance().getHOnK().getSemiModalVerbs().intersection({label})) != 0
 
 
 @lru_cache(maxsize = 1024)

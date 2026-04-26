@@ -2,7 +2,7 @@ import os
 from collections import defaultdict
 
 from LaSSI.structures.extended_fol.Formulae import FUnaryPredicate
-from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
+from LaSSI.HOnK.HOnK import HOnKSingleton
 from FunctionalMatch.utils import CountingDictionary
 
 
@@ -10,8 +10,8 @@ def knowledge_expansion_legacy(sentence, queries, filter=None):
     """
     :param sentence:    Single atom/proposition
     """
-    from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
-    assert ParmenidesSingleton.isReady()
+    from LaSSI.HOnK.HOnK import HOnKSingleton
+    assert HOnKSingleton.isReady()
     from LaSSI.structures.extended_fol.Formulae import FAnd, FOr
     assert (not isinstance(sentence, FAnd)) and (not isinstance(sentence, FOr))
     S = dict()
@@ -171,8 +171,8 @@ class KnowledgeExpansion:
         if isinstance(queries, list) or isinstance(queries, tuple):
             queries = {idx:q for idx, q in enumerate(queries)}
         assert isinstance(alreadyVisitedIdx, set)
-        from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
-        assert ParmenidesSingleton.isReady()
+        from LaSSI.HOnK.HOnK import HOnKSingleton
+        assert HOnKSingleton.isReady()
         from LaSSI.structures.extended_fol.Formulae import FAnd, FOr
         # assert (not isinstance(sentence, FAnd)) and (not isinstance(sentence, FOr))
         idx, wasAlreadyPresent = self.constituents.add_with_wasPresent(sentence)
@@ -230,6 +230,49 @@ class KnowledgeExpansion:
                         if hasResult:
                             for x in outcomes:
                                 if (filter is None) or (callable(filter) and filter(x)):
+                                    try:
+                                        hash(x)
+                                    except TypeError:
+                                        import dataclasses as _dc
+                                        def _safe_type(v):
+                                            try: return type(v).__name__
+                                            except: return "?"
+                                        def _find_bad(obj, path, seen):
+                                            oid = id(obj)
+                                            if oid in seen or obj is None: return
+                                            seen.add(oid)
+                                            if _dc.is_dataclass(obj):
+                                                for f in _dc.fields(obj):
+                                                    try: v = getattr(obj, f.name)
+                                                    except: continue
+                                                    fp = f"{path}.{f.name}"
+                                                    try:
+                                                        hash(v)
+                                                    except TypeError:
+                                                        print(f"  BAD FIELD {fp}: type={_safe_type(v)}")
+                                                        if isinstance(v, dict):
+                                                            print(f"    dict keys: {list(v.keys())[:5]}")
+                                                        return
+                                                    _find_bad(v, fp, seen)
+                                            elif isinstance(obj, (list, tuple)):
+                                                for i, item in enumerate(obj):
+                                                    try: hash(item)
+                                                    except TypeError:
+                                                        print(f"  BAD ITEM {path}[{i}]: type={_safe_type(item)}")
+                                                        return
+                                                    _find_bad(item, f"{path}[{i}]", seen)
+                                            elif isinstance(obj, frozenset):
+                                                for item in obj:
+                                                    try: hash(item)
+                                                    except TypeError:
+                                                        print(f"  BAD FROZENSET ITEM at {path}: item_type={_safe_type(item)}")
+                                                        if isinstance(item, tuple) and len(item)==2:
+                                                            k2,v2 = item
+                                                            print(f"    key={k2!r}, val_type={_safe_type(v2)}")
+                                                        return
+                                        print(f"\n=== UNHASHABLE formula rule={idx_rule} type={type(x).__name__} ===")
+                                        _find_bad(x, "x", set())
+                                        raise
                                     dstIdx, wasDstAlreadyPresent = self.constituents.add_with_wasPresent(x)
                                     wasDstAlreadyPresent = wasDstAlreadyPresent and (dstIdx in alreadyVisitedIdx)
                                     self.Graph[srcIdx].add(((ruleLabel,idx_rule), dstIdx))
@@ -245,8 +288,8 @@ class KnowledgeExpansion:
 
 
 def non_redundant_constituents(f, strictTyping = True):
-    assert ParmenidesSingleton.isReady()
-    p = ParmenidesSingleton.get()
+    assert HOnKSingleton.isReady()
+    p = HOnKSingleton.get()
     from LaSSI.structures.extended_fol.Formulae import is_selfstanding_variable
     return not (isinstance(f, FUnaryPredicate) and (f.rel == "be") and ((f.properties is None) or ((len(f.properties) == 0))) and ((is_selfstanding_variable(f.arg) and ((not strictTyping) or p.hasTypedObject(f.arg.name)))))
 

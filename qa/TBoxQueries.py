@@ -1,8 +1,8 @@
 
 # from LaSSI.structures.extended_fol.Formulae import FVariable, FUnaryPredicate, FBinaryPredicate, FNot
-# from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
+# from LaSSI.HOnK.HOnK import HOnKSingleton
 from Formulae import FVariable, FUnaryPredicate, FBinaryPredicate, FNot
-from LaSSI.Parmenides import ParmenidesSingleton
+from LaSSI.HOnK.HOnK import HOnKSingleton as HOnKSingleton
 
 ## TODO: use single_edge_src_multipoint to retrive the target nodes given the name, the adjective, and the relationship
 
@@ -28,7 +28,7 @@ def getMultiwayAdjectivalPoint(d, **kwargs):
     if not isinstance(adj, str):
         return []
     assert isinstance(result, str)
-    S = list(ParmenidesSingleton.get().single_edge_src_multipoint(main, adj, rel, f"^{result}"))
+    S = list(HOnKSingleton.get().single_edge_src_multipoint(main, adj, rel, f"^{result}"))
     if len(S) == 0:
         return S
     else:
@@ -59,7 +59,7 @@ def getMultiwayTargetSimpleSentence(d, **kwargs):
     assert resultVerb is not None
     assert resultSubject is not None
     assert resultObject is not None
-    S = list(ParmenidesSingleton.get().single_edge_dst_binary_capability(main, rel, f"^{resultVerb}", f"^{resultSubject}", f"^{resultObject}"))
+    S = list(HOnKSingleton.get().single_edge_dst_binary_capability(main, rel, f"^{resultVerb}", f"^{resultSubject}", f"^{resultObject}"))
     if len(S) == 0:
         return S
     else:
@@ -143,7 +143,7 @@ def getOutgoingNodes(d, **kwargs):
     adjForm = d.get(var)
     if not isinstance(adjForm, str):
         return []
-    S = ParmenidesSingleton.get().getOutgoingNodes(adjForm, rel)
+    S = HOnKSingleton.get().getOutgoingNodes(adjForm, rel)
     if len(S) == 0:
         return []
     else:
@@ -168,7 +168,7 @@ def getIngoingNodes(d, **kwargs):
     adjForm = d.get(var)
     if not isinstance(adjForm, str):
         return []
-    S = ParmenidesSingleton.get().getIngoingNodes(adjForm, rel)
+    S = HOnKSingleton.get().getIngoingNodes(adjForm, rel)
     if len(S) == 0:
         return []
     else:
@@ -191,7 +191,7 @@ def isOfType(kwargs):
     if adjForm is None:
         return True
     val = 0
-    for _ in ParmenidesSingleton.get().isA(adjForm, type_):
+    for _ in HOnKSingleton.get().isA(adjForm, type_):
         val += 1
     return val > 0
 

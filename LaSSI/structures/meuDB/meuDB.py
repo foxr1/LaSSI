@@ -14,10 +14,16 @@ class MeuDBEntry:
     source: str = None
 
     @classmethod
+    def _normalise_type(cls, type_val):
+        if isinstance(type_val, list):
+            return type_val[0] if type_val else "None"
+        return type_val
+
+    @classmethod
     def from_dict(cls, data):
         return cls(
             text = data.get('text'),
-            type = data.get('type'),
+            type = cls._normalise_type(data.get('type')),
             start_char = data.get('start_char'),
             end_char=data.get('end_char'),
             monad=data.get('monad'),
@@ -30,7 +36,7 @@ class MeuDBEntry:
     def from_dict_with_src(cls, data, src):
         return cls(
             text = data.get('text'),
-            type = data.get('type'),
+            type = cls._normalise_type(data.get('type')),
             start_char = data.get('start_char'),
             end_char=data.get('end_char'),
             monad=data.get('monad'),

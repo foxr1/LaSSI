@@ -8,6 +8,7 @@ __email__ = "bergamigiacomo@gmail.com"
 __status__ = "Production"
 
 import collections
+import hashlib
 import io
 import json
 import multiprocessing
@@ -62,9 +63,11 @@ class LaSSI():
                  should_benchmark=True,
                  legacy_conf: LegacySemanticConfiguration = None,
                  disable_a_priori: bool = False,
+                 disable_fuzzy_honk: bool = False,
                  run_ex_post: bool = True,
                  useId:bool = False,
                  use_multiprocessing=True,
+                 generate_png_matrix=True,
                  ):
         self.use_multiprocessing = use_multiprocessing
         if use_multiprocessing:
@@ -74,6 +77,8 @@ class LaSSI():
                 pass
         self.useId = useId
         self.disable_a_priori = disable_a_priori
+        self.disable_fuzzy_honk = disable_fuzzy_honk
+        self._generate_png_matrix_param = generate_png_matrix
         if legacy_conf is None:
             self.legacy_conf = LegacySemanticConfiguration()
         else:
@@ -106,23 +111,35 @@ class LaSSI():
         if not isinstance(fuzzyDBs, DatabaseConfiguration):
             fuzzyDBs = str(fuzzyDBs)
             fuzzyDBs = load_db_configuration(fuzzyDBs)
+
+        if self._generate_png_matrix_param is not None:
+            self.generate_png_matrix = self._generate_png_matrix_param
+        elif hasattr(fuzzyDBs, "generate_png_matrix"):
+            self.generate_png_matrix = fuzzyDBs.generate_png_matrix
+        else:
+            self.generate_png_matrix = False
+
+        self.legacy_conf.generate_png_matrix = self.generate_png_matrix
         # if hasattr(fuzzyDBs, "huggingface") and fuzzyDBs.huggingface is not None:
         #     self.legacy_conf.HuggingFace = fuzzyDBs.huggingface
 
         self.logger("init non-postgres services and the wrapper for the former...")
         self.initServices = Services.getInstance(self.logger)
 
-        self.logger("init postgres services...")
-        self.logger(" - Initialising the connection to the database")
-        (FuzzyStringMatchDatabase
-         .instance()
-         .init(fuzzyDBs.db, fuzzyDBs.uname, fuzzyDBs.pw, fuzzyDBs.host, fuzzyDBs.port))
+        if not self.disable_fuzzy_honk:
+            self.logger("init postgres services...")
+            self.logger(" - Initialising the connection to the database")
+            (FuzzyStringMatchDatabase
+             .instance()
+             .init(fuzzyDBs.db, fuzzyDBs.uname, fuzzyDBs.pw, fuzzyDBs.host, fuzzyDBs.port))
 
-        self.logger(" - Loading the tab files or streaming those remotely, if required.")
-        import tempfile
-        for k, v in fuzzyDBs.fuzzy_dbs.items():
-            self.logger(f" - Loading {k}.")
-            FuzzyStringMatchDatabase.instance().create(k, v)
+            self.logger(" - Loading the tab files or streaming those remotely, if required.")
+            import tempfile
+            for k, v in fuzzyDBs.fuzzy_dbs.items():
+                self.logger(f" - Loading {k}.")
+                FuzzyStringMatchDatabase.instance().create(k, v)
+        else:
+            self.logger("skipping postgres services initialization (disable_fuzzy_honk=True)")
 
         try:
             from nltk.corpus import wordnet
@@ -191,16 +208,52 @@ class LaSSI():
         self.sentences_benchmark = Benchmark()
 
 
-        from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
-        ParmenidesSingleton.instance()
-        ## TODO: move parmenides.ttl to the resources
-        ParmenidesSingleton.init("catabolites", fuzzyDBs.uname, fuzzyDBs.pw,
-                                 fuzzyDBs.host, fuzzyDBs.port, False, "parmenides.ttl")
-        self.initServices.setParmenides(ParmenidesSingleton.get())
-        with tempfile.NamedTemporaryFile() as parmenides_tab:
-            with open(parmenides_tab.name, 'w') as f:
-                self.initServices.getParmenides().dumpTypedObjectsToTAB(f)
-            FuzzyStringMatchDatabase.instance().create("parmenides", parmenides_tab.name, '(id integer NOT NULL, idx text, t text, type text)')  # Typed
+        from LaSSI.HOnK.HOnK import HOnKSingleton
+        HOnKSingleton.instance()
+        # Only call init if not already initialized (main_remote.py does this)
+        if HOnKSingleton.get() is None:
+            HOnKSingleton.init("cache", fuzzyDBs.uname, fuzzyDBs.pw,
+                                     fuzzyDBs.host, fuzzyDBs.port, False, "LaSSI/HOnK.ttl")
+        
+        parmo = HOnKSingleton.get()
+        self.initServices.setHOnK(parmo)
+        
+        # Check if we are in remote mode (e.g. ParmenidesRemote)
+        is_remote = hasattr(parmo, "endpoint_url")
+        
+        if is_remote or self.disable_fuzzy_honk:
+            if self.disable_fuzzy_honk:
+                print("[LaSSI] disable_fuzzy_honk=True — skipping local TTL hash check and table rebuild.")
+            else:
+                print("[LaSSI] Remote ontology detected — skipping local TTL hash check and table rebuild.")
+            return
+
+        honk_ttl_path = "LaSSI/HOnK.ttl"
+        if not os.path.exists(honk_ttl_path):
+            print(f"[LaSSI] WARNING: {honk_ttl_path} not found. Skipping local table rebuild.")
+            return
+
+        honk_hash_path = os.path.join("cache", "honk_hash.txt")
+        # Optimization: use os.path.getmtime instead of full file hash if possible, 
+        # or just skip if we don't want to read 1.9GB.
+        # For now, keep the hash but only if the file is accessible.
+        with open(honk_ttl_path, "rb") as _hf:
+            current_honk_hash = hashlib.md5(_hf.read()).hexdigest()
+        stored_honk_hash = None
+        if os.path.exists(honk_hash_path):
+            with open(honk_hash_path, "r") as _hf:
+                stored_honk_hash = _hf.read().strip()
+        honk_changed = current_honk_hash != stored_honk_hash
+        if honk_changed:
+            with tempfile.NamedTemporaryFile() as honk_tab:
+                with open(honk_tab.name, 'w') as f:
+                    self.initServices.getHOnK().dumpTypedObjectsToTAB(f)
+                FuzzyStringMatchDatabase.instance().create("honk", honk_tab.name, '(id integer NOT NULL, idx text, t text, type text)', force=True)
+            os.makedirs("cache", exist_ok=True)
+            with open(honk_hash_path, "w") as _hf:
+                _hf.write(current_honk_hash)
+        else:
+            print("HOnK.ttl unchanged — skipping honk table rebuild")
 
     def create_catabolites_dir(self, dataset_name):
         from pathlib import Path
@@ -251,6 +304,7 @@ class LaSSI():
         return L
 
     def _internal_graph(self, gsm_list):
+        import traceback
         internal_representations = []
         for idx, (graph, meu_db) in enumerate(zip(gsm_list, self.meu_dbs)):
             start = time.time()
@@ -258,11 +312,16 @@ class LaSSI():
             g = GraphProvenance(graph, meu_db, self.transformation == SentenceRepresentation.SimpleGraph)
             self.logger(f"{meu_db.first_sentence}")
             write_variable_to_file(self.string_rep_dir, meu_db.first_sentence)
-            internal_graph = g.internal_graph()
-            final_form = internal_graph
-            if self.transformation == SentenceRepresentation.Logical:
-                final_form = g.sentence()
-                write_variable_to_file(self.string_rep_dir, f" ⇒ {final_form.to_string()}\n")
+            try:
+                internal_graph = g.internal_graph()
+                final_form = internal_graph
+                if self.transformation == SentenceRepresentation.Logical:
+                    final_form = g.sentence()
+                    write_variable_to_file(self.string_rep_dir, f" ⇒ {final_form.to_string()}\n")
+            except Exception as e:
+                self.logger(f"ERROR on sentence {idx}: {e}\n{traceback.format_exc()}")
+                write_variable_to_file(self.string_rep_dir, f" ⇒ ERROR\n")
+                final_form = None
             internal_representations.append(final_form)
             end = time.time()
             self.sentences_benchmark.add_row(idx, "Sentence length", len(graph))
@@ -281,7 +340,10 @@ class LaSSI():
         rewritten_kernels = []
         for idx, x in enumerate(intermediate_representations):
             start = time.time()
-            rewritten_kernels.append(rewrite_kernels(x, self.meu_dbs[idx], self.useId))
+            if x is None:
+                rewritten_kernels.append(None)
+            else:
+                rewritten_kernels.append(rewrite_kernels(x, self.meu_dbs[idx], self.useId))
             end = time.time()
             self.sentences_benchmark.add_row(idx, "Generating logical representation", end - start)
         return rewritten_kernels
@@ -317,7 +379,7 @@ class LaSSI():
             if self.transformation == SentenceRepresentation.FullText:
                 f = self.fulltext_similarity
             if self.transformation == SentenceRepresentation.Logical:
-                # from LaSSI.Parmenides.TBox.CrossMatch import DoExpand  # LogicalGraph
+                # from LaSSI.HOnK.TBox.CrossMatch import DoExpand  # LogicalGraph
                 # doexp = DoExpand()
                 # f = SentenceExpansion(obj_list, doexp, self.catabolites_of_dataset)
 
@@ -372,6 +434,59 @@ class LaSSI():
 
         return matrices
 
+    def _generate_confusion_matrix_png(self, matrix, experiment_name, labels=None):
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            import numpy as np
+            import textwrap
+
+            data = np.array(matrix)
+            
+            if labels is None:
+                labels = [str(i+1) for i in range(data.shape[0])]
+            
+            # Wrap labels for display
+            display_labels = ['\n'.join(textwrap.wrap(str(l), width=40)) for l in labels]
+
+            # Dynamically calculate figure size based on matrix size and label length
+            # Estimate height needed for labels
+            max_label_lines = max([l.count('\n') for l in display_labels]) + 1
+            cell_size = 1.2
+            fig_width = max(12, data.shape[1] * cell_size + 4)
+            fig_height = max(10, data.shape[0] * cell_size + (max_label_lines * 0.2))
+
+            fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+            im = ax.imshow(data, cmap='viridis')
+
+            # Add colorbar
+            cbar = ax.figure.colorbar(im, ax=ax, shrink=0.8)
+
+            # Show all ticks and label them with the respective list entries
+            ax.set_xticks(np.arange(data.shape[1]))
+            ax.set_yticks(np.arange(data.shape[0]))
+            ax.set_xticklabels(display_labels, rotation=45, ha="right", fontsize=9)
+            ax.set_yticklabels(display_labels, fontsize=9)
+
+            # Loop over data dimensions and create text annotations.
+            for i in range(data.shape[0]):
+                for j in range(data.shape[1]):
+                    ax.text(j, i, f"{data[i, j]:.2f}",
+                                   ha="center", va="center", color="w" if data[i,j] < 0.2 else "black", fontsize=8)
+
+            ax.set_title(f"Confusion Matrix: {experiment_name}", fontsize=14, pad=20)
+            
+            # Adjust layout to make room for labels
+            plt.tight_layout()
+
+            png_path = self.confusion_matrices + experiment_name + ".png"
+            plt.savefig(png_path, bbox_inches='tight', dpi=150)
+            plt.close(fig)
+            self.logger(f"Confusion matrix PNG saved to {png_path}")
+        except Exception as e:
+            self.logger(f"Failed to generate confusion matrix PNG: {e}")
+
     def ex_post_explain(self, lists):
         from LaSSI.files.FileDumpUtilities import target_file_dump
         self.logger("computing similarities")
@@ -381,6 +496,15 @@ class LaSSI():
                                               lambda: CalculateMatrix(self, lists),
                                               json_dumps,
                                               self.force)
+
+        if self.generate_png_matrix:
+            if self.transformation == SentenceRepresentation.FullText:
+                labels = list(lists)
+            elif self.meu_dbs is not None:
+                labels = [m.first_sentence for m in self.meu_dbs]
+            else:
+                labels = [str(i+1) for i in range(len(confusion_matrices))]
+            self._generate_confusion_matrix_png(confusion_matrices, experiment_name, labels)
 
         if self.clusters_file is not None:
             from LaSSI.similarities.ClusteringTest import test_with_maximal_matching
@@ -408,7 +532,7 @@ class LaSSI():
             self.meu_dbs, meu_execution_time = target_file_dump(
                 self.meuDB,
                 lambda x: [MeuDB.from_dict(k) for k in json.load(x)],
-                lambda: ExplainTextWithNER(self, sentences),
+                lambda: ExplainTextWithNER(self, sentences, disable_fuzzy_honk=self.disable_fuzzy_honk),
                 json_dumps, self.force, self.should_benchmark
             )
         self.logger(f"Generating meuDB time: {meu_execution_time} seconds")

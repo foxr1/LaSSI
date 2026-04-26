@@ -11,7 +11,7 @@ from LaSSI.Configuration import SentenceRepresentation
 
 from LaSSI.LaSSI import LaSSI
 
-from LaSSI.Parmenides.Parmenides import ParmenidesSingleton
+from LaSSI.HOnK.HOnK import HOnKSingleton
 from LaSSI.external_services.Services import Services
 from dash import dcc, html
 from pathlib import Path
@@ -41,14 +41,13 @@ class LaSSIExplainer:
     def start_up_services(fuzzyDBs):
         if LaSSIExplainer.fuzzyDBs is None:
             Services.getInstance(lambda x: print(x))
-            ParmenidesSingleton.instance()
+            HOnKSingleton.instance()
             from LaSSI.external_services.utilities.DatabaseConfiguration import load_db_configuration
             LaSSIExplainer.fuzzyDBs = load_db_configuration(fuzzyDBs)
-            ParmenidesSingleton.init("catabolites", LaSSIExplainer.fuzzyDBs.uname, LaSSIExplainer.fuzzyDBs.pw,
-                                     LaSSIExplainer.fuzzyDBs.host, LaSSIExplainer.fuzzyDBs.port, False, "parmenides.ttl")
+            HOnKSingleton.init("catabolites", LaSSIExplainer.fuzzyDBs.uname, LaSSIExplainer.fuzzyDBs.pw,
+                                     LaSSIExplainer.fuzzyDBs.host, LaSSIExplainer.fuzzyDBs.port, False, "LaSSI/HOnK.ttl")
 
     def __init__(self, dataset_name):
-        ## TODO: move parmenides.ttl to the resources
         from pathlib import Path
         from LaSSI.Configuration import SentenceRepresentation
         self.sentences = []

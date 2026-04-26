@@ -278,7 +278,7 @@ class AssignTypeToSingleton:
                 sorted_entity_names = list(map(getattr, sorted_entities, repeat('named_entity')))
 
                 all_types = list(map(getattr, sorted_entities, repeat('type')))
-                specific_type = self.services.getParmenides().most_specific_type(all_types)
+                specific_type = self.services.getHOnK().most_specific_type(all_types)
 
                 if group_type == Grouping.OR:
                     name = " or ".join(sorted_entity_names)
@@ -486,7 +486,7 @@ class AssignTypeToSingleton:
             sorted_entity_names = list(map(getattr, sorted_entities, repeat('named_entity')))
 
             all_types = list(map(getattr, sorted_entities, repeat('type')))
-            specific_type = self.services.getParmenides().most_specific_type(all_types)
+            specific_type = self.services.getHOnK().most_specific_type(all_types)
             name = " ".join(sorted_entity_names)
 
             new_node = Singleton(
@@ -685,6 +685,9 @@ class AssignTypeToSingleton:
                                     # If a node is marked with a det, never consider this as a verb
                                     'det' not in dict(item.properties)
                                     and
+                                    # Prepositional objects are not verbs
+                                    'case' not in dict(item.properties)
+                                    and
                                     # TODO: This condition may need to be revised
                                     # 'on' is very unlikely to lead to a verb
                                     ('on' not in case_in_props(dict(item.properties), True))
@@ -753,7 +756,7 @@ class AssignTypeToSingleton:
                     #     entity = node.entities[0]
                     #     if isinstance(entity, SetOfSingletons):
                     #         self.nodes[node.id] = GraphNER_withProperties(entity, self.is_simplistic_rewriting, meu_db_row,
-                    #                                                       parmenides, existentials)
+                    #                                                       honk, existentials)
                     #     else:
                     #         self.node_id_map[node.id] = entity.id
                     #         self.nodes[node.id] = self.ConfidenceAndEntityExpand(entity.id)
@@ -766,7 +769,7 @@ class AssignTypeToSingleton:
                                 entity,
                                 self.is_simplistic_rewriting,
                                 self.meu_db_row,
-                                self.services.getParmenides(),
+                                self.services.getHOnK(),
                                 self.existentials
                             )
                         else:
@@ -777,7 +780,7 @@ class AssignTypeToSingleton:
                         node,
                         self.is_simplistic_rewriting,
                         self.meu_db_row,
-                        self.services.getParmenides(),
+                        self.services.getHOnK(),
                         self.existentials
                     )
 
@@ -797,7 +800,7 @@ class AssignTypeToSingleton:
                         entity,
                         self.is_simplistic_rewriting,
                         self.meu_db_row,
-                        self.services.getParmenides(),
+                        self.services.getHOnK(),
                         self.existentials
                     )
                 else:
@@ -808,7 +811,7 @@ class AssignTypeToSingleton:
                 node_to_resolve,
                 self.is_simplistic_rewriting,
                 self.meu_db_row,
-                self.services.getParmenides(),
+                self.services.getHOnK(),
                 self.existentials
             )
 
@@ -978,7 +981,7 @@ class AssignTypeToSingleton:
                         type_key = 'case'
                 else:
                     from LaSSI.external_services.Services import Services
-                    type_key = self.services.getParmenides().most_general_type(
+                    type_key = self.services.getHOnK().most_general_type(
                         map(lambda x: x.type, target_node.entities))
 
                 if type_key != 'existential':
