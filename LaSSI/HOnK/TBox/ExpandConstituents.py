@@ -38,6 +38,47 @@ def isExistential(x):
         return False
     return isinstance(x, FVariable) and x.name[0] == "?" and x.name[1:].isdigit()
 
+
+# Paraphrase concepts: surface-distinct values that denote the same idea.
+# Each entry maps a concept tag to a set of (form, name) pairs:
+#   ("name", n)      → matches FVariable.name == n
+#   ("fnot_name", n) → matches FNot(FVariable(name=n, ...))
+# Two values with the same concept tag are treated as EQUIVALENT by
+# `compare_variable`, even when WordNet/HOnK does not relate them.
+PARAPHRASE_CONCEPTS = {
+    "indefinite_suspension": {
+        ("name", "until further notice"),
+        ("name", "indefinitely"),
+        ("fnot_name", "reopening"),
+        ("fnot_name", "resumption"),
+        ("fnot_name", "restart"),
+    },
+}
+
+
+def _paraphrase_concept_of(v):
+    if isinstance(v, FVariable) and v.name:
+        nm = v.name.strip().lower()
+        for concept, members in PARAPHRASE_CONCEPTS.items():
+            if ("name", nm) in members:
+                return concept
+    elif isinstance(v, FNot):
+        inner = v.arg
+        if isinstance(inner, FVariable) and inner.name:
+            nm = inner.name.strip().lower()
+            for concept, members in PARAPHRASE_CONCEPTS.items():
+                if ("fnot_name", nm) in members:
+                    return concept
+    return None
+
+
+def _paraphrase_match(lhs, rhs):
+    cl = _paraphrase_concept_of(lhs)
+    if cl is None:
+        return False
+    return cl == _paraphrase_concept_of(rhs)
+
+
 def compare_variable(d, lhs, rhs):
     cp = (lhs, rhs)
     if (cp not in d) and (lhs == rhs):
@@ -52,6 +93,8 @@ def compare_variable(d, lhs, rhs):
         val = CasusHappening.INDIFFERENT if not isExistential(lhs) else CasusHappening.EQUIVALENT
     elif (lhs == FNot(rhs)) or (rhs == FNot(lhs)):
         val = CasusHappening.EXCLUSIVES
+    elif _paraphrase_match(lhs, rhs):
+        val = CasusHappening.EQUIVALENT
     elif isinstance(lhs, FNot):
         val = transformCaseWhenOneArgIsNegated(compare_variable(d, lhs.arg, rhs))
     elif isinstance(rhs, FNot):
@@ -268,6 +311,13 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
             # else:
                 # dLHS = dict(xprop)
                 # dRHS = dict(yprop)
+                def _value_in_other(val, other_dict):
+                    for ok in other_dict:
+                        for ov in other_dict[ok]:
+                            if compare_variable(d, val, ov) == CasusHappening.EQUIVALENT:
+                                return True
+                    return False
+
                 for key in keys:
                     if key in dLHS and key in dRHS:
                         for xx in dLHS[key]:
@@ -275,11 +325,20 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                                 keyCmp[key].add(compare_variable(d, xx, yy))
                                 keyCmpInv[key].add(compare_variable(d, yy, xx))
                     elif key in dLHS:
-                        keyCmp[key].add(CasusHappening.INDIFFERENT)
+                        # Same value under a different RHS key counts as a
+                        # role-mismatch soft match (INSTANTIATION_IMPLICATION)
+                        # rather than INDIFFERENT.  Sibling-key alone (no
+                        # value overlap) stays INDIFFERENT — different roles
+                        # with different content shouldn't claim equivalence.
+                        soft = any(_value_in_other(xx, dRHS) for xx in dLHS[key])
+                        keyCmp[key].add(CasusHappening.INSTANTIATION_IMPLICATION
+                                        if soft else CasusHappening.INDIFFERENT)
                         keyCmpInv[key].add(CasusHappening.GENERAL_IMPLICATION)
                     else:
+                        soft = any(_value_in_other(yy, dLHS) for yy in dRHS[key])
                         keyCmp[key].add(CasusHappening.GENERAL_IMPLICATION)
-                        keyCmpInv[key].add(CasusHappening.INDIFFERENT)
+                        keyCmpInv[key].add(CasusHappening.INSTANTIATION_IMPLICATION
+                                           if soft else CasusHappening.INDIFFERENT)
                 keyCmp = {key: simplifyConstituents(val) for key, val in keyCmp.items()}
                 keyCmpInv = {key: simplifyConstituents(val) for key, val in keyCmpInv.items()}
                 if len(keyCmp) > 0:
@@ -287,8 +346,13 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                     keyCmpElementsInv = simplifyConstituentsAcross({keyCmpInv[key] for key in keyCmpInv})
                 else:
                     keyCmpElements, keyCmpElementsInv = CasusHappening.EQUIVALENT, CasusHappening.EQUIVALENT
+            antonymRelationContradiction = False
             if isinstance(x, FBinaryPredicate) and isinstance(y, FBinaryPredicate):
-                if (x.rel != y.rel):
+                # Compare relation names through the ontology, not by string
+                # equality — so antonyms like close/open trigger EXCLUSIVES
+                # propagation when both arguments coincide.
+                relCmp = HOnKSingleton.get().name_eq(x.rel, y.rel) if x.rel != y.rel else CasusHappening.EQUIVALENT
+                if relCmp == CasusHappening.INDIFFERENT:
                     val = CasusHappening.INDIFFERENT
                 else:
                     srcCmp = compare_variable(d, x.src, y.src)
@@ -301,7 +365,14 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                         else:
                             keyComparisonOutcome = compare_variable(d, x.src, y.src)
                             copKeyComparisonOutcome = compare_variable(d, x.src.cop if hasattr(x.src, "cop") else None, y.src.cop if hasattr(y.src, "cop") else None)
-                            if (srcCmp == CasusHappening.EXCLUSIVES) and (dstCmp == CasusHappening.EXCLUSIVES):
+                            if relCmp == CasusHappening.EXCLUSIVES:
+                                # Antonym predicate: contradiction iff both arguments are equivalent.
+                                if srcCmp == CasusHappening.EQUIVALENT and dstCmp == CasusHappening.EQUIVALENT:
+                                    val = CasusHappening.EXCLUSIVES
+                                    antonymRelationContradiction = True
+                                else:
+                                    val = CasusHappening.INDIFFERENT
+                            elif (srcCmp == CasusHappening.EXCLUSIVES) and (dstCmp == CasusHappening.EXCLUSIVES):
                                 val = CasusHappening.INDIFFERENT
                             elif (srcCmp == CasusHappening.EXCLUSIVES) and (dstCmp != CasusHappening.INDIFFERENT):
                                 val = CasusHappening.EXCLUSIVES
@@ -314,15 +385,28 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                             else:
                                 val = simplifyConstituents({srcCmp, dstCmp})
             elif isinstance(y, FUnaryPredicate) and isinstance(x, FUnaryPredicate):
-                if (x.rel != y.rel):
+                relCmp = HOnKSingleton.get().name_eq(x.rel, y.rel) if x.rel != y.rel else CasusHappening.EQUIVALENT
+                if relCmp == CasusHappening.INDIFFERENT:
                     val = CasusHappening.INDIFFERENT
                 else:
-                    val = compare_variable(d, x.arg, y.arg)
+                    argCmp = compare_variable(d, x.arg, y.arg)
+                    if relCmp == CasusHappening.EXCLUSIVES:
+                        if argCmp == CasusHappening.EQUIVALENT:
+                            val = CasusHappening.EXCLUSIVES
+                            antonymRelationContradiction = True
+                        else:
+                            val = CasusHappening.INDIFFERENT
+                    else:
+                        val = argCmp
                 keyComparisonOutcome = compare_variable(d, x.arg, y.arg)
                 copKeyComparisonOutcome = compare_variable(d, x.arg.cop if hasattr(x.arg, "cop") else None, y.arg.cop if hasattr(y.arg, "cop") else None)
             else:
                 raise ValueError("Unexpected comparison between " + str(x) + " and" + str(y))
-            if val != CasusHappening.INDIFFERENT:
+            if antonymRelationContradiction:
+                # Antonym contradiction over equivalent arguments must not be
+                # downgraded by secondary property mismatches.
+                pass
+            elif val != CasusHappening.INDIFFERENT:
                 if val == CasusHappening.EQUIVALENT:
                     if keyComparisonOutcome == CasusHappening.EQUIVALENT:
                         if isImplication(keyCmpElements):
@@ -360,9 +444,15 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
     return val
 
 def instantiate_rules(constituents, expansion_dictionary, final_constituents, isImpl):
-    ls = copy.deepcopy(list(reversed(constituents)))
+    ls = list(reversed(constituents))
     result_list = list()
-    for original, (idx, constituent) in enumerate(ls):
+    from LaSSI.external_services.Services import Services
+    from tqdm import tqdm
+    
+    label = "implication" if isImpl else "equivalence"
+    pbar = tqdm(ls, desc=f"Expanding {label} constituents", leave=False)
+    
+    for original, (idx, constituent) in enumerate(pbar):
         str1 = str(constituent)
         from LaSSI.structures.extended_fol.TBoxReasoning import TBoxReasoningSingleton
         entrypoint, adj_graph, id_to_constituent, s = TBoxReasoningSingleton.explained_knowledge_expand(constituent, isImpl)
@@ -379,7 +469,7 @@ def instantiate_rules(constituents, expansion_dictionary, final_constituents, is
                   "id_to_constituent": id_to_constituent}
         result_list.append(result)
     for y in expansion_dictionary.values():
-        final_constituents = final_constituents.union(set(y))
+        final_constituents.update(y)
     return result_list
     # return {(x, y): CasusHappening.NONE for x in final_constituents for y in
     #         final_constituents}
@@ -459,10 +549,27 @@ class ExpandConstituents:
         self.rhsOrigDict = dict()
         self.inv_idx = dict()
         Services.getInstance().log("Splitting across unary and binary constituents for each sentence...")
-        for i, sentence in self.constituents:
-            self.inv_idx[sentence] = i
-            self.lhsOrigDict[i] = ModelSearchBasis(sentence, self.impl_expansion_dictionary[sentence])
-            self.rhsOrigDict[i] = ModelSearchBasis(sentence, self.eq_expansion_dictionary[sentence])
+        from tqdm import tqdm
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        n = len(self.constituents)
+
+        def _build_basis(item):
+            row_i, row_sentence = item
+            lhs = ModelSearchBasis(row_sentence, self.impl_expansion_dictionary[row_sentence])
+            rhs = ModelSearchBasis(row_sentence, self.eq_expansion_dictionary[row_sentence])
+            return row_i, row_sentence, lhs, rhs
+
+        max_workers = min(n, os.cpu_count() or 4, 8)
+        with tqdm(total=n, desc="Splitting constituents", unit="sent") as pbar:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(_build_basis, item): item for item in self.constituents}
+                for future in as_completed(futures):
+                    row_i, row_sentence, lhs, rhs = future.result()
+                    self.inv_idx[row_sentence] = row_i
+                    self.lhsOrigDict[row_i] = lhs
+                    self.rhsOrigDict[row_i] = rhs
+                    pbar.update(1)
         self.constituents = dict(self.constituents)
 
     def getImplExpansions(self, idx):

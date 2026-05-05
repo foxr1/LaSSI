@@ -17,6 +17,21 @@ def sort_by_numeric_value(file_path):
     return int(match.group(1).split('.yaml')[0]) if match else 0
 
 
+def run_lassi_instance(args):
+    yaml_file, transformation, transformer = args
+    try:
+        import os
+        from LaSSI.LaSSI import LaSSI
+        with open(os.devnull, 'w') as devnull:
+            # sys.stdout = devnull
+            pipeline = LaSSI(yaml_file, "connection.yaml", transformation, transformer)
+            pipeline.run()
+            pipeline.close()
+        return yaml_file, None
+    except Exception as e:
+        return yaml_file, e
+
+
 def get_and_run_all_sentences(folders, transformation=SentenceRepresentation.Logical, transformer='sentence-transformers/all-MiniLM-L6-v2'):
     print(f"TRANSFORMATION: {transformation}, TRANSFORMER: {transformer}")
     root_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent.absolute().parent.absolute()
@@ -31,19 +46,16 @@ def get_and_run_all_sentences(folders, transformation=SentenceRepresentation.Log
     yaml_files.sort(key=sort_by_numeric_value)
     os.chdir(os.path.dirname(os.path.abspath(main_script_path)))
 
+    import concurrent.futures
     with tqdm(total=len(yaml_files), desc="Rewriting sentences") as pbar:
-        for yaml_file in yaml_files:
-            pbar.set_description(f"Rewriting sentences: {yaml_file.split('/')[-1]}")
-            try:
-                with open(os.devnull, 'w') as devnull:
-                    # sys.stdout = devnull
-                    pipeline = LaSSI(yaml_file, "connection.yaml", transformation, transformer)
-                    pipeline.run()
-                    pipeline.close()
-                sys.stdout = sys.__stdout__
-            except Exception as e:
-                print(f"\nError running LaSSI for: {yaml_file}", e, file=sys.stderr)
-            pbar.update(1)
+        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+            args_list = [(yaml_file, transformation, transformer) for yaml_file in yaml_files]
+            futures = {executor.submit(run_lassi_instance, args): args for args in args_list}
+            for future in concurrent.futures.as_completed(futures):
+                yaml_file, error = future.result()
+                if error:
+                    print(f"\nError running LaSSI for: {yaml_file}", error, file=sys.stderr)
+                pbar.update(1)
 
 
 if __name__ == '__main__':

@@ -41,7 +41,8 @@ class Services:
 
             HOnKSingleton.instance()
             HOnKSingleton.init("cache", fuzzyDBs.uname, fuzzyDBs.pw,
-                                     fuzzyDBs.host, fuzzyDBs.port, False, "LaSSI/HOnK.ttl")
+                                     fuzzyDBs.host, fuzzyDBs.port, False, "LaSSI/HOnK.ttl",
+                                     rules_path="raw_data/logical_analysis.json")
             self.setHOnK(HOnKSingleton.get())
             return HOnKSingleton.get()
         return self.honk

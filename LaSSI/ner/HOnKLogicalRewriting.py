@@ -78,18 +78,34 @@ def type_of_node(kernel, node, initial_node, has_nmod, value):
     # TODO: Is "DATE" always "SUTime", could we change the ontology to be matched "DATE"??
     if node.type == "DATE":
         resolved = "SUTime"
+    elif node.type == "IN" and bool(set(node.named_entity.lower().split()) & {tn.lower() for tn in honk.getTemporalNouns()}):
+        # e.g. "On Saturdays" — preposition-headed span whose content is a day/time noun
+        resolved = "SUTime"
     elif node.type in {"GPE", "LOC"}:
         resolved = str(node.type)
     elif node.type == "RB":
         resolved = "RB"
     elif node.type == "IN":
         resolved = "IN"
+    elif node.type == "verb":
+        resolved = "verb"
     else:
         resolved = "None"
     return resolved == value
 
 def source_is_verb(kernel, node, initial_node, has_nmod, value):
     return is_label_verb(node.named_entity) == value
+
+def is_phrasal_verb(kernel, node, initial_node, has_nmod, value):
+    """Check if a SENTENCE node's edge label (stripped of conjunction prefix) is a phrasal verb."""
+    if (hasattr(node, 'kernel') and node.kernel is not None and
+            node.kernel.edgeLabel is not None):
+        edge_name = node.kernel.edgeLabel.named_entity
+        _conj_prefixes = {c.lower() for c in honk.getConjunctions()}
+        base_parts = [p for p in edge_name.split(' ') if p.lower() not in _conj_prefixes]
+        base_verb = ' '.join(base_parts)
+        return is_name_in_honk(base_verb, honk.getPhrasalVerbs(), False) == value
+    return not value
 
 predicate_interpretation = {
     "MaterialisationVerb": is_materialised,
@@ -106,7 +122,8 @@ predicate_interpretation = {
     "isSymmetricalIfComparedToNMod": is_symmetrical,
     "Preposition": match_prepositions,
     "sourceIsVerb": source_is_verb,
-    "MeansVerb": has_means
+    "MeansVerb": has_means,
+    "PhrasalVerb": is_phrasal_verb
 }
 
 def get_matching_logical_rules(kernel, initial_node, has_nmod, _debug_name=None):

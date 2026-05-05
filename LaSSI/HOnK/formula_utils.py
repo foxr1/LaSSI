@@ -95,3 +95,36 @@ def semantic(self, d: Dict[Formula, bool]):
     else:
         print("WARNING: cannot perform the atomization of a variable")
         return 0
+
+
+def semantic_bdd(self, atom_to_bdd, manager):
+    """
+    Symbolic counterpart of `semantic`: builds a BDD node representing the
+    truth of the formula `self` over the underlying boolean variables.
+
+    `atom_to_bdd` maps atomic Formula objects (FUnaryPredicate, FBinaryPredicate,
+    and FNot wrappers that have been pre-resolved) to BDD nodes.  FNot wrappers
+    that are not present in the map fall through to a symbolic NOT applied to
+    the recursion on `self.arg`, so negation does not require a separate
+    boolean variable.
+    """
+    if practicalInstance(self, FUnaryPredicate, "FUnaryPredicate") or practicalInstance(self, FBinaryPredicate,
+                                                                                        "FBinaryPredicate"):
+        return atom_to_bdd[self]
+    elif practicalInstance(self, FAnd, "FAnd"):
+        result = manager.true
+        for arg in self.args:
+            result = manager.apply('and', result, semantic_bdd(arg, atom_to_bdd, manager))
+        return result
+    elif practicalInstance(self, FOr, "FOr"):
+        result = manager.false
+        for arg in self.args:
+            result = manager.apply('or', result, semantic_bdd(arg, atom_to_bdd, manager))
+        return result
+    elif practicalInstance(self, FNot, "FNot"):
+        if self in atom_to_bdd:
+            return atom_to_bdd[self]
+        return manager.apply('not', semantic_bdd(self.arg, atom_to_bdd, manager))
+    else:
+        print("WARNING: cannot perform the atomization of a variable")
+        return manager.false

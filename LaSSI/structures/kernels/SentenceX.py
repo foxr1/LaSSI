@@ -355,7 +355,8 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
         if key == 'verb':  # TODO: Check for "NOT" prop / SetOfSingletons
             verbs_to_keep = []
             for node in properties['verb']:
-                if not 'mark' in node.properties and root_sentence_id == node.id:
+                if (not isinstance(node, SetOfSingletons) and
+                        not 'mark' in node.properties and root_sentence_id == node.id):
                     new_kernel = node
                 else:
                     verbs_to_keep.append(node)
@@ -537,6 +538,18 @@ def add_to_properties(kernel, node, source_or_target, kernel_nodes, properties, 
         if (type_key in copula_types) and not is_node_in_kernel_nodes(node, kernel_nodes):
             kernel_nodes = add_to_kernel_nodes(node, kernel_nodes)
             kernel = create_cop(node, kernel, source_or_target)
+        # NOT SetOfSingletons that didn't negate the kernel verb: preserve the wrapper as
+        # a property re-keyed by the inner entity's type so logical rewriting can classify
+        # it correctly (e.g. verb inner → TIME_STATUS:NOT(fixed reopening date)).
+        if ('NOT' in type_key and
+                isinstance(node, SetOfSingletons) and node.type == Grouping.NOT and node.entities):
+            inner_type = node_functions.get_node_type(node.entities[0])
+            if inner_type not in ('NOT', 'NEG', 'existential'):
+                type_key = inner_type
+                if not is_node_in_kernel_nodes(node, kernel_nodes) and node not in properties[type_key]:
+                    kernel_nodes = add_to_kernel_nodes(node, kernel_nodes)
+                    properties[type_key].append(node)
+                return kernel, properties, kernel_nodes
         if 'NEG' not in type_key and 'NOT' not in type_key and 'existential' not in type_key:
             if (
                     (node.type == Grouping.MULTIINDIRECT) or
@@ -909,7 +922,7 @@ def get_prepositions(node):
     node_props = dict(node.properties)
     _smart_apos = chr(0x2019)
     for key in node_props:
-        if key in {"mark", "adv", "IN", "TO", "case"}:
+        if key in {"mark", "adv", "advmod", "IN", "TO", "case"}:
             value = node_props[key]
             if isinstance(value, str):
                 found_prepositions.append(value.lower().replace(_smart_apos, "’"))

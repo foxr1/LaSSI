@@ -2,21 +2,21 @@ import FBinaryPredicate                       in-module "LaSSI.structures.extend
 import FUnaryPredicate                        in-module "LaSSI.structures.extended_fol.Formulae"
 import FNot                                   in-module "LaSSI.structures.extended_fol.Formulae"
 import FVariable                              in-module "LaSSI.structures.extended_fol.Formulae"
-import "nonEmptyMatch"                        in-module "LaSSI.Parmenides.TBox.queries"
-import "getMultiwayAdjectivalPoint"           in-module "LaSSI.Parmenides.TBox.queries"
-import "getMultiwayTargetSimpleSentence"      in-module "LaSSI.Parmenides.TBox.queries"
-import "isOfType"                             in-module "LaSSI.Parmenides.TBox.queries"
-import "addProperty"                          in-module "LaSSI.Parmenides.TBox.queries"
-import "getOutgoingNodes"                     in-module "LaSSI.Parmenides.TBox.queries"
-import "extractProperties"                    in-module "LaSSI.Parmenides.TBox.queries"
-import "extractJsonPath"                      in-module "LaSSI.Parmenides.TBox.queries"
-import "removeFromProperties"                 in-module "LaSSI.Parmenides.TBox.queries"
-import "addAdjective"                         in-module "LaSSI.Parmenides.TBox.queries"
-import "addSpecification"                     in-module "LaSSI.Parmenides.TBox.queries"
-import "getIngoingNodes"                      in-module "LaSSI.Parmenides.TBox.queries"
-import "dropCopula"                           in-module "LaSSI.Parmenides.TBox.queries"
-import "neitherNegatedNorNone"                in-module "LaSSI.Parmenides.TBox.queries"
-import "IsNone"                in-module "LaSSI.Parmenides.TBox.queries"
+import "nonEmptyMatch"                        in-module "LaSSI.HOnK.TBox.queries"
+import "getMultiwayAdjectivalPoint"           in-module "LaSSI.HOnK.TBox.queries"
+import "getMultiwayTargetSimpleSentence"      in-module "LaSSI.HOnK.TBox.queries"
+import "isOfType"                             in-module "LaSSI.HOnK.TBox.queries"
+import "addProperty"                          in-module "LaSSI.HOnK.TBox.queries"
+import "getOutgoingNodes"                     in-module "LaSSI.HOnK.TBox.queries"
+import "extractProperties"                    in-module "LaSSI.HOnK.TBox.queries"
+import "extractJsonPath"                      in-module "LaSSI.HOnK.TBox.queries"
+import "removeFromProperties"                 in-module "LaSSI.HOnK.TBox.queries"
+import "addAdjective"                         in-module "LaSSI.HOnK.TBox.queries"
+import "addSpecification"                     in-module "LaSSI.HOnK.TBox.queries"
+import "getIngoingNodes"                      in-module "LaSSI.HOnK.TBox.queries"
+import "dropCopula"                           in-module "LaSSI.HOnK.TBox.queries"
+import "neitherNegatedNorNone"                in-module "LaSSI.HOnK.TBox.queries"
+import "IsNone"                in-module "LaSSI.HOnK.TBox.queries"
 
 // query #1: If x has y and x is part of z, then also z has y (not in eq)
 nested match FBinaryPredicate ( "have", var(src), ( FVariable (var(a), "JJ",var(b),var(c),var(d),var(e)) ) , var(f) , var(g) )
@@ -130,7 +130,8 @@ nested match FBinaryPredicate (   var(x) , var(src) ,   var(dst) , var(score), v
 
 // query 16: query invent 88-89
 nested match FUnaryPredicate (   var(x) , var(arg) ,  var(score), var(props) )
-       extend-with "getOutgoingNodes" with variable : "x" result : "f" rel: "adjectivalForm"
+       extend-with "getOutgoingNodes" with variable : "x" result : "f" rel: "relatedTo"
+       where call "isOfType" with variable : "f" type : "Adjective"
        as   FUnaryPredicate ( "be" ,  ( "addAdjective" ( var(arg) ) with adjective : var(f) ) , var(score), var(props) )
 ;
 

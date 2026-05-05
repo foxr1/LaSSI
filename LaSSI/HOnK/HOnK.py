@@ -102,6 +102,7 @@ def _dag_transitive_closure(pairs):
 class LogicalRewritingRule:
     label: str
     attachTo: str
+    argument: str
     logicalConstructName: str
     logicalConstructProperty: Optional[str]
 
@@ -117,6 +118,14 @@ class Rule:
     not_premises: List[Condition]
     logicalConstructName: str
     logicalConstructProperty: Optional[str]
+    # For rules that map to multiple logical types (e.g. "on or near" → both
+    # "stay in place" and "near place"), extra (name, property) pairs beyond
+    # the primary one are collected here so callers can apply all of them.
+    additional_classifications: list = None
+
+    def __post_init__(self):
+        if self.additional_classifications is None:
+            self.additional_classifications = []
 
 class CasusHappening(Enum):
     EQUIVALENT = 0
@@ -148,10 +157,10 @@ class HOnKSingleton(object):
         return cls._instance
 
     @staticmethod
-    def init(cache_path, user, password, hostame, port, onStorage, path):
+    def init(cache_path, user, password, hostame, port, onStorage, path, rules_path=None):
         if HOnKSingleton._instance.honk is None:
             HOnKSingleton._instance.honk = HOnK(cache_path, user, password, hostame, port, onStorage)
-            HOnKSingleton._instance.honk.start(path)
+            HOnKSingleton._instance.honk.start(path, rules_path=rules_path)
 
     @staticmethod
     def stop():
@@ -175,8 +184,11 @@ class HOnK(RDFGraph):
         self.logger = logging.getLogger("HOnK")
         self.onStorage = onStorage
         self._store_path = None  # Set before super().start() to use RocksDB cache
+        self._rules_json_path = None  # Set via start() to load rules from JSON
 
-    def start(self, filename=None):
+    def start(self, filename=None, rules_path=None):
+        if rules_path is not None:
+            self._rules_json_path = rules_path
         use_cache = False
 
         if not self.onStorage and filename is not None:
@@ -249,6 +261,8 @@ class HOnK(RDFGraph):
             "AbstractEntity":          "abstract_entities",
             "Rejectable":              "rejected_edges",
             "Dependency":              "non_verbs",
+            "TimeNoun":                "temporal_nouns",
+            "Conjunction":             "conjunctions",
         }
         _values_clause = " ".join(f"honk:{t}" for t in _type_map)
         _batch_query = f"""
@@ -271,103 +285,105 @@ class HOnK(RDFGraph):
 
         ## get_logical_rewriting_rules
         print(f"[HOnK]   loading logical rewriting rules...")
-        knows_query = """
-                 SELECT DISTINCT ?label ?rule_order ?Preposition ?logicalConstructName ?logicalConstructProperty ?MotionVerb ?SingletonHasBeenMatchedBy ?not ?AbstractEntity ?hasNMod ?hasNModPartOf ?hasNModIsA ?isSymmetricalIfComparedToNMod ?Number ?UnitOfMeasure ?StateVerb ?MeansVerb ?CausativeVerb ?MaterialisationVerb
-                 WHERE {
-                     ?a a honk:LogicalRewritingRule.
-                     ?a rdfs:label ?label .
-                     ?a honk:logicalConstructName ?logicalConstructName .
-                     ?a honk:rule_order ?rule_order .
-                     OPTIONAL { ?a honk:Preposition ?Preposition }
-                     OPTIONAL { ?a honk:logicalConstructProperty ?logicalConstructProperty }
-                     OPTIONAL { ?a honk:SingletonHasBeenMatchedBy ?SingletonHasBeenMatchedBy }
-                     OPTIONAL { ?a honk:not ?not }
-                     OPTIONAL { ?a honk:AbstractEntity ?AbstractEntity }
-                     OPTIONAL { ?a honk:hasNMod ?hasNMod }
-                     OPTIONAL { ?a honk:hasNModPartOf ?hasNModPartOf }
-                     OPTIONAL { ?a honk:hasNModIsA ?hasNModIsA }
-                     OPTIONAL { ?a honk:isSymmetricalIfComparedToNMod ?isSymmetricalIfComparedToNMod }
-                     OPTIONAL { ?a honk:CausativeVerb ?CausativeVerb }
-                     OPTIONAL { ?a honk:Number ?Number }
-                     OPTIONAL { ?a honk:UnitOfMeasure ?UnitOfMeasure }
-                     OPTIONAL { ?a honk:MotionVerb ?MotionVerb }
-                     OPTIONAL { ?a honk:StateVerb ?StateVerb }
-                     OPTIONAL { ?a honk:MeansVerb ?MeansVerb }
-                     OPTIONAL { ?a honk:MaterialisationVerb ?MaterialisationVerb }
-                 }"""
-        # return self._single_unary_query(knows_query, lambda x: x)
+        if self._rules_json_path is not None and os.path.exists(self._rules_json_path):
+            self.logical_rewriting_rules = _load_logical_rules_from_json(self._rules_json_path)
+        else:
+            knows_query = """
+                     SELECT DISTINCT ?label ?rule_order ?Preposition ?logicalConstructName ?logicalConstructProperty ?MotionVerb ?SingletonHasBeenMatchedBy ?not ?AbstractEntity ?hasNMod ?hasNModPartOf ?hasNModIsA ?isSymmetricalIfComparedToNMod ?Number ?UnitOfMeasure ?StateVerb ?MeansVerb ?CausativeVerb ?MaterialisationVerb
+                     WHERE {
+                         ?a a honk:LogicalRewritingRule.
+                         ?a rdfs:label ?label .
+                         ?a honk:logicalConstructName ?logicalConstructName .
+                         ?a honk:rule_order ?rule_order .
+                         OPTIONAL { ?a honk:Preposition ?Preposition }
+                         OPTIONAL { ?a honk:logicalConstructProperty ?logicalConstructProperty }
+                         OPTIONAL { ?a honk:SingletonHasBeenMatchedBy ?SingletonHasBeenMatchedBy }
+                         OPTIONAL { ?a honk:not ?not }
+                         OPTIONAL { ?a honk:AbstractEntity ?AbstractEntity }
+                         OPTIONAL { ?a honk:hasNMod ?hasNMod }
+                         OPTIONAL { ?a honk:hasNModPartOf ?hasNModPartOf }
+                         OPTIONAL { ?a honk:hasNModIsA ?hasNModIsA }
+                         OPTIONAL { ?a honk:isSymmetricalIfComparedToNMod ?isSymmetricalIfComparedToNMod }
+                         OPTIONAL { ?a honk:CausativeVerb ?CausativeVerb }
+                         OPTIONAL { ?a honk:Number ?Number }
+                         OPTIONAL { ?a honk:UnitOfMeasure ?UnitOfMeasure }
+                         OPTIONAL { ?a honk:MotionVerb ?MotionVerb }
+                         OPTIONAL { ?a honk:StateVerb ?StateVerb }
+                         OPTIONAL { ?a honk:MeansVerb ?MeansVerb }
+                         OPTIONAL { ?a honk:MaterialisationVerb ?MaterialisationVerb }
+                     }"""
 
-        not_query = """
-                 SELECT DISTINCT ?Preposition ?MotionVerb ?SingletonHasBeenMatchedBy ?AbstractEntity ?hasNMod ?hasNModPartOf ?hasNModIsA ?isSymmetricalIfComparedToNMod ?Number ?UnitOfMeasure ?StateVerb ?MeansVerb ?CausativeVerb ?MaterialisationVerb
-                 WHERE {
-                     OPTIONAL { ?a honk:Preposition ?Preposition }
-                     OPTIONAL { ?a honk:SingletonHasBeenMatchedBy ?SingletonHasBeenMatchedBy }
-                     OPTIONAL { ?a honk:AbstractEntity ?AbstractEntity }
-                     OPTIONAL { ?a honk:hasNMod ?hasNMod }
-                     OPTIONAL { ?a honk:hasNModPartOf ?hasNModPartOf }
-                     OPTIONAL { ?a honk:hasNModIsA ?hasNModIsA }
-                     OPTIONAL { ?a honk:isSymmetricalIfComparedToNMod ?isSymmetricalIfComparedToNMod }
-                     OPTIONAL { ?a honk:CausativeVerb ?CausativeVerb }
-                     OPTIONAL { ?a honk:Number ?Number }
-                     OPTIONAL { ?a honk:UnitOfMeasure ?UnitOfMeasure }
-                     OPTIONAL { ?a honk:MotionVerb ?MotionVerb }
-                     OPTIONAL { ?a honk:StateVerb ?StateVerb }
-                     OPTIONAL { ?a honk:MeansVerb ?MeansVerb }
-                     OPTIONAL { ?a honk:MaterialisationVerb ?MaterialisationVerb }
-                 }"""
+            not_query = """
+                     SELECT DISTINCT ?Preposition ?MotionVerb ?SingletonHasBeenMatchedBy ?AbstractEntity ?hasNMod ?hasNModPartOf ?hasNModIsA ?isSymmetricalIfComparedToNMod ?Number ?UnitOfMeasure ?StateVerb ?MeansVerb ?CausativeVerb ?MaterialisationVerb
+                     WHERE {
+                         OPTIONAL { ?a honk:Preposition ?Preposition }
+                         OPTIONAL { ?a honk:SingletonHasBeenMatchedBy ?SingletonHasBeenMatchedBy }
+                         OPTIONAL { ?a honk:AbstractEntity ?AbstractEntity }
+                         OPTIONAL { ?a honk:hasNMod ?hasNMod }
+                         OPTIONAL { ?a honk:hasNModPartOf ?hasNModPartOf }
+                         OPTIONAL { ?a honk:hasNModIsA ?hasNModIsA }
+                         OPTIONAL { ?a honk:isSymmetricalIfComparedToNMod ?isSymmetricalIfComparedToNMod }
+                         OPTIONAL { ?a honk:CausativeVerb ?CausativeVerb }
+                         OPTIONAL { ?a honk:Number ?Number }
+                         OPTIONAL { ?a honk:UnitOfMeasure ?UnitOfMeasure }
+                         OPTIONAL { ?a honk:MotionVerb ?MotionVerb }
+                         OPTIONAL { ?a honk:StateVerb ?StateVerb }
+                         OPTIONAL { ?a honk:MeansVerb ?MeansVerb }
+                         OPTIONAL { ?a honk:MaterialisationVerb ?MaterialisationVerb }
+                     }"""
 
-        str_premises = {"Preposition", "MotionVerb", "SingletonHasBeenMatchedBy", "AbstractEntity", "hasNMod",
-                        "hasNModPartOf", "hasNModIsA", "isSymmetricalIfComparedToNMod", "Number", "UnitOfMeasure",
-                        "StateVerb", "MeansVerb", "CausativeVerb", "MaterialisationVerb"}
+            str_premises = {"Preposition", "MotionVerb", "SingletonHasBeenMatchedBy", "AbstractEntity", "hasNMod",
+                            "hasNModPartOf", "hasNModIsA", "isSymmetricalIfComparedToNMod", "Number", "UnitOfMeasure",
+                            "StateVerb", "MeansVerb", "CausativeVerb", "MaterialisationVerb"}
 
-        self.logical_rewriting_rules = defaultdict()
+            self.logical_rewriting_rules = defaultdict()
 
-        query_rules = list(self._single_unary_query(knows_query, lambda x: x))
-        query_rules.sort(key=lambda rule: rule.rule_order)  # So list is ordered numerically by rule_order
-        grouped_rules = defaultdict(list)
-        for rule in query_rules:
-            grouped_rules[rule.rule_order].append(rule)
+            query_rules = list(self._single_unary_query(knows_query, lambda x: x))
+            query_rules.sort(key=lambda rule: rule.rule_order)  # So list is ordered numerically by rule_order
+            grouped_rules = defaultdict(list)
+            for rule in query_rules:
+                grouped_rules[rule.rule_order].append(rule)
 
-        for gr_key, grouped_rule in grouped_rules.items():
-            premises = defaultdict(list)
-            not_premises = defaultdict(list)
-            logical_construct_name = None
-            logical_construct_property = None
-            for rule in grouped_rule:
-                logical_construct_name = rule.logicalConstructName.value if logical_construct_name is None else logical_construct_name
-                logical_construct_property = rule.logicalConstructProperty.value if logical_construct_property is None and rule.logicalConstructProperty is not None else logical_construct_property
-                for str_premise in str_premises:
-                    if hasattr(rule, str_premise) and getattr(rule, str_premise) is not None:
-                        premises[str_premise].append(getattr(rule, str_premise).value)
-                if hasattr(rule, "not") and getattr(rule, "not") is not None:
-                    not_query_premises = list(self._iter_rows(not_query, {'a': getattr(rule, "not")}))
-                    for not_query_premise in not_query_premises:
-                        for str_premise in str_premises:
-                            if hasattr(not_query_premise, str_premise) and getattr(not_query_premise,
-                                                                                   str_premise) is not None:
-                                not_premises[str_premise].append(getattr(not_query_premise, str_premise).value)
+            for gr_key, grouped_rule in grouped_rules.items():
+                premises = defaultdict(list)
+                not_premises = defaultdict(list)
+                logical_construct_name = None
+                logical_construct_property = None
+                for rule in grouped_rule:
+                    logical_construct_name = rule.logicalConstructName.value if logical_construct_name is None else logical_construct_name
+                    logical_construct_property = rule.logicalConstructProperty.value if logical_construct_property is None and rule.logicalConstructProperty is not None else logical_construct_property
+                    for str_premise in str_premises:
+                        if hasattr(rule, str_premise) and getattr(rule, str_premise) is not None:
+                            premises[str_premise].append(getattr(rule, str_premise).value)
+                    if hasattr(rule, "not") and getattr(rule, "not") is not None:
+                        not_query_premises = list(self._iter_rows(not_query, {'a': getattr(rule, "not")}))
+                        for not_query_premise in not_query_premises:
+                            for str_premise in str_premises:
+                                if hasattr(not_query_premise, str_premise) and getattr(not_query_premise,
+                                                                                       str_premise) is not None:
+                                    not_premises[str_premise].append(getattr(not_query_premise, str_premise).value)
 
-            con_premises = list()
-            for p_key, premise in premises.items():
-                con_premises.append(Condition(
-                    name=p_key,
-                    values=list(set(premise))
-                ))
+                con_premises = list()
+                for p_key, premise in premises.items():
+                    con_premises.append(Condition(
+                        name=p_key,
+                        values=list(set(premise))
+                    ))
 
-            neg_con_premises = list()
-            for np_key, not_premise in not_premises.items():
-                neg_con_premises.append(Condition(
-                    name=np_key,
-                    values=list(set(not_premise))
-                ))
+                neg_con_premises = list()
+                for np_key, not_premise in not_premises.items():
+                    neg_con_premises.append(Condition(
+                        name=np_key,
+                        values=list(set(not_premise))
+                    ))
 
-            self.logical_rewriting_rules[gr_key.value] = Rule(
-                id=gr_key.value,
-                premises=con_premises,
-                not_premises=neg_con_premises,
-                logicalConstructName=logical_construct_name,
-                logicalConstructProperty=logical_construct_property
-            )
+                self.logical_rewriting_rules[gr_key.value] = Rule(
+                    id=gr_key.value,
+                    premises=con_premises,
+                    not_premises=neg_con_premises,
+                    logicalConstructName=logical_construct_name,
+                    logicalConstructProperty=logical_construct_property
+                )
         self.logger.info("Logical rewriting rules loaded")
         print(f"[HOnK]   logical rewriting rules loaded ({time.time()-_t0:.1f}s)")
         ## End: get_logical_rewriting_rules
@@ -399,14 +415,18 @@ class HOnK(RDFGraph):
         print(f"[HOnK]   nouns loaded ({time.time()-_t0:.1f}s)")
         ## End: nouns_with_a
 
-        # syn is now computed lazily on demand in getSynonymy() to avoid
-        # extracting and materialising all ~210K eq-pairs from the store at load
-        # time, which causes OOM on large (WordNet-scale) TTL files.
+        # Materialise eq / isA / partOf as label-keyed Python adjacency dicts.
+        # We bypass SPARQL on the hot path because pyoxigraph's planner picks an
+        # O(N) scan plan for the BGP `?pred a honk:eq . ?src ?pred ?equiv` on
+        # the current 22.4M-triple HOnK store — a single getSynonymy call hangs
+        # for >5 minutes regardless of VALUES batching, which previously froze
+        # _calculate_matrix at ~7/16 cells.  The dicts only carry URIs that
+        # actually participate in eq/isA/partOf edges, so memory scales with
+        # edge count (not the 10M total rdfs:label triples) — small for the
+        # current cut-down TTL, ~200MB even at the WordNet scale described in
+        # the original lazy-loading comment (~210K eq + ~788K hier pairs).
+        self._build_relation_adjacency()
         self._syn_cache: dict = {}
-
-        # trcl is now computed lazily on demand in _get_reachable() to avoid
-        # materialising the full transitive closure of ~788K isA/partOf pairs
-        # at load time, which causes OOM on large (WordNet-scale) TTL files.
         self._trcl_cache: dict = {}
 
 
@@ -563,59 +583,184 @@ class HOnK(RDFGraph):
             return {(y, x) for x, y in pairs}
         return pairs
 
-    # SPARQL template used by getSynonymy for a single-term BFS step.
-    # Finds all labels reachable from ?src_label in one hop via any predicate
-    # that is an instance of honk:eq (both directions, since the TTL
-    # stores symmetric pairs).
-    _SYN_QUERY = """
-        SELECT DISTINCT ?equiv_label
-        WHERE {
-            ?pred a honk:eq .
-            {
-                ?src rdfs:label ?src_label .
-                ?src ?pred ?equiv .
-                ?equiv rdfs:label ?equiv_label .
-            }
-            UNION
-            {
-                ?equiv rdfs:label ?src_label .
-                ?equiv ?pred ?src .
-                ?src rdfs:label ?equiv_label .
-            }
-        }"""
+    def _build_relation_adjacency(self):
+        """Materialise the eq / isA / partOf / neqTo graph from the underlying
+        store as four label-keyed Python adjacency dicts.  Result is cached
+        next to the RocksDB store as `relation_adjacency.pkl` — first build
+        is ~120s on the full 22.4M-triple HOnK; subsequent loads are <1s.
+
+        Uses `quads_for_pattern` index lookups for edge enumeration and a
+        single full-scan over the rdfs:label triples for URI→label resolution
+        (much faster than ~1M individual round-trips).
+
+        Edge directions follow the original SPARQL templates exactly:
+            * eq: bidirectional — `(s, eq_pred, o)` adds `label(s) ↔ label(o)`.
+            * isA: edges run supertype → subtype.  A triple `(s, isA_pred, o)`
+              means subtype `o` *isA* supertype `s`, so we record
+              `label(o) → {label(s), …}` (cur → supertypes).
+            * partOf: edges run part → whole.  A triple `(s, partOf_pred, o)`
+              means part `s` is partOf whole `o`, so we record
+              `label(s) → {label(o), …}` (cur → wholes).
+            * neqTo: bidirectional antonyms.
+        """
+        import pickle
+        adj_cache = os.path.join(self.cache_path, "honk_oxstore.adj.pkl")
+        # The RocksDB store directory mtime updates on every open (LOG churn),
+        # so anchor freshness on `honk_oxstore.mtime` (which records the TTL
+        # mtime when the store was built — invariant unless TTL changes).
+        ttl_mtime_file = os.path.join(self.cache_path, "honk_oxstore.mtime")
+        try:
+            if (os.path.exists(adj_cache)
+                    and os.path.exists(ttl_mtime_file)
+                    and os.path.getmtime(adj_cache) >= os.path.getmtime(ttl_mtime_file)):
+                with open(adj_cache, "rb") as f:
+                    blob = pickle.load(f)
+                self._eq_adj = blob["eq"]
+                self._isA_supers = blob["isA"]
+                self._partOf_wholes = blob["partOf"]
+                self._neqTo_adj = blob["neqTo"]
+                n_eq = sum(len(v) for v in self._eq_adj.values())
+                n_isA = sum(len(v) for v in self._isA_supers.values())
+                n_part = sum(len(v) for v in self._partOf_wholes.values())
+                n_neq = sum(len(v) for v in self._neqTo_adj.values())
+                print(f"[HOnK]   relation adjacency loaded from cache: "
+                      f"eq={n_eq} isA={n_isA} partOf={n_part} neqTo={n_neq} "
+                      f"({len(self._eq_adj)}/{len(self._isA_supers)}/{len(self._partOf_wholes)}/{len(self._neqTo_adj)} terms)")
+                return
+        except (pickle.PickleError, EOFError, OSError) as e:
+            print(f"[HOnK]   adjacency cache unreadable ({e!r}); rebuilding")
+
+        import pyoxigraph
+        ns = str(self.namespace)
+        rdfs_label = pyoxigraph.NamedNode("http://www.w3.org/2000/01/rdf-schema#label")
+        rdf_type = pyoxigraph.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+
+        self._eq_adj: dict[str, set[str]] = {}
+        self._isA_supers: dict[str, set[str]] = {}
+        self._partOf_wholes: dict[str, set[str]] = {}
+        self._neqTo_adj: dict[str, set[str]] = {}
+
+        def _preds_of_class(cls_local_name):
+            cls = pyoxigraph.NamedNode(ns + cls_local_name)
+            return [q.subject for q in self.graph.quads_for_pattern(None, rdf_type, cls, None)]
+
+        eq_preds = _preds_of_class("eq")
+        isA_preds = _preds_of_class("isA")
+        partOf_preds = _preds_of_class("partOf")
+        neqTo_preds = _preds_of_class("neqTo")
+
+        # Pass 1: collect raw edge tuples (URIs) and the URIs we need labels for.
+        eq_edges, isA_edges, partOf_edges, neqTo_edges = [], [], [], []
+        needed_uris: set = set()
+
+        def _collect(pred_list, dest):
+            for p in pred_list:
+                for q in self.graph.quads_for_pattern(None, p, None, None):
+                    s, o = q.subject, q.object
+                    if isinstance(s, pyoxigraph.NamedNode) and isinstance(o, pyoxigraph.NamedNode):
+                        dest.append((s.value, o.value))
+                        needed_uris.add(s.value)
+                        needed_uris.add(o.value)
+        _t = time.time(); _collect(eq_preds, eq_edges)
+        print(f"[HOnK]   adjacency: collected {len(eq_edges)} eq edges in {time.time()-_t:.1f}s", flush=True)
+        _t = time.time(); _collect(isA_preds, isA_edges)
+        print(f"[HOnK]   adjacency: collected {len(isA_edges)} isA edges in {time.time()-_t:.1f}s", flush=True)
+        _t = time.time(); _collect(partOf_preds, partOf_edges)
+        print(f"[HOnK]   adjacency: collected {len(partOf_edges)} partOf edges in {time.time()-_t:.1f}s", flush=True)
+        _t = time.time(); _collect(neqTo_preds, neqTo_edges)
+        print(f"[HOnK]   adjacency: collected {len(neqTo_edges)} neqTo edges in {time.time()-_t:.1f}s", flush=True)
+
+        # Pass 2: single full-scan over rdfs:label triples — ~50s for the
+        # 10M-row label table, vs ~150s for ~1M individual URI round-trips.
+        _t = time.time()
+        uri_to_labels: dict[str, list[str]] = {}
+        for q in self.graph.quads_for_pattern(None, rdfs_label, None, None):
+            s = q.subject
+            if not isinstance(s, pyoxigraph.NamedNode):
+                continue
+            uri = s.value
+            if uri not in needed_uris:
+                continue
+            obj = q.object
+            if isinstance(obj, pyoxigraph.Literal):
+                uri_to_labels.setdefault(uri, []).append(obj.value)
+        print(f"[HOnK]   adjacency: resolved {len(uri_to_labels)} URI labels in {time.time()-_t:.1f}s", flush=True)
+
+        # Pass 3: build label-keyed adjacency dicts (cartesian over each URI's
+        # labels — almost always 1×1, but correct for multi-labelled URIs).
+        for s_uri, o_uri in eq_edges:
+            s_ls = uri_to_labels.get(s_uri); o_ls = uri_to_labels.get(o_uri)
+            if not s_ls or not o_ls:
+                continue
+            for ls in s_ls:
+                for lo in o_ls:
+                    self._eq_adj.setdefault(ls, set()).add(lo)
+                    self._eq_adj.setdefault(lo, set()).add(ls)
+        for s_uri, o_uri in isA_edges:
+            s_ls = uri_to_labels.get(s_uri); o_ls = uri_to_labels.get(o_uri)
+            if not s_ls or not o_ls:
+                continue
+            for ls in s_ls:
+                for lo in o_ls:
+                    self._isA_supers.setdefault(lo, set()).add(ls)
+        for s_uri, o_uri in partOf_edges:
+            s_ls = uri_to_labels.get(s_uri); o_ls = uri_to_labels.get(o_uri)
+            if not s_ls or not o_ls:
+                continue
+            for ls in s_ls:
+                for lo in o_ls:
+                    self._partOf_wholes.setdefault(ls, set()).add(lo)
+        for s_uri, o_uri in neqTo_edges:
+            s_ls = uri_to_labels.get(s_uri); o_ls = uri_to_labels.get(o_uri)
+            if not s_ls or not o_ls:
+                continue
+            for ls in s_ls:
+                for lo in o_ls:
+                    self._neqTo_adj.setdefault(ls, set()).add(lo)
+                    self._neqTo_adj.setdefault(lo, set()).add(ls)
+
+        n_eq = sum(len(v) for v in self._eq_adj.values())
+        n_isA = sum(len(v) for v in self._isA_supers.values())
+        n_part = sum(len(v) for v in self._partOf_wholes.values())
+        n_neq = sum(len(v) for v in self._neqTo_adj.values())
+        print(f"[HOnK]   relation adjacency: eq={n_eq} isA={n_isA} partOf={n_part} neqTo={n_neq} "
+              f"({len(self._eq_adj)}/{len(self._isA_supers)}/{len(self._partOf_wholes)}/{len(self._neqTo_adj)} terms)")
+
+        try:
+            with open(adj_cache, "wb") as f:
+                pickle.dump({
+                    "eq": self._eq_adj,
+                    "isA": self._isA_supers,
+                    "partOf": self._partOf_wholes,
+                    "neqTo": self._neqTo_adj,
+                }, f, protocol=pickle.HIGHEST_PROTOCOL)
+            print(f"[HOnK]   adjacency: cached to {adj_cache}", flush=True)
+        except OSError as e:
+            print(f"[HOnK]   adjacency: failed to write cache ({e!r})", flush=True)
 
     def getSynonymy(self, k):
         """Return the set of all labels equivalent to *k* (including *k* itself).
 
-        Uses SPARQL 1.1 property paths to follow all eq-instance edges in the
-        store in one step. Results are cached across entire synonym groups.
+        Pure-Python BFS over the preloaded `_eq_adj` adjacency dict — no
+        SPARQL on the hot path.  Caches the result for every discovered
+        synonym, so a single matrix-cell traversal warms every member of the
+        equivalence class for O(1) future lookups.
         """
         if k in self._syn_cache:
             return self._syn_cache[k]
-
-        # Use property paths (^?pred|?pred)* to follow symmetric eq edges.
-        # This handles the full transitive/symmetric closure in one engine-level step.
-        query = """
-            SELECT DISTINCT ?equiv_label
-            WHERE {
-                ?src rdfs:label ?src_label .
-                ?pred a honk:eq .
-                ?src (^?pred|?pred)* ?equiv .
-                ?equiv rdfs:label ?equiv_label .
-            }"""
-        bindings = {"src_label": Literal(k, datatype=XSD.string)}
-        
         synonyms = {k}
-        for row in self._iter_rows(query, bindings):
-            if row.equiv_label:
-                synonyms.add(str(row.equiv_label))
-
-        # Cache the result for every discovered member.
+        frontier = {k}
+        while frontier:
+            next_frontier = set()
+            for term in frontier:
+                for n in self._eq_adj.get(term, ()):
+                    if n not in synonyms:
+                        synonyms.add(n)
+                        next_frontier.add(n)
+            frontier = next_frontier
         for t in synonyms:
             self._syn_cache[t] = synonyms
         return synonyms
-
-        return visited
 
     def typeOf2(self, src):
         knows_query = """
@@ -644,31 +789,40 @@ class HOnK(RDFGraph):
         return s
 
     def getSuperTypes(self, src):
-        """Return the set of all superclasses of the entity *src* (including direct types and their ancestors).
-        
-        Uses SPARQL property paths (rdfs:subClassOf*) for fast, engine-level traversal.
-        Results are cached in self.st.
+        """Return the set of all label-supertypes of the entity *src*
+        (including direct supertypes and their transitive ancestors).
+
+        Adjacency-dict based: traverses `_isA_supers` only.  This replaces
+        the original SPARQL `?s a ?type . ?type rdfs:subClassOf* ?super`
+        which hung on the full 22.4M-triple HOnK store.
+
+        Results are cached in self.st.  Returns an empty set if the closure
+        exceeds `_REACHABLE_CAP` (treated as "too generic to be useful").
         """
         if src in self.st:
             return self.st[src]
-            
-        query = """
-            SELECT DISTINCT ?super
-            WHERE {
-                ?s rdfs:label ?label .
-                ?s a ?type .
-                ?type rdfs:subClassOf* ?super .
-            }"""
-        bindings = {"label": Literal(src, datatype=XSD.string)}
-        
-        supertypes = set()
-        for row in self._iter_rows(query, bindings):
-            if row.super:
-                # Store full URIs as strings, matching previous behavior
-                supertypes.add(str(row.super))
-        
-        self.st[src] = supertypes
-        return supertypes
+
+        cap = self._REACHABLE_CAP
+        supers: set[str] = set()
+        frontier = {src}
+        bailed = False
+        while frontier:
+            nxt = set()
+            for t in frontier:
+                for n in self._isA_supers.get(t, ()):
+                    if n not in supers:
+                        supers.add(n)
+                        nxt.add(n)
+                if len(supers) > cap:
+                    bailed = True
+                    break
+            if bailed:
+                break
+            frontier = nxt
+        if bailed:
+            supers = set()
+        self.st[src] = supers
+        return supers
 
     def getTypedObjects(self):
             typing = """
@@ -716,97 +870,103 @@ class HOnK(RDFGraph):
         elif (src.startswith("?") and src[1:].isdigit()) or (dst.startswith("?") and dst[1].isdigit()):
             return CasusHappening.EQUIVALENT
         else:
-            resolveTypeFromOntologyLHS = set(self.getSuperTypes(src))
-            resolveTypeFromOntologyRHS = set(self.getSuperTypes(dst))
-            isect = resolveTypeFromOntologyLHS.intersection(resolveTypeFromOntologyRHS)
-            if len(resolveTypeFromOntologyLHS) == 0:
+            srcS = self.getSynonymy(src)
+            dstS = self.getSynonymy(dst)
+            neqTo_src = self._neqTo_adj.get(src, set())
+            neqTo_dst = self._neqTo_adj.get(dst, set())
+            # Direct (1-hop) neqTo edge between the heads is decisive: an
+            # explicit ontology antonym overrides any sense-collapsed synonymy.
+            if dst in neqTo_src or src in neqTo_dst:
+                return CasusHappening.EXCLUSIVES
+            # Direct synonymy (synsets share a member) outranks the broader
+            # "synonym-of-mine matches antonym-of-theirs" path below — WordNet
+            # routinely produces both verdicts when a term is polysemic, and
+            # the same sense cannot self-contradict.
+            if not srcS.isdisjoint(dstS):
+                return CasusHappening.EQUIVALENT
+            if not dstS.isdisjoint(neqTo_src) or not srcS.isdisjoint(neqTo_dst):
+                return CasusHappening.EXCLUSIVES
+            # Supertype-intersection gate — short-circuit when the terms have
+            # no common ancestor.  Adjacency-based, no SPARQL.
+            resolveTypeFromOntologyLHS = self.getSuperTypes(src)
+            resolveTypeFromOntologyRHS = self.getSuperTypes(dst)
+            if len(resolveTypeFromOntologyLHS) == 0 or len(resolveTypeFromOntologyRHS) == 0:
                 return CasusHappening.INDIFFERENT
-            elif len(resolveTypeFromOntologyRHS) == 0:
-                return CasusHappening.INDIFFERENT
-            elif len(isect) == 0:
+            if resolveTypeFromOntologyLHS.isdisjoint(resolveTypeFromOntologyRHS):
                 return CasusHappening.INDIFFERENT
             else:
-                srcS = self.getSynonymy(src)
-                dstS = self.getSynonymy(dst)
-                for k in isect:
-                    # Check direct neqTo (both directions) via direct predicate and numbered instances
-                    neqTo_src = (set(x["x"] for x in self.single_edge(src, "neqTo", "^x") if x.get("@^hasResult"))
-                                 | self._getOutgoingNodesByClassInstance(src, "neqTo"))
-                    neqTo_dst = (set(x["x"] for x in self.single_edge(dst, "neqTo", "^x") if x.get("@^hasResult"))
-                                 | self._getOutgoingNodesByClassInstance(dst, "neqTo"))
-                    # src neqTo dst, or any synonym of dst is neqTo of src
-                    if dst in neqTo_src or len(set(dstS).intersection(neqTo_src)) > 0:
-                        return CasusHappening.EXCLUSIVES
-                    # dst neqTo src, or any synonym of src is neqTo of dst
-                    if src in neqTo_dst or len(set(srcS).intersection(neqTo_dst)) > 0:
-                        return CasusHappening.EXCLUSIVES
-                    if len(set(srcS).intersection(set(dstS))) > 0:
-                        return CasusHappening.EQUIVALENT
-                    for lhs in self.getSynonymy(src):
-                        for rhs in self.getSynonymy(dst):
-                            if self._is_reachable(lhs, rhs):
-                                return CasusHappening.GENERAL_IMPLICATION
+                # Implication via isA/partOf reachability.  Old code did an
+                # O(|srcS|*|dstS|) `_is_reachable` scan; replace with a single
+                # union of reachable sets and an O(|dstS|) intersection check.
+                src_reach: set = set()
+                bailed = False
+                for lhs in srcS:
+                    r = self._get_reachable(lhs)
+                    if r is None:
+                        # closure too large to be useful — treat as INDIFFERENT
+                        bailed = True
+                        break
+                    src_reach |= r
+                if not bailed and not dstS.isdisjoint(src_reach):
+                    return CasusHappening.GENERAL_IMPLICATION
                 return CasusHappening.INDIFFERENT
 
-    # SPARQL template used by _get_reachable for a single BFS step.
-    # Reflects the two edge directions from the original trcl construction:
-    #   isA  with flip=True  → edges run supertype → subtype
-    #                          (lhs is destination; we follow incoming isA edges)
-    #   partOf with flip=False → edges run part → whole
-    #                          (lhs is source; we follow outgoing partOf edges)
-    _HIER_QUERY = """
-        SELECT DISTINCT ?next_label
-        WHERE {
-            {
-                ?pred a honk:isA .
-                ?next ?pred ?cur .
-                ?cur  rdfs:label ?cur_label .
-                ?next rdfs:label ?next_label .
-            }
-            UNION
-            {
-                ?pred a honk:partOf .
-                ?cur  ?pred ?next .
-                ?cur  rdfs:label ?cur_label .
-                ?next rdfs:label ?next_label .
-            }
-        }"""
+    _REACHABLE_CAP = 5000
 
-    def _get_reachable(self, term: str) -> set:
+    def _get_reachable(self, term: str):
         """Return the set of all terms reachable from *term* via isA/partOf
-        edges (lazy closure using SPARQL property paths)."""
+        edges (lazy transitive closure), or None if the closure would exceed
+        `_REACHABLE_CAP`.  Pure-Python BFS over the preloaded `_isA_supers`
+        and `_partOf_wholes` dicts.
+
+        Edge semantics, mirroring the original SPARQL:
+            * isA: traverse upward — from *cur* to its supertypes.
+            * partOf: traverse outward — from *cur* (the part) to its
+              containing wholes.
+
+        The cap prevents matrix cells from stalling on polysemic terms whose
+        WordNet-style ancestor closure spans tens of thousands of nodes.
+        """
         if term in self._trcl_cache:
             return self._trcl_cache[term]
-
-        # Use SPARQL property paths to find the closure of isA/partOf in one step.
-        # This handles the full reachability from *term* at the engine level.
-        query = """
-            SELECT DISTINCT ?dst_label
-            WHERE {
-                ?src rdfs:label ?src_label .
-                ?pred_isa    a honk:isA .
-                ?pred_partof a honk:partOf .
-                ?src (^?pred_isa|?pred_partof)* ?dst .
-                ?dst rdfs:label ?dst_label .
-            }"""
-        bindings = {"src_label": Literal(term, datatype=XSD.string)}
-        
+        cap = self._REACHABLE_CAP
         reachable = {term}
-        for row in self._iter_rows(query, bindings):
-            if row.dst_label:
-                reachable.add(str(row.dst_label))
-
+        frontier = {term}
+        bailed = False
+        while frontier:
+            next_frontier = set()
+            for t in frontier:
+                for n in self._isA_supers.get(t, ()):
+                    if n not in reachable:
+                        reachable.add(n)
+                        next_frontier.add(n)
+                for n in self._partOf_wholes.get(t, ()):
+                    if n not in reachable:
+                        reachable.add(n)
+                        next_frontier.add(n)
+                if len(reachable) > cap:
+                    bailed = True
+                    break
+            if bailed:
+                break
+            frontier = next_frontier
+        if bailed:
+            self._trcl_cache[term] = None
+            return None
         self._trcl_cache[term] = reachable
         return reachable
 
     def _is_reachable(self, lhs: str, rhs: str) -> bool:
         """Return True if *rhs* is reachable from *lhs* via isA/partOf edges."""
-        return rhs in self._get_reachable(lhs)
+        r = self._get_reachable(lhs)
+        return r is not None and rhs in r
 
     def getTransitiveClosureHier(self, t):
         # Kept for API compatibility; internal code uses _is_reachable directly.
         # Returns the cached reachable set for t (lazy, not the full closure).
-        return self._get_reachable(t)
+        # Returns an empty set if the closure exceeds `_REACHABLE_CAP`.
+        r = self._get_reachable(t)
+        return r if r is not None else set()
 
     def getNounsWithProperties(self):
         return self.nouns_with_properties
@@ -859,6 +1019,12 @@ class HOnK(RDFGraph):
     def getMaterialisationVerbs(self):
         return self.materialisation_verbs
 
+    def getTemporalNouns(self):
+        return self.temporal_nouns
+
+    def getConjunctions(self):
+        return self.conjunctions
+
     def collect_prepositions(self):
         return self.prepositions
 
@@ -886,6 +1052,8 @@ class HOnK(RDFGraph):
         self.abstract_entities.clear()
         self.state_verbs.clear()
         self.materialisation_verbs.clear()
+        self.temporal_nouns.clear()
+        self.conjunctions.clear()
         self.prepositions.clear()
 
     @lru_cache(maxsize=128)
@@ -898,7 +1066,7 @@ class HOnK(RDFGraph):
              ?a honk:logicalConstructName ?logicalConstructName .
              OPTIONAL { ?a honk:logicalConstructProperty ?logicalConstructProperty }
              ?a honk:attachTo ?attachTo .
-             ?a honk:argument ?argument .
+             OPTIONAL { ?a honk:argument ?argument }
          }"""
 
         logical_functions = list()
@@ -912,11 +1080,74 @@ class HOnK(RDFGraph):
                 logical_functions.append(LogicalRewritingRule(
                     label=function.label.value,
                     attachTo=function.attachTo.value,
+                    argument=function.argument.value if hasattr(function, 'argument') and function.argument is not None else "property",
                     logicalConstructName=logical_construct_name,
                     logicalConstructProperty=actual_prop
                 ))
 
+        if not logical_functions and self._rules_json_path and os.path.exists(self._rules_json_path):
+            # Fallback: Load directly from JSON if not in the RDF store
+            log_defs, _ = SentenceStructure.load_logical_analysis(self._rules_json_path)
+            if logical_construct_name in log_defs:
+                for spec in log_defs[logical_construct_name].specs:
+                    if spec.property == logical_construct_property:
+                        logical_functions.append(LogicalRewritingRule(
+                            label=f"log/{logical_construct_name}/{spec.property}" if spec.property else f"log/{logical_construct_name}",
+                            attachTo=spec.attachTo,
+                            argument=spec.argument,
+                            logicalConstructName=logical_construct_name,
+                            logicalConstructProperty=spec.property
+                        ))
+
         return logical_functions
+
+def _load_logical_rules_from_json(json_path: str):
+    """Build logical_rewriting_rules directly from logical_analysis.json.
+
+    Produces an identical defaultdict[int, Rule] to the SPARQL block in
+    _load(), but reads the source JSON rather than querying the RDF store.
+    """
+    _, rules_list = SentenceStructure.load_logical_analysis(json_path)
+
+    rules = defaultdict()
+    rule_id = 1
+
+    for matching in rules_list:
+        not_premises = []
+        raw_not = matching.premise.get("not")
+        if raw_not:
+            for nk, nv in raw_not.items():
+                values = nv if isinstance(nv, list) else [nv]
+                not_premises.append(Condition(name=nk, values=values))
+
+        premises = []
+        for key, val in matching.premise.items():
+            if key == "not":
+                continue
+            values = val if isinstance(val, list) else [val]
+            premises.append(Condition(name=key, values=values))
+
+        # When a JSON rule has multiple classifications, create ONE Rule whose
+        # additional_classifications list holds the extra (name, property) pairs.
+        # This lets rewrite_node_logically apply all of them for a single match.
+        if matching.classification:
+            primary = matching.classification[0]
+            extras = [
+                (c.type, c.property)
+                for c in matching.classification[1:]
+            ]
+            rules[rule_id] = Rule(
+                id=rule_id,
+                premises=premises,
+                not_premises=not_premises,
+                logicalConstructName=primary.type,
+                logicalConstructProperty=primary.property,
+                additional_classifications=extras,
+            )
+            rule_id += 1
+
+    return rules
+
 
 def load_from_txt_file(p:HOnK, path:str, classes:list, to_reject:set):
     with open(path, "r") as dep:

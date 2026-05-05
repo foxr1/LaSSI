@@ -10,21 +10,34 @@ def score_from_meu(min_value, max_value, node_type, meu_db_row, honk):
     matched_meus = []
 
     for meu in meu_db_row.multi_entity_unit:
-        start_meu = meu.start_char
-        end_meu = meu.end_char
+        # Support both MeuDBEntry (object with attributes) and namedtuple
+        if hasattr(meu, 'start_char'):
+            start_meu = meu.start_char
+            end_meu = meu.end_char
+            m_type = meu.type
+            m_conf = meu.confidence
+        else:
+            start_meu, end_meu, m_type, m_conf = meu[:4]
+
         if min_value == start_meu and end_meu == max_value:
             # TODO: mgu or its opposite...
-            if (honk.most_specific_type([node_type, meu.type]) == meu.type or
-                    node_type == meu.type or
+            if (honk.most_specific_type([node_type, m_type]) == m_type or
+                    node_type == m_type or
                     node_type == "None"):
                 matched_meus.append(meu)
 
     if len(matched_meus) == 0:
         return 0, "None"
     else:
-        max_score = max(map(lambda x: x.confidence, matched_meus))
+        # Support both MeuDBEntry and namedtuple/dict
+        def get_conf(x):
+            return x.confidence if hasattr(x, 'confidence') else x[3]
+        def get_type(x):
+            return x.type if hasattr(x, 'type') else x[2]
+
+        max_score = max(map(get_conf, matched_meus))
         return max_score, honk.most_specific_type(
-            list(map(lambda x: x.type, filter(lambda x: x.confidence == max_score, matched_meus))))
+            list(map(get_type, filter(lambda x: get_conf(x) == max_score, matched_meus))))
 
 
 def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, existentials):
@@ -55,7 +68,7 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
         else:
             flattened_entities.append(entity)
 
-    sorted_entities = sorted(flattened_entities, key=lambda x: x.pos_f())
+    sorted_entities = sorted(flattened_entities, key=lambda x: (x.min_f(), x.pos_f()))
 
     sorted_entity_names = list(map(getattr, sorted_entities, repeat('named_entity')))
     d = dict(zip(range(len(sorted_entity_names)), sorted_entity_names))  # dictionary for storing the replacing elements
@@ -75,7 +88,8 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
             max_value = max(map(lambda z: sorted_entities[z].max, x))
 
             all_types = [sorted_entities[z].type for z in x]
-            specific_type = honk.most_specific_type(all_types)
+            non_verb_types = [t for t in all_types if t.lower() != 'verb']
+            specific_type = honk.most_specific_type(non_verb_types if non_verb_types else all_types)
 
             # TODO: Is this okay to do? This is done because min/max no match in MEU, but VERB is important to keep...
             if specific_type == "VERB":
@@ -85,22 +99,31 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
                                                                          meu_db_row, honk)
             all_meu_score_prod = numpy.prod(list(map(lambda z: sorted_entities[z].confidence, x)))
 
-            # if (score_from_meu(exp, min_value, max_value, specific_type, stanza_row) >=
-            #         numpy.prod(list(map(lambda z: score_from_meu(sorted_entities[z].named_entity, sorted_entities[z].min, max_value, sorted_entities[z].type, stanza_row), x)))):
-            if (
-                    ((candidate_meu_score >= all_meu_score_prod)
-                     or
-                     ((specific_type != candidate_meu_type) and (
-                             honk.most_specific_type([specific_type, candidate_meu_type]) == candidate_meu_type)))
-                    or
-                    (len(resolved_d) > 0 and all(candidate_meu_score >= subarray[1] for subarray in resolved_d) and (
-                            specific_type != candidate_meu_type) and (all(
-                        honk.most_specific_type([subarray[2], candidate_meu_type]) == candidate_meu_type for
-                        subarray in resolved_d)))  # Check if current score is greater than previous resolutions
-            ):
-                if candidate_meu_score > max_score:
-                    alternatives = [(x, all_meu_score_prod, exp, candidate_meu_type)]
-                    max_score = candidate_meu_score
+            # DECISION LOGIC:
+            # 1. Candidate must have score >= product of parts OR it must improve the type specification
+            # 2. ALSO, we should NOT merge if the merged type is LESS specific than one of the parts' types
+            #    (e.g. merging GPE into LOC).
+            
+            is_type_compatible = ((specific_type == candidate_meu_type) or 
+                                (honk.most_specific_type([specific_type, candidate_meu_type]) == candidate_meu_type))
+            
+            # Loss of specification check: if any part has a more specific type than the candidate, reject merge
+            has_loss_of_spec = any(honk.most_specific_type([candidate_meu_type, t]) == t and t != candidate_meu_type for t in all_types if t != "None")
+
+            if not has_loss_of_spec:
+                if (
+                        ((candidate_meu_score >= all_meu_score_prod)
+                         or
+                         ((specific_type != candidate_meu_type) and is_type_compatible))
+                        or
+                        (len(resolved_d) > 0 and all(candidate_meu_score >= subarray[1] for subarray in resolved_d) and (
+                                specific_type != candidate_meu_type) and (all(
+                            honk.most_specific_type([subarray[2], candidate_meu_type]) == candidate_meu_type for
+                            subarray in resolved_d)))  # Check if current score is greater than previous resolutions
+                ):
+                    if candidate_meu_score > max_score:
+                        alternatives = [(x, all_meu_score_prod, exp, candidate_meu_type)]
+                        max_score = candidate_meu_score
 
         if len(alternatives) > 0:
             alternatives.sort(key=lambda x: x[1])
@@ -143,29 +166,46 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
     extra_props = None
 
     extra_names_list = []
-    # TODO: Remove time-space information and add as properties
+    
+    # Track which names are current head candidates from the resolution d
+    head_names = set(d.values())
+
     for entity in sorted_entities:
         norm_confidence *= entity.confidence
-
         fusion_properties = merge_properties(fusion_properties, entity.get_props())
-        if (entity.named_entity == list(d.values())[0] and len(resolved_d) > 0) or entity.type.lower() == "verb":
-            chosen_entity = entity
-        else:
-            extra_names_list.append(entity.named_entity)
-            extra_min = entity.min if extra_min is None else extra_min if extra_min < entity.min else entity.min
-            extra_max =  entity.max if extra_max is None else extra_max if extra_max > entity.max else entity.max
+        
+        # HEAD SELECTION LOGIC:
+        # Pick the best entity from sorted_entities that is present as a head in resolution d.
+        # Use hierarchical type comparison to find the most specific/important entity.
+        if entity.named_entity in head_names:
+            is_better_type = (chosen_entity is None or 
+                             (honk.most_specific_type([chosen_entity.type, entity.type]) == entity.type and 
+                              entity.type != chosen_entity.type))
+            
+            # Verbs are always strong candidates if nothing more specific is found
+            is_verb_fallback = (entity.type.lower() == "verb" and (chosen_entity is None or chosen_entity.type.lower() != "verb"))
+            
+            if is_better_type or is_verb_fallback:
+                chosen_entity = entity
 
-            # Only keep "core" properties, as other properties will be added to "chosen entity" instead, to make rewriting "easier" later on
-            entity_props = {k: v for k, v in entity.get_props().items() if k in {'begin', 'end', 'number', 'pos', 'specification'}}
-            extra_props = entity_props if extra_props is None else merge_properties(entity_props, extra_props)
+    # Build extra_names_list from everything that wasn't chosen as head
+    for entity in sorted_entities:
+        if entity == chosen_entity:
+            continue
+            
+        extra_names_list.append(entity.named_entity)
+        extra_min = entity.min if extra_min is None else extra_min if extra_min < entity.min else entity.min
+        extra_max =  entity.max if extra_max is None else extra_max if extra_max > entity.max else entity.max
+
+        # Only keep "core" properties, as other properties will be added to "chosen entity" instead
+        entity_props = {k: v for k, v in entity.get_props().items() if k in {'begin', 'end', 'number', 'pos', 'specification'}}
+        extra_props = entity_props if extra_props is None else merge_properties(entity_props, extra_props)
     
-    # Use split words to keep order while removing duplicates across potentially overlapping entity names
-    # and ensuring we don't repeat words already in the chosen_entity's name.
     chosen_words = set(chosen_entity.named_entity.split()) if chosen_entity else set()
     unique_words = []
     seen_words = set()
-    for name in extra_names_list:
-        for word in name.split():
+    for entity in sorted_entities:
+        for word in entity.named_entity.split():
             if word not in seen_words and word not in chosen_words:
                 unique_words.append(word)
                 seen_words.add(word)
@@ -186,18 +226,16 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
 
         new_properties = new_properties | fusion_properties
 
-        if chosen_entity is not None:
-            node_type = chosen_entity.type
-        else:
-            node_type = "ENTITY"
+        # In simplistic rewriting, we join all entities into one string
+        final_simplistic_name = " ".join(e.named_entity for e in sorted_entities)
 
         merged_node = Singleton(
             id=node.id,
-            named_entity=extra_name,
+            named_entity=final_simplistic_name,
             properties=frozenset(new_properties.items()),
             min=sorted_entities[0].min,
             max=sorted_entities[len(sorted_entities) - 1].max,
-            type=node_type,  # TODO: What should this type be?
+            type=chosen_entity.type if chosen_entity else "ENTITY",
             confidence=norm_confidence
         )
     elif chosen_entity is None:  # Not simplistic

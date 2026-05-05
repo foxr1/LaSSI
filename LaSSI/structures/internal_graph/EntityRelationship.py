@@ -68,7 +68,7 @@ class SetOfSingletons(NodeEntryPoint):  # Graph node representing conjunction/di
         return max(int(self.max), max([x.max_f() for x in self.entities if x is not None]))
 
     def pos_f(self):
-        return min(int(self.max), max([x.pos_f() for x in self.entities if x is not None]))
+        return min([x.pos_f() for x in self.entities if x is not None])
 
     def update_map(self, dmin, dmax, dpos):
         if self.entities is not None:
@@ -218,7 +218,7 @@ class Relationship:  # Representation of an edge
         return min([x.pos_f() for x in [self.source, self.target, self.edgeLabel] if x is not None])
 
     def max_f(self):
-        return min([x.max_f() for x in [self.source, self.target, self.edgeLabel] if x is not None])
+        return max([x.max_f() for x in [self.source, self.target, self.edgeLabel] if x is not None])
 
     def update_map(self, dmin, dmax, dpos):
         if self.source is not None:
@@ -467,7 +467,7 @@ class Singleton(NodeEntryPoint):  # Graph node representing just one entity
                 if isinstance(properties_key_, str) and properties_key_ != '':
                     try:
                         float(key)
-                        continue  # Skip float-keyed preposition properties (handled by assign_kernel)
+                        key = int(float(key))
                     except ValueError:
                         pass
 
@@ -518,6 +518,20 @@ class Singleton(NodeEntryPoint):  # Graph node representing just one entity
             target = self.get_node_string(node.kernel.target) if node.kernel.target is not None else 'None'
 
             properties = self.get_node_properties_string(node)
+
+            if edge_label == 'be' and node.kernel.target is not None:
+                from LaSSI.external_services.Services import Services
+                p = Services.getInstance().getHOnK()
+                target_name = node.kernel.target.named_entity
+                is_verb_in_ontology = False
+                if target_name:
+                    is_verb_in_ontology = (target_name in p.state_verbs or target_name in p.transitive_verbs or 
+                                           target_name in p.movement_verbs or target_name in p.phrasal_verbs or 
+                                           target_name in p.causative_verbs or target_name in p.semi_modal_verbs or 
+                                           target_name in p.means_verbs or target_name in p.materialisation_verbs)
+                
+                if node.kernel.target.type in ['JJ', 'JJS', 'RB'] or is_verb_in_ontology:
+                    return f"{target}(?, {source}){properties}" if not node.kernel.isNegated else f"NOT({target}(?, {source}){properties})"
 
             return f"{edge_label}({source}, {target}){properties}" if not node.kernel.isNegated else f"NOT({edge_label}({source}, {target}){properties})"
         else:

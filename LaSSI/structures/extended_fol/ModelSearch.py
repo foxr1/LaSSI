@@ -41,25 +41,15 @@ class ModelSearch:
         self.main_cache = dict()
 
     def searchInSet(self, lhs, rhsSet, isRightDrop = False):
-        foundImplication = False
-        foundEquivalence = False
+        from LaSSI.HOnK.TBox.ExpandConstituents import test_pairwise_sentence_similarity, isImplication
         for rrr in rhsSet:
             rhs = rrr.bogusCopula() if isRightDrop else rrr
-            from LaSSI.HOnK.TBox.ExpandConstituents import test_pairwise_sentence_similarity
-            if (not isinstance(rhs, FNot)) and rhs.rel == "be" and isinstance(rhs.arg, FVariable) and rhs.arg.name == "traffic":
-                test_pairwise_sentence_similarity({}, lhs.bogusCopula(), rhs, shift=False)
             val = test_pairwise_sentence_similarity(self.pairwise_similarity_cache, lhs, rhs, shift=False)
-            if (val == CasusHappening.EXCLUSIVES):
-                test_pairwise_sentence_similarity({}, lhs, rhs, shift=False)
-                # val = test_pairwise_sentence_similarity(dict(), lhs, rhs, kb=self.kb, shift=False)
+            if val == CasusHappening.EXCLUSIVES:
                 return val
-            if (val == CasusHappening.EQUIVALENT): ## To check: if I found at least one equivalence after rewriting, then that's it.
-                # test_pairwise_sentence_similarity({}, lhs, rhs, shift=False)
+            if val == CasusHappening.EQUIVALENT:
                 return CasusHappening.EQUIVALENT
-            from LaSSI.HOnK.TBox.ExpandConstituents import isImplication
             if isImplication(val):
-                # val = test_pairwise_sentence_similarity(dict(), lhs, rhs, kb=self.kb)
-                # test_pairwise_sentence_similarity({}, lhs, rhs, shift=False)
                 return CasusHappening.GENERAL_IMPLICATION
         return CasusHappening.INDIFFERENT
 
@@ -101,8 +91,11 @@ class ModelSearch:
                     self.main_cache[cp] = CasusHappening.GENERAL_IMPLICATION
                     return self.main_cache[cp]
             # Performing the exhaustive search:
+            # Scan unary AND binary expansions for EXCLUSIVES first — a
+            # genuine antonym anywhere must override any positive verdict
+            # collected from the unary cross-product, otherwise a soft match
+            # in unary would mask a real contradiction in binary.
             elems = set()
-            firstConst = None
             for lhs in objLHS.unary:
                 if (isRightDrop) and isinstance(lhs, FNot):
                     continue
@@ -113,22 +106,17 @@ class ModelSearch:
                     return val
                 elif val != CasusHappening.INDIFFERENT:
                     elems.add(val)
-                    if firstConst is None:
-                        firstConst = val
-                    # return val
-            from LaSSI.HOnK.TBox.ExpandConstituents import simplifyConstituentsAcross
-            result = simplifyConstituentsAcross(elems)
-            if result != CasusHappening.INDIFFERENT:
-                self.main_cache[cp] = result
-                return result
             for lhs in objLHS.binary:
                 if (isRightDrop) and isinstance(lhs, FNot):
                     continue
                 tmp = lhs if not isLeftDrop else lhs.bogusCopula()
-                elems = {CasusHappening.INDIFFERENT}
                 val = self.searchInSet(tmp, objRHS.binary, isRightDrop)
                 if val == CasusHappening.EXCLUSIVES:
                     self.main_cache[cp] = val
                     return val
+                elif val != CasusHappening.INDIFFERENT:
+                    elems.add(val)
+            from LaSSI.HOnK.TBox.ExpandConstituents import simplifyConstituentsAcross
+            result = simplifyConstituentsAcross(elems)
             self.main_cache[cp] = result
-            return self.main_cache[cp]
+            return result

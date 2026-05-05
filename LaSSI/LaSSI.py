@@ -213,7 +213,8 @@ class LaSSI():
         # Only call init if not already initialized (main_remote.py does this)
         if HOnKSingleton.get() is None:
             HOnKSingleton.init("cache", fuzzyDBs.uname, fuzzyDBs.pw,
-                                     fuzzyDBs.host, fuzzyDBs.port, False, "LaSSI/HOnK.ttl")
+                                     fuzzyDBs.host, fuzzyDBs.port, False, "LaSSI/HOnK.ttl",
+                                     rules_path="raw_data/logical_analysis.json")
         
         parmo = HOnKSingleton.get()
         self.initServices.setHOnK(parmo)
@@ -233,12 +234,9 @@ class LaSSI():
             print(f"[LaSSI] WARNING: {honk_ttl_path} not found. Skipping local table rebuild.")
             return
 
-        honk_hash_path = os.path.join("cache", "honk_hash.txt")
-        # Optimization: use os.path.getmtime instead of full file hash if possible, 
-        # or just skip if we don't want to read 1.9GB.
-        # For now, keep the hash but only if the file is accessible.
-        with open(honk_ttl_path, "rb") as _hf:
-            current_honk_hash = hashlib.md5(_hf.read()).hexdigest()
+        honk_hash_path = os.path.join("cache", "honk_oxstore.mtime")
+
+        current_honk_hash = str(os.path.getmtime(honk_ttl_path))
         stored_honk_hash = None
         if os.path.exists(honk_hash_path):
             with open(honk_hash_path, "r") as _hf:
@@ -407,29 +405,44 @@ class LaSSI():
             if self.matrix_file is not None:
                 with open(self.matrix_file, "r") as ww:
                     matrix = json.load(ww)
-            matrices = []
 
-            # inv_it = list(reversed(list(enumerate(obj_list))))
-            for i, x in enumerate(obj_list): #inv_it: #enumerate(obj_list):
-                start = time.time()
+            from tqdm import tqdm
 
-                ls = []
-                for j, y in enumerate(obj_list): #inv_it: #enumerate(obj_list):
-                    eval = f(x, y)
+            n = len(obj_list)
+            matrices = [None] * n
+
+            def _compute_row(args):
+                row_i, row_x, cell_pbar = args
+                t0 = time.time()
+                row_vals = []
+                for col_j, col_y in enumerate(obj_list):
+                    cell_t0 = time.time()
+                    val = f(row_x, col_y)
+                    cell_elapsed = time.time() - cell_t0
                     if matrix is not None:
-                        returned = matrix[i][j]
-                        if (returned == 0.0 or returned == 1.0) and (returned == eval):
-                            print(f"OK: {i} {j} with {eval} (expected: {returned})")
-                        elif (eval != 0.0) and (eval != 1.0) and (returned == None):
-                            print(f"OK: {i} {j} with {eval} (expected: {returned})")
+                        returned = matrix[row_i][col_j]
+                        if (returned == 0.0 or returned == 1.0) and (returned == val):
+                            print(f"OK: {row_i} {col_j} with {val} (expected: {returned})")
+                        elif (val != 0.0) and (val != 1.0) and (returned is None):
+                            print(f"OK: {row_i} {col_j} with {val} (expected: {returned})")
                         else:
-                            print(f"ERROR: {i} {j} with {eval} != {returned}")
-                            f(x, y)
-                    ls.append(eval)
-                matrices.append(ls)
+                            print(f"ERROR: {row_i} {col_j} with {val} != {returned}")
+                            f(row_x, col_y)
+                    row_vals.append(val)
+                    cell_pbar.update(1)
+                    cell_pbar.set_postfix({"last_cell": f"{cell_elapsed:.1f}s", "row": row_i, "col": col_j})
+                return row_i, row_vals, time.time() - t0
 
-                end = time.time()
-                self.sentences_benchmark.add_row(i, "Performing ex post explanation", end - start)
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            max_workers = min(n, os.cpu_count() or 4, 8)
+            with tqdm(total=n * n, desc="Computing similarity matrix", unit="cell") as cell_pbar:
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {executor.submit(_compute_row, (i, x, cell_pbar)): i
+                               for i, x in enumerate(obj_list)}
+                    for future in as_completed(futures):
+                        i, row, elapsed = future.result()
+                        matrices[i] = row
+                        self.sentences_benchmark.add_row(i, "Performing ex post explanation", elapsed)
             # matrices = np.array(matrices)
 
         return matrices
@@ -591,12 +604,14 @@ class LaSSI():
         from LaSSI.phases.SentenceLoader import SentenceLoader
 
         start_time = time.time()
-        sentences = SentenceLoader(self.sentences)
+        raw_sentences = SentenceLoader(self.sentences)
+        sentences = [self.normalise_text(s) for s in raw_sentences]
+
         end_time = time.time()
         loading_sentences_execution_time = end_time - start_time
         self.logger(f"Loading sentences time: {loading_sentences_execution_time} seconds")
         write_variable_to_file(self.benchmarking_file,
-                                    f"{self.dataset_name.split('/')[-1].split('.yaml')[0]},{loading_sentences_execution_time},")
+                               f"{self.dataset_name.split('/')[-1].split('.yaml')[0]},{loading_sentences_execution_time},")
 
         result = self.sentence_transform(sentences)
 
@@ -606,12 +621,12 @@ class LaSSI():
             self.ex_post_explain(result)
             end_time = time.time()
             ex_post_execution_time = end_time - start_time
-            self.logger(f"Ex Post Time: {loading_sentences_execution_time} seconds")
+            self.logger(f"Ex Post Time: {ex_post_execution_time} seconds")
             write_variable_to_file(self.benchmarking_file,
-                                        f",{ex_post_execution_time}\n")
+                                   f",{ex_post_execution_time}\n")
         else:
             write_variable_to_file(self.benchmarking_file,
-                                        f"\n")
+                                   f"\n")
 
         self.sentences_benchmark.to_csv()
 
@@ -620,3 +635,35 @@ class LaSSI():
         if isinstance(self.sentences, io.IOBase):
             self.sentences.close()
             self.logger("~~DONE~~")
+
+    def normalise_text(self, text):
+        """
+        Sanitizes input text to prevent StanfordNLP from misidentifying capitalized
+        prepositions/conjunctions as proper nouns or roots.
+        """
+        if not isinstance(text, str):
+            return text
+
+        # Closed-class words that are often erroneously capitalized in raw text/logs
+        closed_class_words = {"On", "In", "At", "By", "For", "With", "About", "Against",
+                              "Between", "Into", "Through", "During", "Before", "After",
+                              "Above", "Below", "To", "From", "Up", "Down", "Of", "Off",
+                              "Over", "Under", "Near", "And", "But", "Or", "Nor", "Yet",
+                              "So", "The", "A", "An"}
+
+        words = text.split()
+        if not words:
+            return text
+
+        sanitized_words = [words[0]]  # Preserve the capitalization of the first word
+
+        for word in words[1:]:
+            # Strip punctuation temporarily to check against our set
+            clean_word = "".join(c for c in word if c.isalpha())
+            if clean_word in closed_class_words:
+                # Lowercase the word but preserve any attached punctuation
+                sanitized_words.append(word.lower())
+            else:
+                sanitized_words.append(word)
+
+        return " ".join(sanitized_words)

@@ -45,7 +45,8 @@ class LaSSIExplainer:
             from LaSSI.external_services.utilities.DatabaseConfiguration import load_db_configuration
             LaSSIExplainer.fuzzyDBs = load_db_configuration(fuzzyDBs)
             HOnKSingleton.init("catabolites", LaSSIExplainer.fuzzyDBs.uname, LaSSIExplainer.fuzzyDBs.pw,
-                                     LaSSIExplainer.fuzzyDBs.host, LaSSIExplainer.fuzzyDBs.port, False, "LaSSI/HOnK.ttl")
+                                     LaSSIExplainer.fuzzyDBs.host, LaSSIExplainer.fuzzyDBs.port, False, "LaSSI/HOnK.ttl",
+                                     rules_path="raw_data/logical_analysis.json")
 
     def __init__(self, dataset_name):
         from pathlib import Path

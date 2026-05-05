@@ -94,6 +94,13 @@ def with_true_variables_from(l):
     return pandas.DataFrame({str(x): [1] for x in l})
 
 
+def with_bdd_from(f, atom_to_bdd, manager):
+    """BDD counterpart of `with_variables_from`: returns a BDD node representing
+    the satisfying worlds of formula `f`, without materialising a truth table."""
+    from LaSSI.HOnK.formula_utils import semantic_bdd
+    return semantic_bdd(f, atom_to_bdd, manager)
+
+
 class TabularCWASemantics:
     def __init__(self, sentence_list:List[Formula], cache_folder):
         self.sentence_list = []
@@ -130,6 +137,91 @@ class TabularCWASemantics:
         # nonNegatedObjects = list(map(self.minimal_constituents.fromId, [x for x in range(N) if x not in self.negations]))
         nonNegatedObjects = sorted({x: self.minimal_constituents.fromId(x) for x in range(N) if x not in self.negations}.items())
         self.ec = ExpandConstituents(self.cache_folder, nonNegatedObjects)
+
+        self._init_bdd()
+
+    def _init_bdd(self):
+        """Build the BDD manager, declare one boolean variable per non-negated
+        minimal constituent, and pre-compute the per-atom BDD expression used
+        by the symbolic similarity path.
+
+        FNot atoms do *not* get their own BDD variable: instead they map to the
+        symbolic NOT of the underlying atom's variable.  This satisfies the
+        constraint that negation be handled with the BDD NOT operator rather
+        than via the negation_resolution dictionary at evaluation time.
+        """
+        from dd.autoref import BDD
+        self._bdd = BDD()
+        self._var_name_for_id = {}
+        N = len(self.minimal_constituents)
+        for cid in range(N):
+            if cid in self.negations:
+                continue
+            name = f"x{cid}"
+            self._var_name_for_id[cid] = name
+            self._bdd.declare(name)
+
+        self._atom_to_bdd = {}
+        self._bdd_for_id_cache = {}
+        for cid in range(N):
+            formula = self.minimal_constituents.fromId(cid)
+            if cid in self.negations:
+                underlying = self.negation_resolution[cid]
+                node = self._bdd.apply('not', self._bdd.var(self._var_name_for_id[underlying]))
+            else:
+                node = self._bdd.var(self._var_name_for_id[cid])
+            self._atom_to_bdd[formula] = node
+            self._bdd_for_id_cache[cid] = node
+
+        self._sentence_bdd_cache = {}
+
+    def _bdd_for_id(self, cid):
+        return self._bdd_for_id_cache[cid]
+
+    def _bdd_for_sentence(self, sentence_id):
+        if sentence_id in self._sentence_bdd_cache:
+            return self._sentence_bdd_cache[sentence_id]
+        node = with_bdd_from(self.sentence_list[sentence_id], self._atom_to_bdd, self._bdd)
+        self._sentence_bdd_cache[sentence_id] = node
+        return node
+
+    def _universal_truth_bdd(self, S, T):
+        """Symbolic counterpart of `_universal_truth`: returns a BDD encoding
+        the conjunction of pairwise constraints between every i in S and j in
+        T (i != j).
+
+        The truth tables emitted by `_mutual_truth` map onto BDD operators as:
+          Indifferent             -> TRUE  (no constraint)
+          Implying(i, j)          -> ~i | j      (i => j)
+          ConflictingImplication  -> i XOR j     (i and j must disagree)
+          Equivalent(i, j)        -> ~(i XOR j)  (i <=> j)
+        """
+        from LaSSI.structures.extended_fol.Enums import PairwiseCases
+        constraints = self._bdd.true
+        union = S.union(T)
+        if len(union) == 0:
+            return constraints
+        if len(union) == 1 and len(S.intersection(T)) == 1:
+            return constraints
+        for i in sorted(S):
+            for j in sorted(T):
+                if i == j:
+                    continue
+                test = self.determine(i, j)
+                if test == PairwiseCases.Indifferent:
+                    continue
+                bi = self._bdd_for_id(i)
+                bj = self._bdd_for_id(j)
+                if test == PairwiseCases.Implying:
+                    pair_c = self._bdd.apply('or', self._bdd.apply('not', bi), bj)
+                elif test == PairwiseCases.ConflictingImplication:
+                    pair_c = self._bdd.apply('xor', bi, bj)
+                elif test == PairwiseCases.Equivalent:
+                    pair_c = self._bdd.apply('not', self._bdd.apply('xor', bi, bj))
+                else:
+                    continue
+                constraints = self._bdd.apply('and', constraints, pair_c)
+        return constraints
 
     def getMinimalConstituentDict(self, sentence_id):
         S = set()
@@ -312,16 +404,39 @@ class TabularCWASemantics:
         #         "explained_joined_table_natural_joined_with_operands": tableSemantics}
 
     def get_straightforward_id_similarity(self, i:int, j:int):
-        ## Obtaining the constituents' combination where Ri always holds (premise)
-        Ri = with_variables_from(self.sentence_list[i], self.minimal_constituent_dict[i], self.minimal_constituents, "R" + str(i), True)
-        ## Obtaining all the constituents' combinations for Rj
-        Rj = with_variables_from(self.sentence_list[j], self.minimal_constituent_dict[j], self.minimal_constituents, "R" + str(j))
-        ## Joining Ri (where i always holds) and Rj by the constituents. If the result is empty, is because there is no combination between
-        result = self._universal_truth(set(self.minimal_constituent_dict[i]), set(self.minimal_constituent_dict[j])).merge(Ri).merge(Rj)[list(set(Ri.columns).union(set(Rj.columns)))].drop_duplicates()[["R" + str(j)]].prod(axis=1)
-        Rj_holding = len(result)
-        total = result.sum(axis=0)/Rj_holding if Rj_holding>0.0 else 0.0
-        # print(f"{i}~{j} := {total}")
-        return total
+        """Symbolic similarity between sentences i and j.
+
+        Mirrors the original DataFrame-based ratio
+            P(Sj=1 | Si=1, constraints)
+        but evaluates it via BDD model counting, so the truth table is never
+        materialised.  With n underlying boolean variables in the manager, the
+        ratio is invariant to phantom variables (each contributes a factor 2 to
+        both numerator and denominator), so we count over the full declared
+        variable set.
+        """
+        Si_bdd = self._bdd_for_sentence(i)
+        Sj_bdd = self._bdd_for_sentence(j)
+        constraints = self._universal_truth_bdd(set(self.minimal_constituent_dict[i]),
+                                                set(self.minimal_constituent_dict[j]))
+        context = self._bdd.apply('and', Si_bdd, constraints)
+        combined = self._bdd.apply('and', context, Sj_bdd)
+        n_vars = len(self._var_name_for_id)
+        if n_vars == 0:
+            return 0.0
+        ctx_count = self._bdd.count(context, nvars=n_vars)
+        
+        # DEBUG
+        if ctx_count == 0:
+            print(f"DEBUG: ctx_count is 0 for i={i}, j={j}")
+            print(f"DEBUG: Si_bdd count = {self._bdd.count(Si_bdd, nvars=n_vars)}")
+            print(f"DEBUG: Sj_bdd count = {self._bdd.count(Sj_bdd, nvars=n_vars)}")
+            print(f"DEBUG: constraints count = {self._bdd.count(constraints, nvars=n_vars)}")
+            
+        if ctx_count == 0:
+            return 0.0
+        val = self._bdd.count(combined, nvars=n_vars) / ctx_count
+        print(f"DEBUG: Sim({i}, {j}) = {val}")
+        return val
 
     def get_implication(self, i, j):
         from LaSSI.structures.extended_fol.Enums import PairwiseCases

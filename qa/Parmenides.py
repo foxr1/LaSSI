@@ -284,16 +284,8 @@ class Parmenides(RDFGraph):
 
         hier_pickle = os.path.join(self.cache_path, "hier.pickle")
         if os.path.exists(hier_pickle):
-            with open(hier_pickle, "rb") as f:
-                self.trcl = pickle.load(f)
-        if len(self.trcl) == 0:
-            from FunctionalMatch.utils import transitive_closure
-            s = self.extractPureHierarchy("isA", True) | self.extractPureHierarchy("partOf", False)
-            self.logger.info("syn isA/partOf extracted")
-            self.trcl = transitive_closure(s)
-            self.logger.info("syn isA/partOf transitive closure")
-            with open(hier_pickle, "wb") as f:
-                pickle.dump(self.trcl, f, protocol=pickle.HIGHEST_PROTOCOL)
+            pass # Removed eager trcl loading
+        self.trcl = {}
 
 
         ## Prepositions
@@ -531,9 +523,22 @@ class Parmenides(RDFGraph):
                         return CasusHappening.EQUIVALENT
                     for lhs in self.getSynonymy(src):
                         for rhs in self.getSynonymy(dst):
-                            if (lhs, rhs) in self.getTransitiveClosureHier(k):
+                            if self.check_taxonomic_path(lhs, rhs):
                                 return CasusHappening.GENERAL_IMPLICATION
                 return CasusHappening.INDIFFERENT
+
+    def check_taxonomic_path(self, parent, child):
+        q = [child]
+        visited = set()
+        while q:
+            curr = q.pop(0)
+            if curr == parent:
+                return True
+            if curr not in visited:
+                visited.add(curr)
+                q.extend(self.getOutgoingNodes(curr, "isA"))
+                q.extend(self.getIngoingNodes(curr, "partOf"))
+        return False
 
     def getTransitiveClosureHier(self, t):
         return self.trcl

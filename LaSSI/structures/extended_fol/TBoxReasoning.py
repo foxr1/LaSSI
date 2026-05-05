@@ -1,4 +1,6 @@
 import os
+import time
+import dataclasses as _dc
 from collections import defaultdict
 
 from LaSSI.structures.extended_fol.Formulae import FUnaryPredicate
@@ -44,10 +46,9 @@ class KnowledgeExpansion:
         self._subGraph = defaultdict(set)
 
     def dump(self):
-        if not os.path.exists(self.filename):
-            with open(self.filename, "wb") as p:
-                import pickle
-                pickle.dump(self, p, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(self.filename, "wb") as p:
+            import pickle
+            pickle.dump(self, p, protocol=pickle.HIGHEST_PROTOCOL)
 
     @staticmethod
     def load(filename):
@@ -127,161 +128,173 @@ class KnowledgeExpansion:
     def getIDx(self, obj):
         return self.constituents.contains(obj)
 
-    def get_full_expansion_with_graph(self, sentence, ruleLabel):
+    def get_full_expansion_with_graph(self, sentence, ruleLabel, max_depth=1):
         entry_point, wasAlreadyPresent = self.constituents.add_with_wasPresent(sentence)
         assert wasAlreadyPresent
-        allVisited = self._subGraph[entry_point]
         finallyVisited = set()
-        Q = list(allVisited)
+        Q = [(entry_point, 0)]
         adj_list = dict()
         while len(Q)>0:
-            curr = Q.pop(0)
+            curr, depth = Q.pop(0)
             if curr in finallyVisited:
                 continue
             if curr not in adj_list:
                 adj_list[curr] = defaultdict(list)
             finallyVisited.add(curr)
+            
+            if depth >= max_depth:
+                continue
+                
             if curr in self.Graph:
                 for (lR, idxR), dst in self.Graph[curr]:
                     if lR == ruleLabel:
-                        Q.append(dst)
+                        Q.append((dst, depth + 1))
                         adj_list[curr][idxR].append(dst)
         return entry_point, adj_list, {x: self.constituents.fromId(x) for x in finallyVisited}, {self.constituents.fromId(x) for x in finallyVisited}
 
-    def get_full_expansion(self, sentence, ruleLabel):
+    def get_full_expansion(self, sentence, ruleLabel, max_depth=1):
         idx, wasAlreadyPresent = self.constituents.add_with_wasPresent(sentence)
         assert wasAlreadyPresent
-        allVisited = self._subGraph[idx]
         finallyVisited = set()
-        Q = list(allVisited)
+        Q = [(idx, 0)]
         while len(Q)>0:
-            curr = Q.pop(0)
+            curr, depth = Q.pop(0)
             if curr in finallyVisited:
                 continue
             finallyVisited.add(curr)
+            
+            if depth >= max_depth:
+                continue
+                
             if curr in self.Graph:
                 for (lR, idxR), dst in self.Graph[curr]:
                     if lR == ruleLabel:
-                        Q.append(dst)
+                        Q.append((dst, depth + 1))
         return {self.constituents.fromId(x) for x in finallyVisited}
 
-    def pruned_expansion(self, sentence, queries, ruleLabel=None, alreadyVisitedIdx=None, filter=None):
+    def pruned_expansion(self, sentence, queries, ruleLabel=None, alreadyVisitedIdx=None, filter=None, max_depth=1):
         if alreadyVisitedIdx is None:
-            alreadyVisitedIdx = set()
+            alreadyVisitedIdx = dict()
         if isinstance(queries, list) or isinstance(queries, tuple):
-            queries = {idx:q for idx, q in enumerate(queries)}
-        assert isinstance(alreadyVisitedIdx, set)
+            queries = {idx: q for idx, q in enumerate(queries)}
+        assert isinstance(alreadyVisitedIdx, dict)
         from LaSSI.HOnK.HOnK import HOnKSingleton
         assert HOnKSingleton.isReady()
-        from LaSSI.structures.extended_fol.Formulae import FAnd, FOr
-        # assert (not isinstance(sentence, FAnd)) and (not isinstance(sentence, FOr))
+
         idx, wasAlreadyPresent = self.constituents.add_with_wasPresent(sentence)
-        wasAlreadyPresent = wasAlreadyPresent and idx in alreadyVisitedIdx
-        # if wasAlreadyPresent:
-        #     print(f"Skipping: {idx}")
-        #     return
-        # else:
-        #     print(f"{idx} for {sentence}")
 
         if idx not in self.Graph:
             self.Graph[idx] = set()
-        toVisit = {idx}
+
+        toVisit = {(idx, 0)}
         allVisited = set()
-        alreadyVisitedIdx.add(idx)
-        dstToIgnore = set()
-        dstToConsider = set()
+        if idx not in alreadyVisitedIdx:
+            alreadyVisitedIdx[idx] = 0
+
+        # Track which rules have been executed to avoid redundant calls.
+        if not hasattr(self, '_executed_rules'):
+            self._executed_rules = set()
+
+        from tqdm import tqdm
+        is_root_call = len(allVisited) == 0
+        pbar = tqdm(desc=f"  Expanding {ruleLabel}", leave=False, disable=not is_root_call)
+
         while len(toVisit) > 0:
             tmp = set()
-            print(toVisit)
-            allVisited.update(toVisit)
-            for srcIdx in toVisit:
-                src = self.constituents.fromId(srcIdx)
-                for idx_rule, query in queries.items():
+            current_level_indices = {i for i, d in toVisit}
+            allVisited.update(current_level_indices)
+            pbar.update(len(toVisit))
 
-                    ## If srcIdx already appeared another time for another rule
+            t_it0 = time.time()
+            for i_src, (srcIdx, depth) in enumerate(toVisit):
+                src = self.constituents.fromId(srcIdx)
+
+                # FIX 1: Semantic Caching
+                # Use a string/canonical representation instead of the raw integer ID to
+                # catch semantically identical objects that have different memory hashes.
+                src_semantic_key = str(src)
+
+                if time.time() - t_it0 > 5:
+                    print(f"    - processing node {i_src}/{len(toVisit)} at depth {depth}: {src}")
+                    t_it0 = time.time()
+
+                if depth >= max_depth:
+                    continue
+
+                existing_rules = defaultdict(lambda: defaultdict(set))
+                if srcIdx in self.Graph:
+                    for (ruleLabel2, idx_rule2), dstIdx in self.Graph[srcIdx]:
+                        existing_rules[idx_rule2][ruleLabel2].add(dstIdx)
+
+                for idx_rule, query in queries.items():
+                    # Check cache using the semantic key rather than just the ID
+                    cache_key = (src_semantic_key, ruleLabel, idx_rule)
+                    if cache_key in self._executed_rules:
+                        pass
+
                     ruleWasPreviouslyExecuted = False
                     ruleWasStraightfowardlyExpanded = False
-                    if (srcIdx in self.Graph) and (len(self.Graph[srcIdx])>0):
-                        ## If this lead to a computation, then very likely this was already re-computed, and
-                        ## I don't have to take the effort of re-computing it, but just to add the new edge
-                        ## label. This also allows not to re-compute the rules, and motivates why there
-                        ## should be just one graph!
-                        dstToIgnore.clear()
-                        dstToConsider.clear()
-                        for ((ruleLabel2, idx_rule2), dstIdx) in self.Graph[srcIdx]:
-                            if (idx_rule == idx_rule2):
-                                if (ruleLabel2 == ruleLabel):
-                                    dstToIgnore.add(dstIdx)
-                                else:
-                                    dstToConsider.add(dstIdx)
+
+                    if idx_rule in existing_rules:
+                        dstToIgnore = existing_rules[idx_rule].get(ruleLabel, set())
+
+                        dstToConsider = set()
+                        for label, dsts in existing_rules[idx_rule].items():
+                            if label != ruleLabel:
+                                dstToConsider.update(dsts)
+
                         final = dstToConsider.difference(dstToIgnore)
                         for x in final:
                             self.Graph[srcIdx].add(((ruleLabel, idx_rule), x))
+                            # FIX 2: Strict Cycle Pruning (Standard BFS property)
                             if x not in alreadyVisitedIdx:
-                                assert x in self.Graph
-                                alreadyVisitedIdx.add(x)
-                                tmp.add(x)
-                        ruleWasPreviouslyExecuted = len(dstToIgnore)>0
-                        ruleWasStraightfowardlyExpanded = len(final)>0
+                                if x not in self.Graph:
+                                    self.Graph[x] = set()
+                                alreadyVisitedIdx[x] = depth + 1
+                                tmp.add((x, depth + 1))
 
-                    if (not ruleWasPreviouslyExecuted) and (not ruleWasStraightfowardlyExpanded):
-                        ## Otherwise, recomputing it
+                        ruleWasPreviouslyExecuted = len(dstToIgnore) > 0
+                        ruleWasStraightfowardlyExpanded = len(final) > 0
+
+                        if ruleWasPreviouslyExecuted:
+                            for x in dstToIgnore:
+                                # FIX 2: Strict Cycle Pruning
+                                if x not in alreadyVisitedIdx:
+                                    if x not in self.Graph:
+                                        self.Graph[x] = set()
+                                    alreadyVisitedIdx[x] = depth + 1
+                                    tmp.add((x, depth + 1))
+
+                    if (not ruleWasPreviouslyExecuted) and (
+                    not ruleWasStraightfowardlyExpanded) and cache_key not in self._executed_rules:
+                        t_q0 = time.time()
                         hasResult, outcomes = query([src])
+                        if time.time() - t_q0 > 1:
+                            print(f"      - Rule {idx_rule} took {time.time() - t_q0:.1f}s on {src}")
+
+                        self._executed_rules.add(cache_key)
+
                         if hasResult:
                             for x in outcomes:
                                 if (filter is None) or (callable(filter) and filter(x)):
                                     try:
                                         hash(x)
                                     except TypeError:
-                                        import dataclasses as _dc
-                                        def _safe_type(v):
-                                            try: return type(v).__name__
-                                            except: return "?"
-                                        def _find_bad(obj, path, seen):
-                                            oid = id(obj)
-                                            if oid in seen or obj is None: return
-                                            seen.add(oid)
-                                            if _dc.is_dataclass(obj):
-                                                for f in _dc.fields(obj):
-                                                    try: v = getattr(obj, f.name)
-                                                    except: continue
-                                                    fp = f"{path}.{f.name}"
-                                                    try:
-                                                        hash(v)
-                                                    except TypeError:
-                                                        print(f"  BAD FIELD {fp}: type={_safe_type(v)}")
-                                                        if isinstance(v, dict):
-                                                            print(f"    dict keys: {list(v.keys())[:5]}")
-                                                        return
-                                                    _find_bad(v, fp, seen)
-                                            elif isinstance(obj, (list, tuple)):
-                                                for i, item in enumerate(obj):
-                                                    try: hash(item)
-                                                    except TypeError:
-                                                        print(f"  BAD ITEM {path}[{i}]: type={_safe_type(item)}")
-                                                        return
-                                                    _find_bad(item, f"{path}[{i}]", seen)
-                                            elif isinstance(obj, frozenset):
-                                                for item in obj:
-                                                    try: hash(item)
-                                                    except TypeError:
-                                                        print(f"  BAD FROZENSET ITEM at {path}: item_type={_safe_type(item)}")
-                                                        if isinstance(item, tuple) and len(item)==2:
-                                                            k2,v2 = item
-                                                            print(f"    key={k2!r}, val_type={_safe_type(v2)}")
-                                                        return
-                                        print(f"\n=== UNHASHABLE formula rule={idx_rule} type={type(x).__name__} ===")
-                                        _find_bad(x, "x", set())
                                         raise
-                                    dstIdx, wasDstAlreadyPresent = self.constituents.add_with_wasPresent(x)
-                                    wasDstAlreadyPresent = wasDstAlreadyPresent and (dstIdx in alreadyVisitedIdx)
-                                    self.Graph[srcIdx].add(((ruleLabel,idx_rule), dstIdx))
-                                    if not wasDstAlreadyPresent:
+                                    dstIdx, _ = self.constituents.add_with_wasPresent(x)
+                                    self.Graph[srcIdx].add(((ruleLabel, idx_rule), dstIdx))
+
+                                    # FIX 2: Strict Cycle Pruning
+                                    if dstIdx not in alreadyVisitedIdx:
                                         if dstIdx not in self.Graph:
                                             self.Graph[dstIdx] = set()
-                                        alreadyVisitedIdx.add(dstIdx)
-                                        tmp.add(dstIdx)
+                                        alreadyVisitedIdx[dstIdx] = depth + 1
+                                        tmp.add((dstIdx, depth + 1))
+                    else:
+                        self._executed_rules.add(cache_key)
+
             toVisit = tmp
+        pbar.close()
         self._subGraph[idx].update(allVisited)
         return alreadyVisitedIdx
 
@@ -356,11 +369,7 @@ class TBoxReasoningSingleton(object):
         rules = TBoxReasoningSingleton.get_eq_rules() if (not isImpl) else TBoxReasoningSingleton.get_impl_rules()
         label = "implR" if isImpl else "eqR"
         S = TBoxReasoningSingleton._instance.rules.impl_already_visited_set if isImpl else TBoxReasoningSingleton._instance.rules.eq_already_visited_set
-        result = TBoxReasoningSingleton._instance.rules.ke.pruned_expansion(formula, rules, label, S, non_redundant_constituents)
-        if isImpl:
-            TBoxReasoningSingleton._instance.rules.impl_already_visited_set.update(result)
-        else:
-            TBoxReasoningSingleton._instance.rules.eq_already_visited_set.update(result)
+        TBoxReasoningSingleton._instance.rules.ke.pruned_expansion(formula, rules, label, S, non_redundant_constituents)
         return TBoxReasoningSingleton._instance.rules.ke.get_full_expansion(formula, label)
 
     @staticmethod
@@ -369,11 +378,7 @@ class TBoxReasoningSingleton(object):
         rules = TBoxReasoningSingleton.get_eq_rules() if (not isImpl) else TBoxReasoningSingleton.get_impl_rules()
         label = "implR" if isImpl else "eqR"
         S = TBoxReasoningSingleton._instance.rules.impl_already_visited_set if isImpl else TBoxReasoningSingleton._instance.rules.eq_already_visited_set
-        result = TBoxReasoningSingleton._instance.rules.ke.pruned_expansion(formula, rules, label, S, non_redundant_constituents)
-        if isImpl:
-            TBoxReasoningSingleton._instance.rules.impl_already_visited_set.update(result)
-        else:
-            TBoxReasoningSingleton._instance.rules.eq_already_visited_set.update(result)
+        TBoxReasoningSingleton._instance.rules.ke.pruned_expansion(formula, rules, label, S, non_redundant_constituents)
         return TBoxReasoningSingleton._instance.rules.ke.get_full_expansion_with_graph(formula, label)
 
     @staticmethod
@@ -414,8 +419,8 @@ class TBoxReasoning(object):
         # self.constituents = CountingDictionary.load(ke_file+"const_")
         self.ke = KnowledgeExpansion.load( ke_file)
         # self.ke_impl = KnowledgeExpansion.load(self.constituents, ke_file)
-        self.eq_already_visited_set = set()
-        self.impl_already_visited_set = set()
+        self.eq_already_visited_set = dict()
+        self.impl_already_visited_set = dict()
 
     def dump(self):
         self.ke.dump()

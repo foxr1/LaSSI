@@ -753,7 +753,7 @@ def get_prepositions(node):
     node_props = dict(node.properties)
     _smart_apos = chr(0x2019)
     for key in node_props:
-        if key in {"mark", "adv", "IN", "TO", "case"}:
+        if key in {"mark", "adv", "advmod", "IN", "TO", "case"}:
             value = node_props[key]
             if isinstance(value, str):
                 found_prepositions.append(value.lower().replace(_smart_apos, "’"))

@@ -17,7 +17,7 @@ import dacite
 @dataclasses.dataclass(frozen=True, eq=True, order=True)
 class LogicalConstructSpecs:
     attachTo: str
-    argument: str
+    argument: str="property"
     property: str=None
 
 

@@ -194,10 +194,32 @@ class CreateInternalGraph:
         nodes_to_remove = []
         multiindobj_nodes = [node for node in G.nodes(data=True) if node[1]['data'].type == 'multipleindobj']
         for node in multiindobj_nodes:
-            for parent in [edge for edge in G.in_edges(node[0], data=True)]:
-                for child in [edge for edge in G.out_edges(node[0])]:
-                    G.add_edge(parent[0], child[1], label=parent[2]['label'], isNegated=parent[2]['isNegated'])
-                    nodes_to_remove.append(parent[1])
+            h_id = node[0]
+            h_data = node[1]['data']
+            h_props = dict(h_data.properties)
+
+            in_edges = list(G.in_edges(h_id, data=True))
+            out_edges = list(G.out_edges(h_id, data=True))
+
+            for child_edge in out_edges:
+                child_id = child_edge[1]
+                child_data = G.nodes[child_id]['data']
+
+                # Propagate incoming edges
+                for parent_edge in in_edges:
+                    G.add_edge(parent_edge[0], child_id, label=parent_edge[2]['label'], isNegated=parent_edge[2]['isNegated'])
+
+                # Propagate properties
+                if h_props:
+                    child_props = dict(child_data.properties)
+                    for k, v in h_props.items():
+                        if k == 'orig': continue
+                        if k not in child_props:
+                            child_props[k] = v
+                    new_child_data = child_data.update_node_props(child_props)
+                    nx.set_node_attributes(G, {child_id: new_child_data}, 'data')
+
+            nodes_to_remove.append(h_id)
 
         G.remove_nodes_from(nodes_to_remove)
 
@@ -254,7 +276,7 @@ class CreateInternalGraph:
                 # Only merge across lexical-cohesion edges, never across semantic argument edges.
                 # Semantic edges like obl/nmod/acl introduce genuine structural relationships that
                 # must survive as separate nodes in the graph (e.g. "open" → obl → "public").
-                LEXICAL_MERGE_EDGES = {"compound", "inherit_edge", "orig", "flat", "fixed", "mwe"}
+                LEXICAL_MERGE_EDGES = {"compound", "orig", "flat", "fixed", "mwe"}
 
                 def _has_lexical_edge(G, u, v):
                     for src, dst, data in G.edges(data=True):
@@ -277,42 +299,71 @@ class CreateInternalGraph:
                                 # Combine data manually before contraction to preserve information
                                 u_data = G.nodes[u_id]['data']
                                 v_data = G.nodes[v_id]['data']
-                                
+
                                 # Decide on target (keep the one with lower min for stability)
                                 target, source = (u_id, v_id) if u_data.min <= v_data.min else (v_id, u_id)
-                                
+
                                 # Merge data
                                 target_data = G.nodes[target]['data']
                                 source_data = G.nodes[source]['data']
-                                
+
                                 combined_props = dict(target_data.properties)
                                 for k, v in dict(source_data.properties).items():
                                     if k not in combined_props:
                                         combined_props[k] = v
-                                
-                                new_name = target_data.named_entity if target_data.min < source_data.min else source_data.named_entity
-                                if source_data.named_entity not in new_name:
-                                    if target_data.min < source_data.min:
-                                        new_name = target_data.named_entity + " " + source_data.named_entity
-                                    else:
-                                        new_name = source_data.named_entity + " " + target_data.named_entity
 
                                 new_singleton = Singleton(
                                     id=target_data.id,
-                                    named_entity=new_name,
+                                    named_entity=target_data.named_entity,  # will be corrected below
                                     properties=frozenset(combined_props.items()),
                                     min=min(target_data.min, source_data.min),
                                     max=max(target_data.max, source_data.max),
                                     type=meu.type if (meu.type != "None" and (target_data.min == meu.start_char or source_data.min == meu.start_char)) else target_data.type,
-                                    confidence=max(target_data.confidence, source_data.confidence)
+                                    confidence=meu.confidence
                                 )
-                                
+
                                 G = nx.contracted_nodes(G, target, source, self_loops=False)
                                 nx.set_node_attributes(G, {target: new_singleton}, 'data')
+                                G.nodes[target].pop('contraction', None)
                                 changed = True
                                 break
                         if changed: break
-                        
+
+            # After merging (if any), correct the name of the surviving node.
+            # Incremental concatenation can produce wrong word order when the merge
+            # order does not follow sentence position (e.g. "Prince Terrace Albert"
+            # instead of "Prince Albert Terrace").  meu.text is always built from
+            # tokens in sentence order, so it is the authoritative surface form.
+            #
+            # Guard: only rename when the surviving node's character range EXACTLY
+            # matches the MEU's full span (both start and end).  Two failure cases
+            # this prevents:
+            #   • End mismatch — e.g. "are" in "University station are" has no graph
+            #     node, so surviving.max=36 != meu.end_char=40 → no rename.
+            #   • Start mismatch — e.g. a "takes place" MEU (start=92) whose only
+            #     in-range node is "place" (min=98) must not be renamed to
+            #     "takes place"; surviving.min=98 != meu.start_char=92 → no rename.
+            # Moving this block outside `if len > 1:` also lets it fire for the
+            # single-node case: after a previous MEU merged University+station into
+            # one node (min=18, max=36), the "University station" MEU finds that
+            # node alone and correctly renames it.
+            remaining = [nid for nid in meu_nodes_ids if nid in G]
+            if len(remaining) == 1:
+                surviving = G.nodes[remaining[0]]['data']
+                if (isinstance(surviving, Singleton) and
+                        surviving.named_entity != meu.text and
+                        surviving.min == meu.start_char and
+                        surviving.max == meu.end_char):
+                    nx.set_node_attributes(G, {remaining[0]: Singleton(
+                        id=surviving.id,
+                        named_entity=meu.text,
+                        properties=surviving.properties,
+                        min=surviving.min,
+                        max=surviving.max,
+                        type=surviving.type,
+                        confidence=surviving.confidence,
+                    )}, 'data')
+
         return G
 
     # Phase 2.2
@@ -535,7 +586,7 @@ class CreateInternalGraph:
             target = G.nodes[edge[1]]['data']
             parts = [source, target]
 
-            sorted_entities = sorted(parts, key=lambda x: x.pos_f())
+            sorted_entities = sorted(parts, key=lambda x: (x.min_f(), x.pos_f()))
             sorted_entity_names = [x.get_name() for x in sorted_entities]
 
             all_types = list(map(getattr, sorted_entities, itertools.repeat('type')))
@@ -600,8 +651,9 @@ class CreateInternalGraph:
                                     root_node.entities) == 1:
                                 root_node = root_node.entities[0]
 
-                            new_properties = merge_properties(root_node.get_props(), n.get_props(), {'begin', 'end', 'pos'})
-                            nx.set_node_attributes(G, {root_node.id: root_node.update_node_props(new_properties)}, 'data')
+                            if isinstance(root_node, Singleton):
+                                new_properties = merge_properties(root_node.get_props(), n.get_props(), {'begin', 'end', 'pos'})
+                                nx.set_node_attributes(G, {root_node.id: root_node.update_node_props(new_properties)}, 'data')
 
                     if node['type'] == 'conj':
                         cc_nodes = [edge[1] for edge in G.out_edges(edge[0], data=True) if edge[2]['label'].named_entity == 'cc']
@@ -739,30 +791,59 @@ class CreateInternalGraph:
         for e in [n for n in [edge for edge in G.edges(data=True)] if
                   G.nodes[n[1]]['data'].type == 'NEG' and n[1] not in nodes_to_remove]:
             node = G.nodes[e[0]]['data']
-
-            new_node = SetOfSingletons(
-                id=node.id,
-                type=Grouping.NOT,
-                entities=tuple([node]),
-                min=node.min,
-                max=node.max,
-                confidence=node.confidence,
-                root=any(map(is_kernel_in_props, [node]))
-            )
+            neg_node = G.nodes[e[1]]['data']
             nodes_to_remove.append(e[1])
 
-            # TODO: New assumption but should it be implemented?
-            # If NOT node has a BUT child, negate the child of the BUT
-            # if len([edge for edge in G.out_edges(parent_id) if G.nodes[edge[1]]['data'].named_entity == 'but']) > 0:
-            #     new_node = SetOfSingletons(
-            #         id=new_node.id,
-            #         type=Grouping.AND,
-            #         entities=tuple([new_node]),
-            #         min=new_node.min,
-            #         max=new_node.max,
-            #         confidence=new_node.confidence,
-            #         root=any(map(is_kernel_in_props, [new_node]))
-            #     )
+            # When the negated node is an AND group and the neg word has a valid position,
+            # only wrap entities that appear after the negation word in NOT.
+            # This handles "X but not Y" → AND(X, NOT(Y)) rather than NOT(AND(X, Y)).
+            if (isinstance(node, SetOfSingletons) and node.type == Grouping.AND
+                    and neg_node.min >= 0):
+                neg_pos = neg_node.min
+                entities_before = [ent for ent in node.entities if ent.min <= neg_pos]
+                entities_after = [ent for ent in node.entities if ent.min > neg_pos]
+                if entities_after:
+                    negated = [
+                        SetOfSingletons(
+                            id=ent.id,
+                            type=Grouping.NOT,
+                            entities=tuple([ent]),
+                            min=ent.min,
+                            max=ent.max,
+                            confidence=ent.confidence,
+                            root=is_kernel_in_props(ent)
+                        )
+                        for ent in entities_after
+                    ]
+                    new_node = SetOfSingletons(
+                        id=node.id,
+                        type=Grouping.AND,
+                        entities=tuple(entities_before + negated),
+                        min=node.min,
+                        max=node.max,
+                        confidence=node.confidence,
+                        root=node.root
+                    )
+                else:
+                    new_node = SetOfSingletons(
+                        id=node.id,
+                        type=Grouping.NOT,
+                        entities=tuple([node]),
+                        min=node.min,
+                        max=node.max,
+                        confidence=node.confidence,
+                        root=any(map(is_kernel_in_props, [node]))
+                    )
+            else:
+                new_node = SetOfSingletons(
+                    id=node.id,
+                    type=Grouping.NOT,
+                    entities=tuple([node]),
+                    min=node.min,
+                    max=node.max,
+                    confidence=node.confidence,
+                    root=any(map(is_kernel_in_props, [node]))
+                )
 
             nx.set_node_attributes(G, {new_node.id: new_node}, 'data')
 

@@ -253,6 +253,11 @@
         "argument": "property"
       },
       {
+        "property": "near place",
+        "attachTo": "Kernel",
+        "argument": "property"
+      },
+      {
         "property": "motion to place",
         "attachTo": "Kernel",
         "argument": "property"
@@ -272,6 +277,18 @@
       {
         "attachTo": "Kernel",
         "argument": "subject"
+      }
+    ],
+    "temporal_context": [
+      {
+        "attachTo": "Kernel",
+        "argument": "subject"
+      }
+    ],
+    "time_status": [
+      {
+        "attachTo": "Singleton",
+        "argument": "property"
       }
     ]
   },
@@ -352,9 +369,7 @@
     {
       "premise": {
         "Preposition": [
-          "to",
-          "at",
-          "for"
+          "to"
         ],
         "AbstractEntity": false,
         "MotionVerb": true,
@@ -414,8 +429,7 @@
     {
       "premise": {
         "Preposition": [
-          "to",
-          "at"
+          "to"
         ],
         "not": {
           "SingletonHasBeenMatchedBy": [
@@ -433,16 +447,13 @@
       ],
       "__sentence_examples": [
         "open to the public",
-        "providing access to others",
-        "laughing at humor",
-        "aim at a tree"
+        "providing access to others"
       ]
     },
     {
       "premise": {
         "Preposition": [
-          "to",
-          "at"
+          "to"
         ],
         "not": {
           "SingletonHasBeenMatchedBy": [
@@ -461,9 +472,7 @@
         "providing access to medical care",
         "providing information to others",
         "coming to false conclusions",
-        "add as an ingredient to toothpaste",
-        "laughing at humor",
-        "aim at a tree"
+        "add as an ingredient to toothpaste"
       ]
     },
     {
@@ -889,6 +898,24 @@
       "premise": {
         "Preposition": [
           "with"
+        ],
+        "SingletonHasBeenMatchedBy": [
+          "verb"
+        ]
+      },
+      "classification": [
+        {
+          "type": "time_status"
+        }
+      ],
+      "__sentence_examples": [
+        "with no fixed reopening date"
+      ]
+    },
+    {
+      "premise": {
+        "Preposition": [
+          "with"
         ]
       },
       "classification": [
@@ -980,6 +1007,70 @@
       ],
       "__sentence_examples": [
         "clean up after yourself"
+      ]
+    },
+    {
+      "premise": {
+        "PhrasalVerb": true
+      },
+      "classification": [
+        {
+          "type": "temporal_context"
+        }
+      ],
+      "__sentence_examples": [
+        "while maintenance work takes place"
+      ]
+    },
+    {
+      "premise": {
+        "SingletonHasBeenMatchedBy": [
+          "SUTime"
+        ],
+        "Preposition": [
+          "in"
+        ]
+      },
+      "classification": [
+        {
+          "type": "time",
+          "property": "defined"
+        }
+      ]
+    },
+    {
+      "premise": {
+        "Preposition": [
+          "on or near"
+        ],
+        "AbstractEntity": false
+      },
+      "classification": [
+        {
+          "type": "space",
+          "property": "stay in place"
+        },
+        {
+          "type": "space",
+          "property": "near place"
+        }
+      ]
+    },
+    {
+      "premise": {
+        "Preposition": [
+          "near"
+        ],
+        "AbstractEntity": false
+      },
+      "classification": [
+        {
+          "type": "space",
+          "property": "near place"
+        }
+      ],
+      "__sentence_examples": [
+        "recorded near Prince Albert Terrace"
       ]
     },
     {

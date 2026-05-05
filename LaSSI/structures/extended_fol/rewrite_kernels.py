@@ -298,6 +298,37 @@ class RewriteKernels:
                                                                                                       FUnaryPredicate) and dst.type == "existential"))) or dst is None:
             from LaSSI.ner.MergeSetOfSingletons import merge_multiway_static_properties
             return self.make_unary(rel, src, score, merge_multiway_static_properties(prop, dst.properties))
+        # Copula normalisation: be(X, JJ) -> JJ(?, X).  Promotes the adjective
+        # in the predicate-complement slot to the relation name, with a fresh
+        # existential as the agent and the original subject as the patient.
+        # This brings copular constructions into the same shape as active-voice
+        # predicates (e.g. close(?, X)) so antonym/synonymy lookups in the
+        # ex-post phase can compare relation names directly.
+        if rel == "be":
+            with open("DEBUG_LOG.txt", "a") as f:
+                f.write(f"DEBUG be copula: dst={dst}, type={type(dst)}, getattr={getattr(dst, 'type', None)}, name={getattr(dst, 'name', None)}\n")
+        
+        is_verb_in_ontology = False
+        if hasattr(dst, 'name') and dst.name is not None:
+            is_verb_in_ontology = dst.name in self.p.state_verbs or dst.name in self.p.transitive_verbs or dst.name in self.p.movement_verbs or dst.name in self.p.phrasal_verbs or dst.name in self.p.causative_verbs or dst.name in self.p.semi_modal_verbs or dst.name in self.p.means_verbs or dst.name in self.p.materialisation_verbs
+            with open("DEBUG_LOG.txt", "a") as f:
+                f.write(f"DEBUG is_verb_in_ontology: {is_verb_in_ontology} for {dst.name}\n")
+        
+        if (rel == "be" and isinstance(dst, FVariable) and (dst.type == "JJ" or is_verb_in_ontology)
+                and dst.name is not None and src is not None):
+            existential_id = self.e.increaseAndGetExistential()
+            agent = FVariable(name=f"?{existential_id}", type="existential",
+                              specification=None, cop=None, id=None)
+            new_prop = dict(prop) if prop else dict()
+            if dst.cop is not None:
+                existing = new_prop.get("advmod")
+                if existing is None:
+                    new_prop["advmod"] = [dst.cop]
+                elif isinstance(existing, list):
+                    new_prop["advmod"] = existing + [dst.cop]
+                else:
+                    new_prop["advmod"] = [existing, dst.cop]
+            return self.make_binary(dst.name, agent, prune_from_cop(src), score, new_prop)
         if rel == "have":  # TODO: generalise
             if src is not None and (
                     src.type == "DATE" or src.type == "GPE" or src.type == "LOC" or src.type == "SPACE") and src.cop is None:  # TODO: generalise
@@ -552,6 +583,11 @@ class RewriteKernels:
                 continue
             if len(v)==1 or k in Grouping.__members__.keys() or k == "SPECIFICATION":
                 d[k] = tuple(set(v))
+            elif len(v) > 2:
+                if all(isinstance(x, (FVariable, FNot)) for x in v):
+                    d[k] = (FAnd(tuple(set(v))),)
+                else:
+                    d[k] = tuple(set(v))
             else:
                 assert len(v)==2
                 type_per_item = []
