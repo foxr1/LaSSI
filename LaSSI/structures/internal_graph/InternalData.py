@@ -2,9 +2,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import List
 
-import dacite
-
-from LaSSI.structures.internal_graph.EntityRelationship import Singleton
+from LaSSI.structures.internal_graph.EntityRelationship import Singleton, deserialize_NodeEntryPoint
 from LaSSI.structures.internal_graph.Graph import Graph
 
 @dataclass
@@ -14,7 +12,7 @@ class InternalRepresentation:
 
     @classmethod
     def from_dict(cls, data):
-        return dacite.from_dict(Singleton, data)
+        return deserialize_NodeEntryPoint(data)
         # return cls(
         #     internal_graph=Graph.from_dict(data.get('internal_graph')),
         #     sentences=[Singleton.from_dict(x) for x in data.get('sentences')]

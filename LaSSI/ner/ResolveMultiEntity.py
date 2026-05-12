@@ -199,6 +199,7 @@ def process_sentence(args):
         parmo = services.getHOnK()
 
     sentence_results = []
+    query_cache = {}
 
     ls = [(text, start, end) for text, start, end in tokens_data] + \
          [(lemmatize_verb(text), start, end) for text, start, end in tokens_data]
@@ -209,7 +210,7 @@ def process_sentence(args):
         # But ensure we only combine tokens from the same half (original vs lemmatized)
         max_n = 3
         current_limit = half_len if i < half_len else len(ls)
-        
+
         for n in range(1, min(max_n + 1, current_limit - i + 1)):
             n_gram_tokens = ls[i:i+n]
             text = " ".join([t[0] for t in n_gram_tokens])
@@ -218,7 +219,9 @@ def process_sentence(args):
             term = text.lower()
 
             if type_info is None:
-                m = s.typedFuzzyMatch(threshold, term)
+                if term not in query_cache:
+                    query_cache[term] = s.typedFuzzyMatch(threshold, term)
+                m = query_cache[term]
                 # If term is also a noun, avoid mis-tagging capitalized common nouns as LOC/GPE
                 has_noun_match = any(cand_type.lower() == 'noun' for cands in m.values() for _, cand_type in cands)
 
@@ -243,7 +246,9 @@ def process_sentence(args):
                                 )
                             )
             else:
-                m = s.fuzzyMatch(threshold, term)
+                if term not in query_cache:
+                    query_cache[term] = s.fuzzyMatch(threshold, term)
+                m = query_cache[term]
                 for k, v_list in m.items():
                     for candidate in v_list:
                         newK = lev(term, candidate.lower())

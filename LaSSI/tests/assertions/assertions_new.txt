@@ -29,6 +29,9 @@ Newcastle has traffic but not in the city centre ⇒ have(Newcastle, traffic)[(S
 Newcastle city center does not have traffic but Newcastle has traffic ⇒ be(Newcastle, ?7)[(AND:[Newcastle, NOT(have)])]
 //The busy Newcastle city centre is closed for traffic ⇒ close(?9, Newcastle[(extra:city centre), (det:The), (amod:busy)])[(AIM_OBJECTIVE:traffic[(8:for)])]
 The busy Newcastle city centre is closed for traffic ⇒ traffic[(8:for)](?6, close(?5, Newcastle[(amod:busy), (det:The), (extra:city centre)]))
+The staircases at University station are closed until further notice while maintenance work takes place. ⇒ close(?, staircases[(det:The)])[(TIME:until further notice[(type:continuous)]), (TEMPORAL_CONTEXT:maintenance work[(type:take place)]), (SPACE:University station[(type:stay in place)])]
+The staircases at University Metro station are fully open to the public. ⇒ open[(advmod:fully), (punct:<dot>)](?, staircases[(det:The)])[(OFTERM:public[(10:to), (det:the)]), (SPACE:University Metro station[(type:stay in place)])]
+The staircases at University Metro station are closed due to fire safety concerns identified during an inspection. ⇒ close(?, staircases[(det:The)])[(CAUSATION:concerns[(case:due), (extra:fire safety)]), (SPACE:University Metro station[(type:stay in place)]), (TIME:inspection[(type:continuous), (det:an)])]
 
 // Cat and Mouse
 The cat eats the mouse ⇒ eat(cat[(det:The)], mouse[(det:the)])

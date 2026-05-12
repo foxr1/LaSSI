@@ -18,6 +18,7 @@ import itertools
 
 from LaSSI.ner.node_functions import create_existential_node, create_props_for_singleton, get_min_position
 from LaSSI.ner.string_functions import lemmatize_verb, check_semi_modal, lemmatize_sentence
+from LaSSI.structures import DependencyRoles
 from LaSSI.structures.internal_graph.EntityRelationship import Relationship, Singleton, SetOfSingletons, Grouping
 from LaSSI.external_services.Services import Services
 from LaSSI.tests.benchmark import Benchmark
@@ -35,7 +36,13 @@ from LaSSI.tests.benchmark import Benchmark
 #     #     return cls(kernel=Relationship.from_dict(c.get('kernel')),
 #     #                properties={k: [deserialize_NodeEntryPoint(x) for x in v] for k, v in c.get('properties').items()}
 #     #                )
-copula_types = {'JJ', 'JJS', 'RB'}
+copula_types = DependencyRoles.copula_complement_pos_tags()
+
+
+def _node_data(node_entry):
+    if isinstance(node_entry, dict):
+        return node_entry.get('data')
+    return node_entry
 
 
 def replaceNamed(entity: Singleton, s: str) -> Singleton:
@@ -74,7 +81,7 @@ def create_existential(G, nodes, node_functions):
                     return G, Relationship(
                         source=ex_node,
                         target=G.nodes[new_target.id]['data'],
-                        edgeLabel=node['label'],
+                        edgeLabel=node,
                         isNegated=False
                     )
                 else:
@@ -94,14 +101,14 @@ def create_existential(G, nodes, node_functions):
 
                 if len(G.edges) == 0:
                     G.add_edge(key, ex_node.id, label=Singleton(
-                            id=-1,
-                            named_entity="is",
-                            properties=frozenset(dict().items()),
-                            min=-1,
-                            max=-1,
-                            type="verb",
-                            confidence=-1
-                        ), isNegated=False)
+                        id=-1,
+                        named_entity="is",
+                        properties=frozenset(dict().items()),
+                        min=-1,
+                        max=-1,
+                        type="verb",
+                        confidence=-1
+                    ), isNegated=False)
                 # return G, (key, new_id, 0)
                 return G, Relationship(
                     source=G.nodes[key]['data'],
@@ -202,11 +209,12 @@ def create_cop(node, kernel, target_or_source):
     return kernel
 
 
-def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposition_labels, node_functions, prev_loop_settings, acl_relcl_map):
+def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposition_labels, node_functions,
+                    prev_loop_settings, acl_relcl_map):
     edges = list(edges)
     loop_settings = SimpleNamespace(shouldLoop=False, edgeForKernel=None, previousKernel=None)
 
-    root_node = [node for node in nodes.items() if node[0] == root_sentence_id][0][1]['data']
+    root_node = _node_data([node for node in nodes.items() if node[0] == root_sentence_id][0][1])
     if root_node.type == 'verb' and len(edges) <= 0:
         return G, create_edge_kernel(G, root_node, node_functions), loop_settings, acl_relcl_map
     elif len(edges) == 1:
@@ -225,7 +233,8 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
 
     # With graph created, make the 'Sentence' object
     kernel = None
-    G, kernel = assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_preposition_labels, node_functions)  # Phase 3.2
+    G, kernel = assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_preposition_labels,
+                              node_functions)  # Phase 3.2
     kernel_nodes = set()
     properties = defaultdict(list)
 
@@ -260,18 +269,58 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
 
         # Add certain edges to be rewritten later
         edge_label_name = edge_label.named_entity
-        if edge_label_name in frozenset({'acl_relcl', 'acl', 'nmod', 'nmod_poss', 'obl'}):
+        if edge_label_name in DependencyRoles.nominal_modifier_edges():
             if edge_label_name in {'acl_relcl', 'acl'}:
                 acl_relcl_map[edge_target.id] = edge_source
 
-            # Skip creating a SENTENCE property for acl edges whose source already carries
-            # a case preposition (e.g. "due to", "at", "with").  The source will be rewritten
-            # as a CAUSATION / SPACE / TIME property in its own right; the acl is just a
-            # participial modifier that doesn't need its own nested predicate slot.
+            # For acl edges: detect a participial sub-clause body (verb edge from the
+            # synthetic acl head, e.g. "with the offender gaining access through a rear
+            # entrance" — node 24's outgoing "gaining" edges carry the real verb).
+            # Collect ALL verb-labeled out-edges so obliques (e.g. obl `entrance[through]`)
+            # can be promoted onto the sub-kernel as properties instead of being dropped.
+            participial_verb_edges = []
+            participial_verb_edge = None
+            if (
+                    edge_label_name == 'acl' and
+                    isinstance(edge_target, Singleton) and
+                    edge_target.id in G.nodes
+            ):
+                for u, v, data in G.out_edges(edge_target.id, data=True):
+                    lbl = data.get('label')
+                    if lbl is not None and getattr(lbl, 'type', None) == 'verb':
+                        participial_verb_edges.append((u, v, data, lbl))
+
+                # DEBUG: dump every out-edge of the acl head so we can see why
+                # an obl child (e.g. `entrance[through]`) might be missing.
+                print(f"[acl-debug] edge_target.id={edge_target.id} "
+                      f"named_entity={getattr(edge_target, 'named_entity', None)!r}")
+                for u, v, data in G.out_edges(edge_target.id, data=True):
+                    lbl = data.get('label')
+                    dst = G.nodes[v]['data']
+                    print(f"  out_edge {u}->{v} label_ne={getattr(lbl, 'named_entity', None)!r} "
+                          f"label_type={getattr(lbl, 'type', None)!r} "
+                          f"dst_ne={getattr(dst, 'named_entity', None)!r} "
+                          f"dst_type={getattr(dst, 'type', None)!r} "
+                          f"dst_props={dict(getattr(dst, 'properties', frozenset())) if dst is not None else None}")
+                print(f"[acl-debug] participial_verb_edges count={len(participial_verb_edges)}")
+
+                # Primary target: prefer a child without a case preposition (true obj),
+                # else fall back to the first verb-out edge.
+                for cand in participial_verb_edges:
+                    cand_dst = G.nodes[cand[1]]['data']
+                    if isinstance(cand_dst, Singleton) and not case_in_props(dict(cand_dst.properties)):
+                        participial_verb_edge = cand
+                        break
+                if participial_verb_edge is None and participial_verb_edges:
+                    participial_verb_edge = participial_verb_edges[0]
+
+            # Skip the SENTENCE property only when the source already carries a case
+            # preposition and the acl has no participial body (e.g. "due to X" alone).
             skip_sentence_property = (
-                edge_label_name == 'acl' and
-                isinstance(edge_source, Singleton) and
-                case_in_props(dict(edge_source.properties))
+                    edge_label_name == 'acl' and
+                    isinstance(edge_source, Singleton) and
+                    case_in_props(dict(edge_source.properties)) and
+                    participial_verb_edge is None
             )
 
             if not skip_sentence_property:
@@ -279,25 +328,70 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
                 kernel_target = kernel.target
                 valid_nodes = [kernel_source, kernel_target]
 
-                # Rewrite edge as a kernel
-                edge_kernel = Singleton(
-                    id=edge_label.id,
-                    named_entity="",
-                    type="SENTENCE",
-                    min=node_functions.get_min_from_nodes(valid_nodes),
-                    max=node_functions.get_max_from_nodes(valid_nodes),
-                    confidence=1,
-                    kernel=Relationship(
-                        source=remove_acl_relcl_relationship(edge_source),
-                        target=remove_acl_relcl_relationship(edge_target),
-                        edgeLabel=edge_label,
-                        isNegated=edge[3]['isNegated']
-                    ),
-                    properties=frozenset(dict()),
-                )
+                # If we have a participial verb sub-clause, rewrite the SENTENCE so that
+                # the predicate is the participial verb (e.g. "gaining"), with the source
+                # noun (e.g. "offender") as subject and the verb's object as target.
+                # This avoids the acl_replacement step dropping the SENTENCE because its
+                # target id is in acl_relcl_map, and forces the SENTENCE key (not the
+                # verb-named edgeLabel) so filter_invalid_property_keys keeps it.
+                add_props_type_key = None
+                if participial_verb_edge is not None and edge_label_name == 'acl':
+                    _, sub_target_id, _, sub_verb_label = participial_verb_edge
+                    sub_target = G.nodes[sub_target_id]['data']
+
+                    # Promote any remaining verb-out children of the participial head
+                    # (typically obl/nmod with a case preposition) onto the sub-kernel
+                    # as properties keyed by the child's node type, so logical
+                    # rewriting can later classify them via the case prep instead of
+                    # silently discarding them.
+                    sub_properties = defaultdict(list)
+                    for other in participial_verb_edges:
+                        if other is participial_verb_edge:
+                            continue
+                        other_dst = G.nodes[other[1]]['data']
+                        if other_dst is None:
+                            continue
+                        sub_type_key = node_functions.get_node_type(other_dst)
+                        if other_dst not in sub_properties[sub_type_key]:
+                            sub_properties[sub_type_key].append(other_dst)
+
+                    edge_kernel = Singleton(
+                        id=sub_verb_label.id,
+                        named_entity="",
+                        type="SENTENCE",
+                        min=node_functions.get_min_from_nodes(valid_nodes),
+                        max=node_functions.get_max_from_nodes(valid_nodes),
+                        confidence=1,
+                        kernel=Relationship(
+                            source=remove_acl_relcl_relationship(edge_source),
+                            target=remove_acl_relcl_relationship(sub_target),
+                            edgeLabel=sub_verb_label,
+                            isNegated=edge[3]['isNegated']
+                        ),
+                        properties=create_props_for_singleton(sub_properties),
+                    )
+                    add_props_type_key = 'SENTENCE'
+                else:
+                    # Rewrite edge as a kernel (relative clause / standard nominal modifier)
+                    edge_kernel = Singleton(
+                        id=edge_label.id,
+                        named_entity="",
+                        type="SENTENCE",
+                        min=node_functions.get_min_from_nodes(valid_nodes),
+                        max=node_functions.get_max_from_nodes(valid_nodes),
+                        confidence=1,
+                        kernel=Relationship(
+                            source=remove_acl_relcl_relationship(edge_source),
+                            target=remove_acl_relcl_relationship(edge_target),
+                            edgeLabel=edge_label,
+                            isNegated=edge[3]['isNegated']
+                        ),
+                        properties=frozenset(dict()),
+                    )
 
                 kernel, properties, kernel_nodes = add_to_properties(
-                    kernel, edge_kernel, 'edgeLabel', kernel_nodes, properties, negations, node_functions)
+                    kernel, edge_kernel, 'edgeLabel', kernel_nodes, properties, negations, node_functions,
+                    type_key=add_props_type_key)
 
         # If we have an edge that is a verb and not already in the kernel nodes, use this as the "edge to loop", out the next iteration on the same root node
         kernel_edge_label = kernel.edgeLabel
@@ -329,14 +423,20 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
         # Check which order the kernel should be:
         #   Should we add the NEW kernel as a property, or
         #    remain as the root kernel, based on the topological position of the nodes
-        top_node_id_positions = {x['data'].id: idx for idx, x in enumerate(nodes.values())}
+        top_node_id_positions = {
+            node_data.id: idx
+            for idx, node_entry in enumerate(nodes.values())
+            for node_data in [_node_data(node_entry)]
+            if hasattr(node_data, 'id')
+        }
         kernel_id_to_check = get_kernel_top_id(kernel, top_node_id_positions)
         returned_kernel_id_to_check = get_kernel_top_id(prev_loop_settings.previousKernel.kernel, top_node_id_positions)
 
         if (
                 # TODO: PATCH kernel_id_to_check is None or returned_kernel_id_to_check is None or  ## GIACOMO: This is a patch. TODO: handle the case
                 kernel_id_to_check is not None and (returned_kernel_id_to_check is None or
-                top_node_id_positions[kernel_id_to_check] < top_node_id_positions[returned_kernel_id_to_check])
+                                                    top_node_id_positions[kernel_id_to_check] < top_node_id_positions[
+                                                        returned_kernel_id_to_check])
         ):
             kernel, properties, kernel_nodes = add_to_properties(
                 prev_loop_settings.previousKernel.kernel,
@@ -368,7 +468,8 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
     final_kernel = node_functions.convert_relationship_to_sentence(root_sentence_id, kernel, properties_to_keep)
 
     if new_kernel is not None:
-        valid_nodes = node_functions.get_valid_nodes([kernel.source, kernel.target])  # Get all nodes that are not None else return -1
+        valid_nodes = node_functions.get_valid_nodes(
+            [kernel.source, kernel.target])  # Get all nodes that are not None else return -1
         final_kernel = Singleton(
             id=root_sentence_id,
             named_entity="",
@@ -380,7 +481,8 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
                 source=create_existential_node(),
                 target=final_kernel,
                 edgeLabel=new_kernel,
-                isNegated=new_kernel.isNegated if hasattr(new_kernel, "isNegated") else False, # TODO: Check this is correctly negated
+                isNegated=new_kernel.isNegated if hasattr(new_kernel, "isNegated") else False,
+                # TODO: Check this is correctly negated
             ),
             properties=create_props_for_singleton(properties_to_keep),
         )
@@ -427,10 +529,11 @@ def analyse_kernel_node(kernel, kernel_nodes, kernel_node_type):
         # If source/target is 'det' or adjective AND a pronoun of any type
         if ((
                 ('det' in dict(kernel_node.properties) and
-                dict(kernel_node.properties)['det'] == 'det') or
+                 dict(kernel_node.properties)['det'] == 'det') or
                 kernel_node.type == 'JJ' or
                 kernel_node.type == 'JJS'
-        ) and len(Services.getInstance().getHOnK().getPronouns().intersection({kernel_node.named_entity.lower()})) != 0):
+        ) and len(
+            Services.getInstance().getHOnK().getPronouns().intersection({kernel_node.named_entity.lower()})) != 0):
             kernel_node = Singleton(
                 id=kernel_node.id,
                 named_entity=kernel_node.named_entity,
@@ -480,20 +583,23 @@ def add_to_kernel_nodes(node, kernel_nodes):
             if node.kernel.target is not None:
                 kernel_nodes = add_to_kernel_nodes(node.kernel.target, kernel_nodes)
         # else:
-        if (node.kernel is None or (node.kernel is not None and node.kernel.edgeLabel.named_entity not in {'acl_relcl', 'acl'})) or node.type != 'SENTENCE':
+        if (node.kernel is None or (node.kernel is not None and node.kernel.edgeLabel.named_entity not in {'acl_relcl',
+                                                                                                           'acl'})) or node.type != 'SENTENCE':
             kernel_nodes.add(node)
 
     return kernel_nodes
 
 
-def add_to_properties(kernel, node, source_or_target, kernel_nodes, properties, negations, node_functions, type_key=None):
+def add_to_properties(kernel, node, source_or_target, kernel_nodes, properties, negations, node_functions,
+                      type_key=None):
     lemma_kernel_edge_label_name = lemmatize_verb(kernel.edgeLabel.named_entity) if kernel.edgeLabel is not None else ""
 
     # Check if action matched edge label, and if it contains a negation, negate the kernel
     if isinstance(node, SetOfSingletons) and node.type == Grouping.NOT:
         is_negated = True
         if isinstance(node.entities[0], SetOfSingletons):
-            return add_to_properties(kernel, node.entities[0], source_or_target, kernel_nodes, properties, negations, node_functions, type_key)
+            return add_to_properties(kernel, node.entities[0], source_or_target, kernel_nodes, properties, negations,
+                                     node_functions, type_key)
         node_props = dict(node.entities[0].properties)
         if 'action' in node_props and len(node_props['action']) > 0:
             # Get label from action prop
@@ -527,8 +633,8 @@ def add_to_properties(kernel, node, source_or_target, kernel_nodes, properties, 
 
     # Check for a SetOfSingletons, or if the node name or action label is not equal to the kernel edge label
     if (
-        (isinstance(node, SetOfSingletons)) or
-        (node is not None and lemma_node_edge_label_name != lemma_kernel_edge_label_name)
+            (isinstance(node, SetOfSingletons)) or
+            (node is not None and lemma_node_edge_label_name != lemma_kernel_edge_label_name)
     ):
         if type_key is None:
             if source_or_target == 'edgeLabel':
@@ -572,8 +678,13 @@ def add_to_properties(kernel, node, source_or_target, kernel_nodes, properties, 
                             properties[type_key].append(entity)
                 else:
                     if 'actioned' in dict(node.properties) or 'action' in dict(node.properties):
-                        node = rewrite_action_ed_node(node, node, negations)
-                        type_key = 'SENTENCE'
+                        node_props = dict(node.properties)
+                        if 'actioned' in node_props and node.type != 'verb' and node.named_entity:
+                            node_props['amod'] = node_props.pop('actioned')
+                            node = node.update_node_props(node_props)
+                        else:
+                            node = rewrite_action_ed_node(node, node, negations)
+                            type_key = 'SENTENCE'
                     kernel_nodes = add_to_kernel_nodes(node, kernel_nodes)
                     properties[type_key].append(node)
     return kernel, properties, kernel_nodes
@@ -601,8 +712,9 @@ def is_node_in_kernel_nodes(check_node, kernel_nodes):
                 (check_node.id == kernel_node.id or are_begin_end_equiv(check_node, kernel_node))
                     # and check_node.type == kernel_node.type and check_node.min == kernel_node.min and check_node.max == kernel_node.max
                     # check_node.named_entity == kernel_node.named_entity and
-                ) or (
-                    check_node.type == 'verb' and lemmatize_verb(check_node.named_entity) == lemmatize_verb(kernel_node.named_entity) and check_node.id == kernel_node.id
+            ) or (
+                    check_node.type == 'verb' and lemmatize_verb(check_node.named_entity) == lemmatize_verb(
+                kernel_node.named_entity) and check_node.id == kernel_node.id
             ):
                 return True
         elif isinstance(check_node, SetOfSingletons) and isinstance(kernel_node, SetOfSingletons):
@@ -639,14 +751,14 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
     def is_valid_verb(node):
         if node is None: return False
         if node.type != "verb": return False
-        
+
         # Grammatical Rules to determine if it is NOT a verb in this scenario
         props = dict(node.properties)
-        
+
         # Rule 1: Verbs usually don't have determiners (e.g. "The staircases")
         if 'det' in props:
             return False
-            
+
         # Rule 2: Objects of prepositions are rarely the main verb (e.g. "at University station")
         # Prepositions often add a 'case' property to the object
         if 'case' in props:
@@ -655,14 +767,14 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
         # Rule 3: Compound entities (with 'extra' names) are usually nouns, not the main verb
         if 'extra' in props:
             return False
-            
+
         # Rule 4: Check incoming dependency edges in the graph G
         # Only check if the node is actually part of the graph (edge labels might not be)
         if node.id in G:
             incoming = G.in_edges(node.id, data=True)
             for u, v, data in incoming:
                 edge_lbl = data.get('label')
-                if edge_lbl and edge_lbl.named_entity in {'nmod', 'obl', 'case'}:
+                if edge_lbl and edge_lbl.named_entity in DependencyRoles.verb_disqualifying_incoming_edges():
                     return False
 
         # Rule 5: Check if lemma is in rejected_verbs (lexical check)
@@ -674,12 +786,12 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
         source_data = G.nodes[edge[0]]['data']
         edge_label = edge[3]['label']
         if (
-            (is_valid_verb(edge_label) or is_valid_verb(source_data)) and
-            (
-                'kernel' in edge_label.get_props() or 'root' in edge_label.get_props() or
-                'kernel' in source_data.get_props() or 'root' in source_data.get_props()
-            ) and
-            edge[0] == root_sentence_id
+                (is_valid_verb(edge_label) or is_valid_verb(source_data)) and
+                (
+                        'kernel' in edge_label.get_props() or 'root' in edge_label.get_props() or
+                        'kernel' in source_data.get_props() or 'root' in source_data.get_props()
+                ) and
+                edge[0] == root_sentence_id
         ):
             chosen_edge = edge
             break
@@ -689,12 +801,12 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
     if chosen_edge is None:
         for edge in edges:
             if (
-                is_valid_verb(edge[3]['label']) and
-                (
-                    root_sentence_id in found_preposition_labels or
-                    edge[3]['label'].named_entity not in found_preposition_values
-                ) and
-                edge[0] == root_sentence_id
+                    is_valid_verb(edge[3]['label']) and
+                    (
+                            root_sentence_id in found_preposition_labels or
+                            edge[3]['label'].named_entity not in found_preposition_values
+                    ) and
+                    edge[0] == root_sentence_id
             ):
                 chosen_edge = edge
                 break
@@ -709,18 +821,18 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
         # If we have found a chosen edge OR we haven't but the source or edge label are verbs AND
         #  root in preposition labels or edge label not in prepositions
         if (
-            (
                 (
-                    (is_valid_verb(edge_label) or is_valid_verb(source)) and
-                    chosen_edge is None
-                ) or
-                chosen_edge is not None and chosen_edge == edge
-            )
-            and
-            (
-                    root_sentence_id in found_preposition_labels or
-                    edge_label.named_entity not in found_preposition_values
-            )
+                        (
+                                (is_valid_verb(edge_label) or is_valid_verb(source)) and
+                                chosen_edge is None
+                        ) or
+                        chosen_edge is not None and chosen_edge == edge
+                )
+                and
+                (
+                        root_sentence_id in found_preposition_labels or
+                        edge_label.named_entity not in found_preposition_values
+                )
         ):
             # If edge label is NOT a verb, use the source instead
             edge_label = edge_label if is_valid_verb(edge_label) else source
@@ -728,10 +840,10 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
             # If source is NOT semi-modal AND not in nodes then create existential for source
             edge_source = create_existential_node() if (
                     (
-                        isinstance(source, Singleton) and
-                        not check_semi_modal(source.named_entity) and
-                        len([x for x in nodes.keys() if source.id == x]) == 0 and
-                        source.type != 'existential'
+                            isinstance(source, Singleton) and
+                            not check_semi_modal(source.named_entity) and
+                            len([x for x in nodes.keys() if source.id == x]) == 0 and
+                            source.type != 'existential'
                     ) or source == edge_label) else source
 
             # Check if "action" property in equal to edge label, and therefore redundant
@@ -763,14 +875,14 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
 
                 # Special Case: Copula rule for 'be'
                 # lemmatize_verb strips AUX tokens so "are"→"", use a direct form-set check instead.
-                _be_forms = frozenset({'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', "'m", "'re", "'s"})
+                _be_forms = Services.getInstance().getHOnK().getCopulaSurfaceForms()
                 if edge_label.named_entity.lower().strip() in _be_forms and kernel.target is None:
                     source_props = dict(edge_source.properties)
                     if 'cop' in source_props:
                         # Move cop node to target (legacy path)
                         cop_node = source_props['cop']
                         if isinstance(cop_node, tuple):
-                            cop_node = cop_node[0] # Handle case where it might be a sequence
+                            cop_node = cop_node[0]  # Handle case where it might be a sequence
 
                         kernel = Relationship(
                             source=edge_source.remove_prop('cop'),
@@ -796,7 +908,7 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
                 )
 
                 # Special Case: Copula rule for 'be' (even if it was thought transitive or has a target)
-                _be_forms = frozenset({'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', "'m", "'re", "'s"})
+                _be_forms = Services.getInstance().getHOnK().getCopulaSurfaceForms()
                 if edge_label.named_entity.lower().strip() in _be_forms:
                     source_props = dict(edge_source.properties)
                     if 'cop' in source_props:
@@ -813,7 +925,9 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
 
     # If kernel is none, look for existential within source and target properties
     if kernel is None:
-        kernel = next(iter([node for node in itertools.chain.from_iterable(map(lambda x: [G.nodes[x[0]]['data'], G.nodes[x[1]]['data']], edges)) if find_existential_in_properties(node)]), None)
+        kernel = next(iter([node for node in itertools.chain.from_iterable(
+            map(lambda x: [G.nodes[x[0]]['data'], G.nodes[x[1]]['data']], edges)) if
+                            find_existential_in_properties(node)]), None)
 
     # If we cannot find existential, create it instead
     if kernel is None:
@@ -872,7 +986,8 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
             isNegated=kernel.isNegated
         )
 
-    result = kernel.update_vertex(kernel.edgeLabel.update_name(lemmatize_verb(kernel.edgeLabel.named_entity)) if kernel.edgeLabel is not None else None, "edgeLabel")
+    result = kernel.update_vertex(kernel.edgeLabel.update_name(
+        lemmatize_verb(kernel.edgeLabel.named_entity)) if kernel.edgeLabel is not None else None, "edgeLabel")
     return G, result
 
 
@@ -922,7 +1037,7 @@ def get_prepositions(node):
     node_props = dict(node.properties)
     _smart_apos = chr(0x2019)
     for key in node_props:
-        if key in {"mark", "adv", "advmod", "IN", "TO", "case"}:
+        if key in DependencyRoles.preposition_marker_labels():
             value = node_props[key]
             if isinstance(value, str):
                 found_prepositions.append(value.lower().replace(_smart_apos, "’"))

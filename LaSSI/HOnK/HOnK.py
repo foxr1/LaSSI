@@ -161,6 +161,8 @@ class HOnKSingleton(object):
         if HOnKSingleton._instance.honk is None:
             HOnKSingleton._instance.honk = HOnK(cache_path, user, password, hostame, port, onStorage)
             HOnKSingleton._instance.honk.start(path, rules_path=rules_path)
+        elif rules_path is not None:
+            HOnKSingleton._instance.honk.configure_logical_rules_path(rules_path)
 
     @staticmethod
     def stop():
@@ -185,6 +187,104 @@ class HOnK(RDFGraph):
         self.onStorage = onStorage
         self._store_path = None  # Set before super().start() to use RocksDB cache
         self._rules_json_path = None  # Set via start() to load rules from JSON
+        self._loaded_rules_json_path = None
+        self._loaded_rules_json_mtime = None
+        self._init_lookup_sets()
+        self._load_support_lookup_sets()
+
+    def _type_lookup_map(self):
+        return {
+            "SemiModalVerb":           "semi_modal_verbs",
+            "Pronoun":                 "pronouns",
+            "PersonalPronoun":         "personal_pronouns",
+            "PrototypicalPreposition": "prototypical_prepositions",
+            "TransitiveVerb":          "transitive_verbs",
+            "CausativeVerb":           "causative_verbs",
+            "ConsumptionVerb":         "consumption_verbs",
+            "MotionVerb":              "movement_verbs",
+            "MeansVerb":               "means_verbs",
+            "StateVerb":               "state_verbs",
+            "MaterialisationVerb":     "materialisation_verbs",
+            "PhrasalVerb":             "phrasal_verbs",
+            "UnitOfMeasure":           "units_of_measure",
+            "AbstractEntity":          "abstract_entities",
+            "Rejectable":              "rejected_edges",
+            "Dependency":              "non_verbs",
+            "TimeNoun":                "temporal_nouns",
+            "LocationNoun":            "location_nouns",
+            "StateNoun":               "state_nouns",
+            "FacilityNoun":            "facility_nouns",
+            "AccessPointNoun":         "access_point_nouns",
+            "RouteNoun":               "route_nouns",
+            "GeoSuffixNoun":           "geo_suffix_nouns",
+            "ServiceStateNoun":        "service_state_nouns",
+            "StatusNoun":              "status_nouns",
+            "WeatherConditionNoun":    "weather_condition_nouns",
+            "Conjunction":             "conjunctions",
+            "DependantPreposition":    "prepositions",
+            "IdiomaticPreposition":    "prepositions",
+            "ComplexPreposition":      "prepositions",
+        }
+
+    def _init_lookup_sets(self):
+        for attr in set(self._type_lookup_map().values()) | {
+                "nouns_with_properties",
+                "nouns_with_a",
+                "logical_rewriting_rules",
+                "prepositions",
+                "copula_surface_forms",
+                "change_of_state_verbs",
+                "stative_verbs",
+        }:
+            if not hasattr(self, attr):
+                setattr(self, attr, defaultdict() if attr == "logical_rewriting_rules" else set())
+
+    def _add_lookup_terms_from_file(self, path, *attrs):
+        if not os.path.exists(path):
+            return
+        with open(path, "r") as dep:
+            for line in dep:
+                term = line.strip()
+                if not term or term.startswith("#"):
+                    continue
+                for attr in attrs:
+                    getattr(self, attr).add(term)
+
+    def _load_support_lookup_sets(self):
+        data_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "raw_data"))
+        file_map = (
+            ("non_verb_types.txt", ("non_verbs",)),
+            ("units_of_measure.txt", ("units_of_measure",)),
+            ("abstract_entity_concepts.txt", ("abstract_entities",)),
+            (os.path.join("verbs", "causative_verbs.txt"), ("causative_verbs",)),
+            (os.path.join("verbs", "causal_signal_verbs.txt"), ("causative_verbs",)),
+            (os.path.join("verbs", "consumption_verbs.txt"), ("consumption_verbs",)),
+            (os.path.join("verbs", "transitive_verbs.txt"), ("transitive_verbs",)),
+            (os.path.join("verbs", "stative_verbs.txt"), ("stative_verbs",)),
+            (os.path.join("verbs", "means_verbs.txt"), ("means_verbs",)),
+            (os.path.join("verbs", "state_verbs.txt"), ("state_verbs",)),
+            (os.path.join("verbs", "service_change_verbs.txt"), ("state_verbs", "change_of_state_verbs")),
+            (os.path.join("verbs", "service_activity_verbs.txt"), ("state_verbs",)),
+            (os.path.join("verbs", "copula_surface_forms.txt"), ("copula_surface_forms",)),
+            (os.path.join("verbs", "movement_verbs.txt"), ("movement_verbs",)),
+            (os.path.join("verbs", "materialisation_verbs.txt"), ("materialisation_verbs",)),
+            (os.path.join("verbs", "phrasal_verbs.txt"), ("phrasal_verbs",)),
+            (os.path.join("verbs", "semi_modal_verbs.txt"), ("semi_modal_verbs",)),
+            (os.path.join("nouns", "facility_nouns.txt"), ("facility_nouns", "location_nouns")),
+            (os.path.join("nouns", "access_point_nouns.txt"), ("access_point_nouns", "facility_nouns", "location_nouns")),
+            (os.path.join("nouns", "route_nouns.txt"), ("route_nouns", "location_nouns")),
+            (os.path.join("nouns", "geo_suffix_nouns.txt"), ("geo_suffix_nouns", "location_nouns")),
+            (os.path.join("nouns", "service_state_nouns.txt"), ("service_state_nouns", "state_nouns")),
+            (os.path.join("nouns", "status_nouns.txt"), ("status_nouns", "state_nouns")),
+            (os.path.join("nouns", "weather_condition_nouns.txt"), ("weather_condition_nouns", "state_nouns")),
+            (os.path.join("pronouns", "personal_pronouns.txt"), ("pronouns", "personal_pronouns")),
+            (os.path.join("pronouns", "demonstrative_pronouns.txt"), ("pronouns",)),
+            (os.path.join("pronouns", "relative_pronouns.txt"), ("pronouns",)),
+            (os.path.join("pronouns", "indefinite_pronouns.txt"), ("pronouns",)),
+            (os.path.join("pronouns", "interrogative_pronouns.txt"), ("pronouns",)),
+        )
+        for relative_path, attrs in file_map:
+            self._add_lookup_terms_from_file(os.path.join(data_path, relative_path), *attrs)
 
     def start(self, filename=None, rules_path=None):
         if rules_path is not None:
@@ -209,7 +309,20 @@ class HOnK(RDFGraph):
             # Point _actual_start() at the persistent RocksDB path
             self._store_path = store_dir
 
-        result = super().start()
+        try:
+            result = super().start()
+        except RuntimeError:
+            if not self.onStorage and filename is not None and use_cache:
+                print(f"[HOnK] Cached RocksDB store is not readable; rebuilding: {store_dir}")
+                if os.path.exists(store_dir):
+                    shutil.rmtree(store_dir)
+                if os.path.exists(mtime_file):
+                    os.remove(mtime_file)
+                use_cache = False
+                self._store_path = store_dir
+                result = super().start()
+            else:
+                raise
         if result:
             self.logger.info("HOnK started")
             if not self.onStorage and filename is not None:
@@ -224,8 +337,55 @@ class HOnK(RDFGraph):
                         f.write(str(ttl_mtime))
                 else:
                     print(f"[HOnK] Loaded from RocksDB store cache ({store_dir}).")
-            self._load()
+            try:
+                self._load()
+            except RuntimeError:
+                if not self.onStorage and filename is not None and use_cache:
+                    print(f"[HOnK] Cached RocksDB store failed during load; rebuilding: {store_dir}")
+                    super().stop()
+                    if os.path.exists(store_dir):
+                        shutil.rmtree(store_dir)
+                    if os.path.exists(mtime_file):
+                        os.remove(mtime_file)
+                    use_cache = False
+                    self._store_path = store_dir
+                    result = super().start()
+                    if result:
+                        print(f"[HOnK] Parsing TTL (cache rebuild): {filename}")
+                        t0 = time.time()
+                        self.parse(filename)
+                        print(f"[HOnK] TTL parsed in {time.time() - t0:.1f}s — compacting store...")
+                        self.graph.optimize()
+                        print(f"[HOnK] Store compacted in {time.time() - t0:.1f}s total.")
+                        with open(mtime_file, "w") as f:
+                            f.write(str(ttl_mtime))
+                        self._load()
+                else:
+                    raise
         return result
+
+    def configure_logical_rules_path(self, rules_path):
+        self._rules_json_path = rules_path
+        if getattr(self, "loaded", False):
+            self._load_logical_rules_from_json_if_available(force=True)
+
+    def _load_logical_rules_from_json_if_available(self, force=False):
+        if self._rules_json_path is None or not os.path.exists(self._rules_json_path):
+            return False
+
+        rules_mtime = os.path.getmtime(self._rules_json_path)
+        already_loaded = (
+            self._loaded_rules_json_path == self._rules_json_path
+            and self._loaded_rules_json_mtime == rules_mtime
+            and getattr(self, "logical_rewriting_rules", None) is not None
+        )
+        if not force and already_loaded:
+            return True
+
+        self.logical_rewriting_rules = _load_logical_rules_from_json(self._rules_json_path)
+        self._loaded_rules_json_path = self._rules_json_path
+        self._loaded_rules_json_mtime = rules_mtime
+        return True
 
     def stop(self):
         result = super().stop()
@@ -235,6 +395,8 @@ class HOnK(RDFGraph):
 
     def _load(self):
         if not self.hasDBStoredData():
+            self._load_support_lookup_sets()
+            self._load_logical_rules_from_json_if_available(force=True)
             return False
         if self.loaded:
             return True
@@ -246,24 +408,7 @@ class HOnK(RDFGraph):
 
         # Batch all 14 type-label lookups into a single SPARQL query instead of
         # making 14 individual round-trips.
-        _type_map = {
-            "SemiModalVerb":           "semi_modal_verbs",
-            "Pronoun":                 "pronouns",
-            "PrototypicalPreposition": "prototypical_prepositions",
-            "TransitiveVerb":          "transitive_verbs",
-            "CausativeVerb":           "causative_verbs",
-            "MotionVerb":              "movement_verbs",
-            "MeansVerb":               "means_verbs",
-            "StateVerb":               "state_verbs",
-            "MaterialisationVerb":     "materialisation_verbs",
-            "PhrasalVerb":             "phrasal_verbs",
-            "UnitOfMeasure":           "units_of_measure",
-            "AbstractEntity":          "abstract_entities",
-            "Rejectable":              "rejected_edges",
-            "Dependency":              "non_verbs",
-            "TimeNoun":                "temporal_nouns",
-            "Conjunction":             "conjunctions",
-        }
+        _type_map = self._type_lookup_map()
         _values_clause = " ".join(f"honk:{t}" for t in _type_map)
         _batch_query = f"""
             SELECT DISTINCT ?type_uri ?c
@@ -273,7 +418,7 @@ class HOnK(RDFGraph):
                 ?a rdfs:label ?c.
             }}"""
         _ns = str(self.namespace)
-        _buckets = {attr: set() for attr in _type_map.values()}
+        _buckets = {attr: set(getattr(self, attr, set())) for attr in _type_map.values()}
         for row in self._iter_rows(_batch_query):
             type_local = str(row.type_uri)[len(_ns):]
             attr = _type_map.get(type_local)
@@ -281,12 +426,15 @@ class HOnK(RDFGraph):
                 _buckets[attr].add(str(row.c))
         for attr, s in _buckets.items():
             setattr(self, attr, s)
+        # PrototypicalPreposition feeds prototypical_prepositions only via the map above;
+        # include it in the full prepositions set too.
+        self.prepositions = set(self.prepositions) | set(self.prototypical_prepositions)
         print(f"[HOnK]   type labels loaded ({time.time()-_t0:.1f}s)")
 
         ## get_logical_rewriting_rules
         print(f"[HOnK]   loading logical rewriting rules...")
-        if self._rules_json_path is not None and os.path.exists(self._rules_json_path):
-            self.logical_rewriting_rules = _load_logical_rules_from_json(self._rules_json_path)
+        if self._load_logical_rules_from_json_if_available(force=True):
+            pass
         else:
             knows_query = """
                      SELECT DISTINCT ?label ?rule_order ?Preposition ?logicalConstructName ?logicalConstructProperty ?MotionVerb ?SingletonHasBeenMatchedBy ?not ?AbstractEntity ?hasNMod ?hasNModPartOf ?hasNModIsA ?isSymmetricalIfComparedToNMod ?Number ?UnitOfMeasure ?StateVerb ?MeansVerb ?CausativeVerb ?MaterialisationVerb
@@ -430,14 +578,6 @@ class HOnK(RDFGraph):
         self._trcl_cache: dict = {}
 
 
-        # self.prepositions (full Preposition objects) is not used by the active
-        # pipeline — collect_prepositions() has no call sites.  The only
-        # preposition data the pipeline consumes is self.prototypical_prepositions,
-        # which is already populated above by the batched type-label query.
-        # The old loading block also contained a broken SPARQL UNION that left
-        # ?src unbound in one branch, producing a cartesian product with every
-        # labeled resource in the store and causing OOM on large TTL files.
-        self.prepositions = {}
         self.loaded = True
         print(f"[HOnK] Ontology fully loaded in {time.time()-_t0:.1f}s.")
         return True
@@ -777,15 +917,32 @@ class HOnK(RDFGraph):
         return len(self.typeOf(src)) > 0
 
     def typeOf(self, src):
+        from LaSSI.ner.string_functions import surface_form_variants
+        src_str = str(src)
+        src_terms = {src_str, src_str.lower()}
+        for variant in surface_form_variants(src_str):
+            src_terms.add(variant)
+            src_terms.add(variant.lower())
+        matched_types = {
+            str(self.namespace) + type_name
+            for type_name, attr in self._type_lookup_map().items()
+            if src_terms & {str(value).lower() for value in getattr(self, attr, set())}
+        }
+        if matched_types or getattr(self, "graph", None) is None:
+            return matched_types
+
         knows_query = """
          SELECT DISTINCT ?dst 
          WHERE {
              ?src a ?dst.
              ?src rdfs:label ?src_label.
-         }"""
+        }"""
         s = set()
-        for x in self._iter_rows(knows_query, {"src_label": Literal(src, datatype=XSD.string)}):
-            s.add(str(x.dst))
+        try:
+            for x in self._iter_rows(knows_query, {"src_label": Literal(src, datatype=XSD.string)}):
+                s.add(str(x.dst))
+        except RuntimeError:
+            return matched_types
         return s
 
     def getSuperTypes(self, src):
@@ -857,6 +1014,20 @@ class HOnK(RDFGraph):
                 f.write(os.linesep)
         return f
 
+    @lru_cache(maxsize=4096)
+    def _cached_location_variants(self, name):
+        """Cached helper for `name_eq`'s class-suffix-stripping branch.
+
+        Returns `(variants, stripped)` where `variants` is the set of
+        class-suffix-stripped forms of `name` (including `name` itself), and
+        `stripped` is True iff at least one strip succeeded (i.e. `name` ends
+        with a HOnK facility/access-point/route noun). Cached because name_eq
+        is called O(n²) over a small set of repeated atom names during the
+        pairwise truth-table phase."""
+        from LaSSI.ner.string_functions import surface_form_variants
+        variants = surface_form_variants(name) if name else set()
+        return variants, len(variants) > 1
+
     @lru_cache()
     def name_eq(self, src, dst):
         if (src == dst):
@@ -883,6 +1054,29 @@ class HOnK(RDFGraph):
             # routinely produces both verdicts when a term is polysemic, and
             # the same sense cannot self-contradict.
             if not srcS.isdisjoint(dstS):
+                return CasusHappening.EQUIVALENT
+            # Location-equivalence via class-suffix stripping. Fires when at
+            # least one side sheds a HOnK-known facility / access-point /
+            # route noun from its tail AND the resulting variant sets
+            # intersect. Examples that match: "Haymarket Station" ≡
+            # "Haymarket Metro station" (both reduce to "Haymarket");
+            # "Haymarket" ≡ "Haymarket Station" (the latter reduces to
+            # "Haymarket"). The "at least one stripped" condition keeps
+            # non-location atoms ("close", "fire", "fire alarm") out — for
+            # those, class_suffix_variants yields only the input string
+            # (because no facility/access-point noun appears as a suffix),
+            # so neither stripping nor a non-trivial intersection occurs.
+            #
+            # Variants are computed only for the raw input names, not the
+            # full WordNet synsets. Location names are proper nouns with no
+            # meaningful synonymy, so expanding `srcS`/`dstS` would multiply
+            # the per-call cost 10-50× for no benefit. The fast path that
+            # checks input-only variants converges on the same equivalence
+            # ("Haymarket Station" vs "Haymarket Metro station" both strip
+            # to "Haymarket") without iterating WordNet.
+            src_variants, src_stripped = self._cached_location_variants(src)
+            dst_variants, dst_stripped = self._cached_location_variants(dst)
+            if (src_stripped or dst_stripped) and not src_variants.isdisjoint(dst_variants):
                 return CasusHappening.EQUIVALENT
             if not dstS.isdisjoint(neqTo_src) or not srcS.isdisjoint(neqTo_dst):
                 return CasusHappening.EXCLUSIVES
@@ -969,64 +1163,172 @@ class HOnK(RDFGraph):
         return r if r is not None else set()
 
     def getNounsWithProperties(self):
-        return self.nouns_with_properties
+        return getattr(self, "nouns_with_properties", set())
 
     def getNounsWithA(self):
-        return self.nouns_with_a
+        return getattr(self, "nouns_with_a", set())
 
     def getSemiModalVerbs(self):
-        return self.semi_modal_verbs
+        return getattr(self, "semi_modal_verbs", set())
 
     def getPronouns(self):
-        return self.pronouns
+        return getattr(self, "pronouns", set())
+
+    def getPersonalPronouns(self):
+        return getattr(self, "personal_pronouns", set())
+
+    def getConsumptionVerbs(self):
+        return getattr(self, "consumption_verbs", set())
 
     def getPrototypicalPrepositions(self):
-        return self.prototypical_prepositions
+        return getattr(self, "prototypical_prepositions", set())
 
     def getPhrasalVerbs(self):
-        return self.phrasal_verbs
+        return getattr(self, "phrasal_verbs", set())
 
     def getTransitiveVerbs(self):
-        return self.transitive_verbs
+        return getattr(self, "transitive_verbs", set())
 
     def getRejectedVerbs(self):
-        return self.rejected_edges
+        return getattr(self, "rejected_edges", set())
 
     def getNonVerbs(self):
-        return self.non_verbs
+        return getattr(self, "non_verbs", set())
 
     def getLogicalRewritingRules(self):
+        self._load_logical_rules_from_json_if_available()
         return self.logical_rewriting_rules
 
     def getCausativeVerbs(self):
-        return self.causative_verbs
+        return getattr(self, "causative_verbs", set())
+
+    def getChangeOfStateVerbs(self):
+        """Verbs that license the causative alternation (cause-as-subject)
+        but are *not* lexical causal signals. Used by the FOL rewriter to
+        promote CAUSATION → subject; intentionally separate from
+        `causative_verbs` because the TBox `CausativeVerb` class drives
+        logical_analysis.json premises that would over-fire on these."""
+        return getattr(self, "change_of_state_verbs", set())
+
+    def isPartOf(self, part: str, whole: str, _cap: int = 256) -> bool:
+        """Transitive meronymy check over the preloaded `_partOf_wholes` adjacency.
+
+        Tries first an exact (case-insensitive) match on the full surface label,
+        then falls back to head-noun matching: proper-noun-decorated entities
+        like ``"Percy Street entrance"`` won't appear in the ontology, but
+        ``entrance partOf station`` will — and the head noun of each side is
+        what carries the meronymic type. We tokenise on whitespace and try the
+        rightmost 1- and 2-token suffixes, which catches both single-word heads
+        ("entrance", "station") and compound heads ("metro station").
+        """
+        if not part or not whole:
+            return False
+        adj = getattr(self, "_partOf_wholes", None)
+        if not adj:
+            return False
+        lc_index = getattr(self, "_partOf_lc_index", None)
+        if lc_index is None:
+            lc_index = {k.lower(): k for k in adj.keys()}
+            self._partOf_lc_index = lc_index
+
+        def _reaches(start_label: str, target_lc_set: set) -> bool:
+            seen = {start_label}
+            frontier = {start_label}
+            while frontier:
+                nxt = set()
+                for cur in frontier:
+                    for w in adj.get(cur, ()):
+                        if w.lower() in target_lc_set:
+                            return True
+                        if w not in seen:
+                            seen.add(w)
+                            nxt.add(w)
+                            if len(seen) >= _cap:
+                                return False
+                frontier = nxt
+            return False
+
+        def _candidate_heads(label: str):
+            toks = label.split()
+            seen_c = []
+            for cand in (label, " ".join(toks[-2:]) if len(toks) >= 2 else None,
+                         toks[-1] if toks else None):
+                if cand and cand not in seen_c:
+                    seen_c.append(cand)
+            return seen_c
+
+        whole_targets = {c.lower() for c in _candidate_heads(whole)}
+        for cand in _candidate_heads(part):
+            start = lc_index.get(cand.lower())
+            if start is None:
+                continue
+            if _reaches(start, whole_targets):
+                return True
+        return False
 
     def getMovementVerbs(self):
-        return self.movement_verbs
+        return getattr(self, "movement_verbs", set())
 
     def getUnitsOfMeasure(self):
-        return self.units_of_measure
+        return getattr(self, "units_of_measure", set())
 
     def getMeansVerbs(self):
-        return self.means_verbs
+        return getattr(self, "means_verbs", set())
 
     def getAbstractEntities(self):
-        return self.abstract_entities
+        return getattr(self, "abstract_entities", set())
 
     def getStateVerbs(self):
-        return self.state_verbs
+        return getattr(self, "state_verbs", set())
 
     def getMaterialisationVerbs(self):
-        return self.materialisation_verbs
+        return getattr(self, "materialisation_verbs", set())
 
     def getTemporalNouns(self):
-        return self.temporal_nouns
+        return getattr(self, "temporal_nouns", set())
+
+    def getLocationNouns(self):
+        return getattr(self, "location_nouns", set())
+
+    def getStateNouns(self):
+        return getattr(self, "state_nouns", set())
+
+    def getFacilityNouns(self):
+        return getattr(self, "facility_nouns", set())
+
+    def getAccessPointNouns(self):
+        return getattr(self, "access_point_nouns", set())
+
+    def getRouteNouns(self):
+        return getattr(self, "route_nouns", set())
+
+    def getGeoSuffixNouns(self):
+        return getattr(self, "geo_suffix_nouns", set())
+
+    def getServiceStateNouns(self):
+        return getattr(self, "service_state_nouns", set())
+
+    def getStatusNouns(self):
+        return getattr(self, "status_nouns", set())
+
+    def getWeatherConditionNouns(self):
+        return getattr(self, "weather_condition_nouns", set())
 
     def getConjunctions(self):
-        return self.conjunctions
+        return getattr(self, "conjunctions", set())
+
+    def getCopulaSurfaceForms(self):
+        """Inflected and contracted surface forms of the copula 'be'
+        (am, is, are, was, were, be, been, being, 'm, 're, 's). Sourced
+        from raw_data/verbs/copula_surface_forms.txt."""
+        return getattr(self, "copula_surface_forms", set())
+
+    def getPrepositions(self):
+        """All honk:Preposition instances (union of all subclasses)."""
+        return getattr(self, "prepositions", set())
 
     def collect_prepositions(self):
-        return self.prepositions
+        return self.getPrepositions()
 
     def _clear(self):
         # Clear lru_cache entries that hold strong references to this instance,
@@ -1036,25 +1338,44 @@ class HOnK(RDFGraph):
         self.loaded = False
         self._syn_cache.clear()
         self._trcl_cache.clear()
-        self.nouns_with_properties.clear()
-        self.nouns_with_a.clear()
-        self.semi_modal_verbs.clear()
-        self.pronouns.clear()
-        self.prototypical_prepositions.clear()
-        self.transitive_verbs.clear()
-        self.rejected_edges.clear()
-        self.non_verbs.clear()
-        self.logical_rewriting_rules.clear()
-        self.causative_verbs.clear()
-        self.movement_verbs.clear()
-        self.units_of_measure.clear()
-        self.means_verbs.clear()
-        self.abstract_entities.clear()
-        self.state_verbs.clear()
-        self.materialisation_verbs.clear()
-        self.temporal_nouns.clear()
-        self.conjunctions.clear()
-        self.prepositions.clear()
+        for attr in (
+                "nouns_with_properties",
+                "nouns_with_a",
+                "semi_modal_verbs",
+                "pronouns",
+                "personal_pronouns",
+                "consumption_verbs",
+                "prototypical_prepositions",
+                "transitive_verbs",
+                "rejected_edges",
+                "non_verbs",
+                "logical_rewriting_rules",
+                "causative_verbs",
+                "change_of_state_verbs",
+                "movement_verbs",
+                "units_of_measure",
+                "means_verbs",
+                "abstract_entities",
+                "state_verbs",
+                "materialisation_verbs",
+                "temporal_nouns",
+                "location_nouns",
+                "state_nouns",
+                "facility_nouns",
+                "access_point_nouns",
+                "route_nouns",
+                "geo_suffix_nouns",
+                "service_state_nouns",
+                "status_nouns",
+                "weather_condition_nouns",
+                "conjunctions",
+                "prepositions",
+                "copula_surface_forms",
+        ):
+            if hasattr(self, attr):
+                getattr(self, attr).clear()
+        self._loaded_rules_json_path = None
+        self._loaded_rules_json_mtime = None
 
     @lru_cache(maxsize=128)
     def get_logical_functions(self, logical_construct_name, logical_construct_property):
@@ -1153,9 +1474,17 @@ def load_from_txt_file(p:HOnK, path:str, classes:list, to_reject:set):
     with open(path, "r") as dep:
         for line in dep:
             line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            line_classes = list(classes)
             if line in to_reject:
-                classes.append("Rejectable")
-            p.create_entity(line, classes)
+                line_classes.append("Rejectable")
+            p.create_entity(line, line_classes)
+
+
+def load_optional_from_txt_file(p:HOnK, path:str, classes:list, to_reject:set):
+    if os.path.exists(path):
+        load_from_txt_file(p, path, classes, to_reject)
 
 def generate_honk_graph(p:HOnK, data_path:str, result_path:str=None):
     p.create_property("hasAdjective")
@@ -1219,6 +1548,18 @@ def generate_honk_graph(p:HOnK, data_path:str, result_path:str=None):
     pronoun_interro = p.create_class("InterrogativePronoun", "Pronoun")
     unit_of_measure = p.create_class("UnitOfMeasure", "Measure")
     abstract_concept = p.create_class("AbstractEntity", "Concept")
+    typed_noun = p.create_class("TypedNoun", "Noun")
+    location_noun = p.create_class("LocationNoun", "TypedNoun")
+    state_noun = p.create_class("StateNoun", "TypedNoun")
+    artifact_noun = p.create_class("ArtifactNoun", "TypedNoun")
+    phenomenon_noun = p.create_class("PhenomenonNoun", "TypedNoun")
+    facility_noun = p.create_class("FacilityNoun", ["ArtifactNoun", "LocationNoun"])
+    access_point_noun = p.create_class("AccessPointNoun", "FacilityNoun")
+    route_noun = p.create_class("RouteNoun", "LocationNoun")
+    geo_suffix_noun = p.create_class("GeoSuffixNoun", "LocationNoun")
+    service_state_noun = p.create_class("ServiceStateNoun", "StateNoun")
+    status_noun = p.create_class("StatusNoun", "StateNoun")
+    weather_condition_noun = p.create_class("WeatherConditionNoun", ["PhenomenonNoun", "StateNoun"])
     to_reject = None
     with open(os.path.join(data_path, "rejected_edge_types.txt"), "r") as dep:
         to_reject = {line.strip().lower() for line in dep}
@@ -1228,12 +1569,22 @@ def generate_honk_graph(p:HOnK, data_path:str, result_path:str=None):
     load_from_txt_file(p, os.path.join(data_path, "verbs", "transitive_verbs.txt"), ["TransitiveVerb"], to_reject)
     load_from_txt_file(p, os.path.join(data_path,  "units_of_measure.txt"), ["UnitOfMeasure"], to_reject)
     load_from_txt_file(p, os.path.join(data_path,  "abstract_entity_concepts.txt"), ["AbstractEntity"], to_reject)
-    load_from_txt_file(p, os.path.join(data_path,  "verbs", "stative_verbs.txt"), ["Verb", "CausativeVerb"], to_reject)
+    load_from_txt_file(p, os.path.join(data_path,  "verbs", "stative_verbs.txt"), ["Verb"], to_reject)
     load_from_txt_file(p, os.path.join(data_path,  "verbs", "means_verbs.txt"), ["Verb", "MeansVerb"], to_reject)
     load_from_txt_file(p, os.path.join(data_path,  "verbs", "state_verbs.txt"), ["Verb", "StateVerb"], to_reject)
     load_from_txt_file(p, os.path.join(data_path,  "verbs", "movement_verbs.txt"), ["Verb", "MovementVerb"], to_reject)
     load_from_txt_file(p, os.path.join(data_path,  "verbs", "materialisation_verbs.txt"), ["Verb", "MaterialisationVerb"], to_reject)
     load_from_txt_file(p, os.path.join(data_path,  "verbs", "phrasal_verbs.txt"), ["Verb", "PhrasalVerb"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "verbs", "service_change_verbs.txt"), ["Verb", "StateVerb"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "verbs", "service_activity_verbs.txt"), ["Verb", "StateVerb"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "verbs", "causal_signal_verbs.txt"), ["Verb", "CausativeVerb"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "facility_nouns.txt"), ["Noun", "FacilityNoun"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "access_point_nouns.txt"), ["Noun", "AccessPointNoun"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "route_nouns.txt"), ["Noun", "RouteNoun"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "geo_suffix_nouns.txt"), ["Noun", "GeoSuffixNoun"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "service_state_nouns.txt"), ["Noun", "ServiceStateNoun"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "status_nouns.txt"), ["Noun", "StatusNoun"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "weather_condition_nouns.txt"), ["Noun", "WeatherConditionNoun"], to_reject)
 
 
     for preposition in Prepositions.load_prepositions(os.path.join(data_path, "prepositions.json")):

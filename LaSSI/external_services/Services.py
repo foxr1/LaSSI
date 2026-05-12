@@ -110,7 +110,11 @@ class Services:
         if self.old_java_Service is None:
             self.logger("init old java service")
             self.old_java_Service = OldWrapper.getInstance()
-        return self.old_java_Service.getTimeUnits(sentences)
+        try:
+            return self.old_java_Service.getTimeUnits(sentences)
+        except Exception as e:
+            self.logger(f"getTimeUnits failed ({e}); returning empty time units for all sentences")
+            return [[] for _ in sentences]
 
     def getWTLemmatizer(self):
         return self.lemmatizer

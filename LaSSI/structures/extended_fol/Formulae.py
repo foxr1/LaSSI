@@ -42,7 +42,7 @@ def get_existential_variables(f):
             for x in v:
                 yield from get_existential_variables(x)
     elif isinstance(f, FVariable) or type(f).__name__ == "FVariable":
-        if f.name[0] == "?" and f.name[1:].isdigit() and f.type == "existential":
+        if f.name is not None and f.name[0] == "?" and f.name[1:].isdigit() and f.type == "existential":
             yield f.name
         yield from get_existential_variables(f.cop)
         for k,v in f.properties:
@@ -50,6 +50,49 @@ def get_existential_variables(f):
                 yield from get_existential_variables(x)
     else:
         yield from []
+
+def _fmt_prop_key(k):
+    if isinstance(k, float) and k.is_integer():
+        return str(int(k))
+    s = str(k)
+    if s.replace('.', '', 1).isdigit() and '.' in s:
+        try:
+            return str(int(float(s)))
+        except ValueError:
+            return s
+    return s
+
+
+def _render_value_plain(v):
+    if v is None:
+        return "?"
+    if isinstance(v, str):
+        return v
+    if hasattr(v, "to_string"):
+        return v.to_string()
+    return str(v)
+
+
+def _render_props_plain(properties):
+    if not properties:
+        return ""
+    items = list(properties.items()) if isinstance(properties, (dict, defaultdict)) else list(properties)
+    out = []
+    for k, v in items:
+        if isinstance(v, (list, tuple)):
+            if len(v) == 0:
+                continue
+            if len(v) == 1:
+                vstr = _render_value_plain(v[0])
+            else:
+                vstr = "[" + ", ".join(_render_value_plain(x) for x in v) + "]"
+        else:
+            vstr = _render_value_plain(v)
+        out.append(f"({_fmt_prop_key(k)}:{vstr})")
+    if not out:
+        return ""
+    return "[" + ", ".join(out) + "]"
+
 
 def print_proprieties(proprieties, cop=None):
     if isinstance(proprieties, dict) or isinstance(proprieties, defaultdict):
@@ -131,7 +174,7 @@ class FVariable: ## TODO: rename to FTerm or FConstant
                         yield from x.extract_provenance()
 
     def instantiate_variable_with_entity(self, external_entity):
-        if self.name[0] == "?" and self.name[1:].isdigit() and self.type == "existential" and isinstance(external_entity, FVariable):
+        if self.name is not None and self.name[0] == "?" and self.name[1:].isdigit() and self.type == "existential" and isinstance(external_entity, FVariable):
             return FVariable(external_entity.name, external_entity.type, self.specification, self.cop, external_entity.id, external_entity.properties, self.spec_negation, self.meta, external_entity.asAll)
         else:
             return self

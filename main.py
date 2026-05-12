@@ -2,6 +2,9 @@ import multiprocessing
 import os
 import sys
 import yaml
+import warnings
+
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*weights_only=False.*")
 
 from LaSSI.Configuration import SentenceRepresentation
 from LaSSI.LaSSI import LaSSI
@@ -28,7 +31,7 @@ if __name__ == '__main__':
     if commonsense_qa:
         dataset_name = get_dataset()
     else:
-        dataset_name = "test_sentences/smite/first_test_v2.yaml"
+        dataset_name = "neet/evidence_cases/crime_005.yaml"
 
     fuzzyDBs = "connection.yaml"
 

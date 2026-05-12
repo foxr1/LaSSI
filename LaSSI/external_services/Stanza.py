@@ -19,19 +19,19 @@ class StanzaService:
     def __init__(self):
         if self.nlp is None:
             from stanza import DownloadMethod
-            self.nlp = stanza.Pipeline(lang='en',download_method=DownloadMethod.REUSE_RESOURCES)
+            self.nlp = stanza.Pipeline(lang='en',download_method=DownloadMethod.REUSE_RESOURCES, logging_level='FATAL')
 
         if self.nlp_token is None:
             from stanza import DownloadMethod
-            self.nlp_token = stanza.Pipeline(lang='en', processors='tokenize',download_method=DownloadMethod.REUSE_RESOURCES)
+            self.nlp_token = stanza.Pipeline(lang='en', processors='tokenize',download_method=DownloadMethod.REUSE_RESOURCES, logging_level='FATAL')
 
         if self.stNLP is None:
             from stanza import DownloadMethod
-            self.stNLP = stanza.Pipeline(processors='tokenize,mwt,pos,lemma', lang='en',download_method=DownloadMethod.REUSE_RESOURCES)
+            self.stNLP = stanza.Pipeline(processors='tokenize,mwt,pos,lemma', lang='en',download_method=DownloadMethod.REUSE_RESOURCES, logging_level='FATAL')
 
     def __new__(cls):
         if cls._instance is None:
-            stanza.download('en', processors='tokenize,mwt,pos,lemma', download_json=False)
+            stanza.download('en', processors='tokenize,mwt,pos,lemma', download_json=False, logging_level='FATAL')
             cls._instance = super(StanzaService, cls).__new__(cls)
 
         return cls._instance

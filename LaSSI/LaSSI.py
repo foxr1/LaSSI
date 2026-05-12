@@ -13,6 +13,7 @@ import io
 import json
 import multiprocessing
 import os.path
+import re
 import time
 
 import pkg_resources
@@ -283,6 +284,7 @@ class LaSSI():
         d = DatagramDB(self.gsmDB,
                        self.query_file,
                        self.catabolites_viz,
+                       full_server_output=False,
                        isSerializationFull=True,
                        opt_data_schema="pos\nSizeTAtt\nbegin\nSizeTAtt\nend\nSizeTAtt")
         d.run()
@@ -397,6 +399,51 @@ class LaSSI():
                 f = TabularCWASemantics(obj_list, os.path.join(self.catabolites_of_dataset, str(self.full_transformation)))
                 TBoxReasoningSingleton.instance().dump()
                 # f.buildReport("rport")
+                pairwise_path = os.path.join(self.catabolites_of_dataset, str(self.full_transformation), "pairwise_truth_tables.json")
+                if not os.path.exists(pairwise_path):
+                    from tqdm import tqdm as _tqdm_pw
+                    n_sent = len(obj_list)
+                    pairwise_out = []
+                    total_pairs = n_sent * (n_sent - 1)
+                    slowest = (-1.0, None, None)
+                    pw_total_elapsed = 0.0
+                    self.logger(f"Building pairwise truth tables ({total_pairs} pairs)...")
+                    with _tqdm_pw(total=total_pairs, desc="Pairwise truth tables", unit="pair") as pw_pbar:
+                        for si in range(n_sent):
+                            for sj in range(n_sent):
+                                if si == sj:
+                                    continue
+                                _t0 = time.time()
+                                expl = f.get_explained_id_similarity(si, sj)
+                                _elapsed = time.time() - _t0
+                                pw_total_elapsed += _elapsed
+                                if _elapsed > slowest[0]:
+                                    slowest = (_elapsed, si, sj)
+                                atoms = {}
+                                atoms.update({str(k): str(v) for k, v in expl.lhs.atoms.items()})
+                                atoms.update({str(k): str(v) for k, v in expl.rhs.atoms.items()})
+                                table_df = expl.explained_joined_table_natural_joined_with_operands
+                                pairwise_out.append({
+                                    "i": si,
+                                    "j": sj,
+                                    "confidence": float(expl.confidence),
+                                    "atoms": atoms,
+                                    "result_col_i": f"R{si}",
+                                    "result_col_j": f"R{sj}",
+                                    "rows": table_df.to_dict(orient="records"),
+                                })
+                                pw_pbar.set_postfix({
+                                    "last": f"({si},{sj})",
+                                    "t": f"{_elapsed:.2f}s",
+                                    "slowest": f"({slowest[1]},{slowest[2]})@{slowest[0]:.1f}s",
+                                })
+                                pw_pbar.update(1)
+                    self.logger(
+                        f"  Pairwise truth tables done: {total_pairs} pairs in {pw_total_elapsed:.1f}s "
+                        f"(slowest ({slowest[1]},{slowest[2]}) @ {slowest[0]:.1f}s)"
+                    )
+                    with open(pairwise_path, "w") as _pw_f:
+                        json.dump(pairwise_out, _pw_f)
             elif (self.transformation == SentenceRepresentation.LogicalGraph or
                   self.transformation == SentenceRepresentation.SimpleGraph):
                 f = self.graph_with_logic_similarity
@@ -537,6 +584,7 @@ class LaSSI():
 
         from LaSSI.files.FileDumpUtilities import target_file_dump
         n = len(sentences)
+        self._invalidate_stale_cache(n)
         self.logger("generating meuDB")
         if self.disable_a_priori:
             self.meu_dbs = ExplainTextWithNER(self, sentences)
@@ -580,6 +628,16 @@ class LaSSI():
         print(f"Generating intermediate representations time: {intermediate_execution_time} seconds")
         write_variable_to_file(self.benchmarking_file,
                                     f"{self.get_execution_time_string(meu_execution_time)},{gsm_execution_time[0]},{rewritten_execution_time[0]},{intermediate_execution_time[0]},")
+
+        if (hasattr(self, 'row_to_sub_indices') and
+                any(len(s) > 1 for s in self.row_to_sub_indices) and
+                len(intermediate_representations) != len(self.row_to_sub_indices)):
+            intermediate_representations = self._merge_intermediate_per_row(intermediate_representations)
+            self.meu_dbs = self._merge_meu_dbs_per_row(self.meu_dbs)
+            self._rewrite_string_rep_from_intermediate(intermediate_representations)
+            self._persist_merged_caches(intermediate_representations)
+            self._collapse_per_row_benchmark()
+
         if self.transformation == SentenceRepresentation.Logical:  # LogicalGraph
             logical_representations, logical_rewriting_execution_time = target_file_dump(
                 self.logical_rewriting,
@@ -593,6 +651,209 @@ class LaSSI():
             write_variable_to_file(self.benchmarking_file, f"{None}")
         return logical_representations
 
+    def _invalidate_stale_cache(self, expected_count):
+        expected_row_count = len(self.row_to_sub_indices) if hasattr(self, 'row_to_sub_indices') else expected_count
+        
+        # Check if the core merged caches (meuDB and internals) are valid and in sync
+        # If one is missing or invalid, both must be invalidated because internals 
+        # requires the unmerged meuDB to be reconstructed correctly.
+        core_caches_valid = True
+        for core_cache in (self.meuDB, self.internals):
+            if not os.path.isfile(core_cache):
+                core_caches_valid = False
+                break
+            try:
+                with open(core_cache, 'r') as f:
+                    data = json.load(f)
+                count = len(data) if isinstance(data, list) else None
+                if count != expected_row_count:
+                    core_caches_valid = False
+                    break
+            except Exception:
+                core_caches_valid = False
+                break
+
+        for path in (self.datagramdb_output, self.internals, self.logical_rewriting, self.meuDB):
+            if not os.path.isfile(path):
+                continue
+            try:
+                with open(path, 'r') as f:
+                    data = json.load(f)
+                count = len(data) if isinstance(data, list) else None
+            except Exception:
+                count = None
+            
+            valid_count = expected_count if path == self.datagramdb_output else expected_row_count
+            
+            should_delete = (count is None or count != valid_count)
+            if path in (self.meuDB, self.internals) and not core_caches_valid:
+                should_delete = True
+                
+            if should_delete:
+                try:
+                    os.remove(path)
+                    if path == self.meuDB and os.path.isfile(self.gsmDB):
+                        os.remove(self.gsmDB)
+                except OSError:
+                    pass
+
+    _HEADER_TEXT_RE = re.compile(r'^\s*[A-Za-z][A-Za-z\-]*\s*:\s*\S')
+
+    def _is_header_text(self, sub_text):
+        """Detect a 'Header: body' label-value sub-sentence (e.g. ``Outcome: under
+        investigation``). The colon separator is the structural cue: the word
+        before is a category label rather than a real subject."""
+        return isinstance(sub_text, str) and bool(self._HEADER_TEXT_RE.match(sub_text))
+
+    def _ontology_construct_keys(self):
+        """Set of property keys (uppercased construct names) that the HOnK logical
+        rewriting rules emit, e.g. SPACE, TIME, TIME_STATUS, CAUSATION. Used to
+        decide which sub-sentence properties to promote onto the primary kernel."""
+        from LaSSI.external_services.Services import Services
+        cached = getattr(self, '_ontology_construct_keys_cache', None)
+        if cached is not None:
+            return cached
+        keys = set()
+        try:
+            rules = Services.getInstance().getHOnK().getLogicalRewritingRules() or {}
+        except Exception:
+            rules = {}
+        for rule in rules.values():
+            if getattr(rule, 'logicalConstructName', None):
+                keys.add(rule.logicalConstructName.upper())
+            for name, _ in (getattr(rule, 'additional_classifications', None) or []):
+                if name:
+                    keys.add(name.upper())
+        self._ontology_construct_keys_cache = keys
+        return keys
+
+    def _merge_intermediate_per_row(self, intermediate_representations):
+        from collections import defaultdict
+        from LaSSI.structures.internal_graph.EntityRelationship import Singleton
+
+        construct_keys = self._ontology_construct_keys()
+        merged = []
+        for row_position, sub_indices in enumerate(self.row_to_sub_indices):
+            if not sub_indices:
+                continue
+            if len(sub_indices) == 1:
+                merged.append(intermediate_representations[sub_indices[0]])
+                continue
+            primary = intermediate_representations[sub_indices[0]]
+            if not isinstance(primary, Singleton):
+                merged.append(primary)
+                continue
+            new_props = defaultdict(list)
+            for k, v in dict(primary.properties).items():
+                if isinstance(v, (list, tuple)):
+                    new_props[k] = list(v)
+                else:
+                    new_props[k] = v
+            for sub_idx in sub_indices[1:]:
+                sub_kernel = intermediate_representations[sub_idx]
+                if sub_kernel is None:
+                    continue
+                sub_text = self.meu_dbs[sub_idx].first_sentence if sub_idx < len(self.meu_dbs) else ''
+                if (self._is_header_text(sub_text) and
+                        isinstance(sub_kernel, Singleton)):
+                    for k, v in dict(sub_kernel.properties).items():
+                        if k not in construct_keys:
+                            continue
+                        items = list(v) if isinstance(v, (list, tuple)) else [v]
+                        existing = new_props.get(k)
+                        if existing is None:
+                            new_props[k] = items
+                        elif isinstance(existing, list):
+                            new_props[k] = existing + items
+                        else:
+                            new_props[k] = [existing] + items
+                else:
+                    new_props['SENTENCE'].append(sub_kernel)
+            merged.append(primary.update_node_props(new_props))
+        return merged
+
+    def _merge_meu_dbs_per_row(self, meu_dbs):
+        from LaSSI.structures.meuDB.meuDB import MeuDB
+
+        merged = []
+        for sub_indices in self.row_to_sub_indices:
+            if not sub_indices:
+                continue
+            if len(sub_indices) == 1:
+                merged.append(meu_dbs[sub_indices[0]])
+                continue
+            combined_first = " ".join(meu_dbs[i].first_sentence for i in sub_indices)
+            combined_meu = []
+            for i in sub_indices:
+                combined_meu.extend(meu_dbs[i].multi_entity_unit)
+            merged.append(MeuDB(first_sentence=combined_first, multi_entity_unit=combined_meu))
+        return merged
+
+    def _persist_merged_caches(self, intermediate_representations):
+        """Overwrite the meuDB / internals cache files with the merged-per-row
+        representation so subsequent runs and other consumers see one entry per
+        YAML row, not per sub-sentence. The lower-level GSM / datagramdb caches
+        intentionally remain per-sub-sentence — they record what Java actually
+        processed, and merging them would lose graph fidelity."""
+        try:
+            with open(self.meuDB, 'w') as f:
+                f.write(json_dumps(self.meu_dbs))
+        except Exception as exc:
+            self.logger(f"Could not persist merged meuDBs.json: {exc}")
+        try:
+            with open(self.internals, 'w') as f:
+                f.write(json_dumps(intermediate_representations))
+        except Exception as exc:
+            self.logger(f"Could not persist merged internals.json: {exc}")
+
+    def _collapse_per_row_benchmark(self):
+        """Aggregate per-sub-sentence rows in the sentences benchmark down to one
+        row per YAML input row (sum the timings, max the sentence length).
+        Otherwise the benchmark CSV reports more sentences than the user wrote."""
+        if not getattr(self, 'sentences_benchmark', None):
+            return
+        data = self.sentences_benchmark.data
+        if not data:
+            return
+        sub_to_row = {}
+        for row_idx, sub_indices in enumerate(self.row_to_sub_indices):
+            for sub_idx in sub_indices:
+                sub_to_row[sub_idx] = row_idx
+        merged_rows = {}
+        for entry in data:
+            sub_idx = entry.get('id')
+            row_idx = sub_to_row.get(sub_idx, sub_idx)
+            target = merged_rows.setdefault(row_idx, {'id': row_idx})
+            for key, value in entry.items():
+                if key == 'id':
+                    continue
+                if not isinstance(value, (int, float)):
+                    target[key] = value
+                    continue
+                if key == 'Sentence length':
+                    target[key] = max(target.get(key, 0), value)
+                else:
+                    target[key] = target.get(key, 0.0) + value
+        data.clear()
+        for row_idx in sorted(merged_rows):
+            data.append(merged_rows[row_idx])
+
+    def _rewrite_string_rep_from_intermediate(self, intermediate_representations):
+        if self.string_rep_dir is None:
+            return
+        with open(self.string_rep_dir, 'w') as f:
+            for idx, intermediate in enumerate(intermediate_representations):
+                first_sentence = self.meu_dbs[idx].first_sentence if idx < len(self.meu_dbs) else ""
+                try:
+                    if intermediate is None:
+                        f.write(f"{first_sentence} ⇒ ERROR\n")
+                    elif self.transformation == SentenceRepresentation.Logical:
+                        f.write(f"{first_sentence} ⇒ {intermediate.to_string()}\n")
+                    else:
+                        f.write(f"{first_sentence} ⇒ {intermediate}\n")
+                except Exception:
+                    f.write(f"{first_sentence} ⇒ ERROR\n")
+
     def get_execution_time_string(self, execution_time):
         if 'w' == execution_time[1]:
             return f"{execution_time[0]},0"
@@ -601,11 +862,33 @@ class LaSSI():
         return None
 
     def run(self):
-        from LaSSI.phases.SentenceLoader import SentenceLoader
+        from LaSSI.phases.SentenceLoader import SentenceLoader, split_yaml_row_sentences
 
         start_time = time.time()
         raw_sentences = SentenceLoader(self.sentences)
-        sentences = [self.normalise_text(s) for s in raw_sentences]
+
+        expanded = []
+        self.row_to_sub_indices = []
+        for row_text in raw_sentences:
+            sub_sentences = split_yaml_row_sentences(str(row_text))
+            sub_indices = []
+            for sub in sub_sentences:
+                sub_indices.append(len(expanded))
+                expanded.append(sub)
+            self.row_to_sub_indices.append(sub_indices)
+
+        honk = self.initServices.getHOnK()
+        if honk is not None:
+            # Build from ontology; supplement with articles and coordinating conjunctions
+            # that aren't modelled as Preposition/Conjunction in HOnK
+            _honk_closed = (
+                {p.lower() for p in honk.getPrepositions()} |
+                {c.lower() for c in honk.getConjunctions()} |
+                {'the', 'a', 'an', 'and', 'or', 'nor', 'yet', 'so'}
+            )
+        else:
+            _honk_closed = None
+        sentences = [self.normalise_text(s, _honk_closed) for s in expanded]
 
         end_time = time.time()
         loading_sentences_execution_time = end_time - start_time
@@ -636,20 +919,28 @@ class LaSSI():
             self.sentences.close()
             self.logger("~~DONE~~")
 
-    def normalise_text(self, text):
+    # Fallback used when HOnK is unavailable at normalise_text call time
+    _FALLBACK_CLOSED_CLASS = {
+        "on", "in", "at", "by", "for", "with", "about", "against", "between",
+        "into", "through", "during", "before", "after", "above", "below", "to",
+        "from", "up", "down", "of", "off", "over", "under", "near", "and", "but",
+        "or", "nor", "yet", "so", "the", "a", "an",
+    }
+
+    def normalise_text(self, text, closed_class_lower=None):
         """
         Sanitizes input text to prevent StanfordNLP from misidentifying capitalized
         prepositions/conjunctions as proper nouns or roots.
+        Also collapses consecutive duplicate closed-class words that arise from
+        scraping artefacts (e.g. "recorded on On Or Near" → "recorded on or near").
+
+        closed_class_lower: precomputed lowercase set from HOnK (prepositions +
+        conjunctions). Falls back to _FALLBACK_CLOSED_CLASS when None.
         """
         if not isinstance(text, str):
             return text
 
-        # Closed-class words that are often erroneously capitalized in raw text/logs
-        closed_class_words = {"On", "In", "At", "By", "For", "With", "About", "Against",
-                              "Between", "Into", "Through", "During", "Before", "After",
-                              "Above", "Below", "To", "From", "Up", "Down", "Of", "Off",
-                              "Over", "Under", "Near", "And", "But", "Or", "Nor", "Yet",
-                              "So", "The", "A", "An"}
+        closed = closed_class_lower if closed_class_lower is not None else self._FALLBACK_CLOSED_CLASS
 
         words = text.split()
         if not words:
@@ -658,12 +949,12 @@ class LaSSI():
         sanitized_words = [words[0]]  # Preserve the capitalization of the first word
 
         for word in words[1:]:
-            # Strip punctuation temporarily to check against our set
-            clean_word = "".join(c for c in word if c.isalpha())
-            if clean_word in closed_class_words:
-                # Lowercase the word but preserve any attached punctuation
-                sanitized_words.append(word.lower())
-            else:
-                sanitized_words.append(word)
+            clean_word = "".join(c for c in word if c.isalpha()).lower()
+            normalised = word.lower() if clean_word in closed else word
+            # Drop consecutive duplicate closed-class tokens (scraping artefact)
+            prev_clean = "".join(c for c in sanitized_words[-1] if c.isalpha()).lower()
+            if clean_word in closed and clean_word == prev_clean:
+                continue
+            sanitized_words.append(normalised)
 
         return " ".join(sanitized_words)

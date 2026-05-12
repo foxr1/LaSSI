@@ -40,6 +40,38 @@ class ModelSearch:
         # self.kb = kb
         self.main_cache = dict()
 
+    @staticmethod
+    def _same_relation(lhs, rhs):
+        return (
+                isinstance(lhs, (FUnaryPredicate, FBinaryPredicate)) and
+                isinstance(rhs, (FUnaryPredicate, FBinaryPredicate)) and
+                lhs.rel == rhs.rel
+        )
+
+    @staticmethod
+    def _has_properties(formula):
+        return (
+                isinstance(formula, (FUnaryPredicate, FBinaryPredicate)) and
+                formula.properties is not None and len(formula.properties) > 0
+        )
+
+    def _guard_contextual_implication(self, objLHS, objRHS, verdict):
+        from LaSSI.HOnK.TBox.ExpandConstituents import test_pairwise_sentence_similarity, isImplication
+        if not isImplication(verdict):
+            return verdict
+        if not (self._same_relation(objLHS.original, objRHS.original) and self._has_properties(objRHS.original)):
+            return verdict
+        direct = test_pairwise_sentence_similarity(
+            self.pairwise_similarity_cache,
+            objLHS.original,
+            objRHS.original,
+            store=False,
+            shift=False,
+        )
+        if direct == CasusHappening.INDIFFERENT:
+            return CasusHappening.INDIFFERENT
+        return verdict
+
     def searchInSet(self, lhs, rhsSet, isRightDrop = False):
         from LaSSI.HOnK.TBox.ExpandConstituents import test_pairwise_sentence_similarity, isImplication
         for rrr in rhsSet:
@@ -68,7 +100,8 @@ class ModelSearch:
             return self.main_cache[cp]
         elif ((objLHS.original in objRHS.unary) or
               (objLHS.original in objRHS.binary)):
-            self.main_cache[cp] = CasusHappening.GENERAL_IMPLICATION
+            self.main_cache[cp] = self._guard_contextual_implication(
+                objLHS, objRHS, CasusHappening.GENERAL_IMPLICATION)
             return self.main_cache[cp]
         else:
             # Performing the constituents search:
@@ -95,6 +128,22 @@ class ModelSearch:
             # genuine antonym anywhere must override any positive verdict
             # collected from the unary cross-product, otherwise a soft match
             # in unary would mask a real contradiction in binary.
+            #
+            # Guard against spurious EXCLUSIVES via synonym-of-mine ⇄
+            # antonym-of-theirs WordNet paths: when the originals literally
+            # share the same `rel` string, expansion-derived antonymy is
+            # untrustworthy ("record" vs the synonym "write off" both surface
+            # as antonyms in WordNet despite both being live verbs of the same
+            # event).  In that case, suppress EXCLUSIVES propagation.
+            same_rel_originals = (
+                isinstance(objLHS.original, FBinaryPredicate)
+                and isinstance(objRHS.original, FBinaryPredicate)
+                and objLHS.original.rel == objRHS.original.rel
+            ) or (
+                isinstance(objLHS.original, FUnaryPredicate)
+                and isinstance(objRHS.original, FUnaryPredicate)
+                and objLHS.original.rel == objRHS.original.rel
+            )
             elems = set()
             for lhs in objLHS.unary:
                 if (isRightDrop) and isinstance(lhs, FNot):
@@ -102,6 +151,8 @@ class ModelSearch:
                 tmp = lhs if not isLeftDrop else lhs.bogusCopula()
                 val = self.searchInSet(tmp, objRHS.unary, isRightDrop)
                 if val == CasusHappening.EXCLUSIVES:
+                    if same_rel_originals:
+                        continue
                     self.main_cache[cp] = val
                     return val
                 elif val != CasusHappening.INDIFFERENT:
@@ -112,11 +163,14 @@ class ModelSearch:
                 tmp = lhs if not isLeftDrop else lhs.bogusCopula()
                 val = self.searchInSet(tmp, objRHS.binary, isRightDrop)
                 if val == CasusHappening.EXCLUSIVES:
+                    if same_rel_originals:
+                        continue
                     self.main_cache[cp] = val
                     return val
                 elif val != CasusHappening.INDIFFERENT:
                     elems.add(val)
             from LaSSI.HOnK.TBox.ExpandConstituents import simplifyConstituentsAcross
             result = simplifyConstituentsAcross(elems)
+            result = self._guard_contextual_implication(objLHS, objRHS, result)
             self.main_cache[cp] = result
             return result

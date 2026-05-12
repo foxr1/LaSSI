@@ -174,6 +174,12 @@
         "argument": "property"
       }
     ],
+    "requirement": [
+      {
+        "attachTo": "Kernel",
+        "argument": "property"
+      }
+    ],
     "punishment": [
       {
         "attachTo": "Kernel",
@@ -289,6 +295,11 @@
       {
         "attachTo": "Singleton",
         "argument": "property"
+      },
+      {
+        "property": "under_investigation",
+        "attachTo": "Singleton",
+        "argument": "property"
       }
     ]
   },
@@ -338,6 +349,23 @@
       ],
       "__sentence_examples": [
         "clean up after yourself"
+      ]
+    },
+    {
+      "premise": {
+        "Preposition": [
+          "between"
+        ]
+      },
+      "classification": [
+        {
+          "type": "space",
+          "property": "motion through place"
+        }
+      ],
+      "__sentence_examples": [
+        "trains between two stations",
+        "a route between adjacent towns"
       ]
     },
     {
@@ -406,6 +434,33 @@
       ],
       "__sentence_examples": [
         "lead to fatal diseases"
+      ]
+    },
+    {
+      "premise": {
+        "CausativeVerb": true
+      },
+      "classification": [
+        {
+          "type": "causation"
+        }
+      ],
+      "__sentence_examples": [
+        "causing damage"
+      ]
+    },
+    {
+      "premise": {
+        "ConsumptionVerb": true
+      },
+      "classification": [
+        {
+          "type": "requirement"
+        }
+      ],
+      "__sentence_examples": [
+        "which require scaffolding",
+        "this needs a permit"
       ]
     },
     {
@@ -583,6 +638,31 @@
     },
     {
       "premise": {
+        "FacilityNoun": true,
+        "Preposition": [
+          "in",
+          "into",
+          "at"
+        ]
+      },
+      "classification": [
+        {
+          "type": "space",
+          "property": "stay in place"
+        }
+      ],
+      "__sentence_examples": [
+        "occurred at a commercial premises",
+        "broke into the building",
+        "at the station"
+      ]
+    },
+    {
+      "premise": {
+        "SingletonHasBeenMatchedBy": [
+          "LOC",
+          "FAC"
+        ],
         "Preposition": [
           "in",
           "into",
@@ -771,7 +851,7 @@
       "premise": {
         "Preposition": [
           "'s",
-          "’s"
+          "\u2019s"
         ],
         "hasNMod": true
       },
@@ -785,7 +865,7 @@
         "attempt to steal someone's husband",
         "emilia's short tailed opossum",
         "one person's grade",
-        "raises one’s hand to"
+        "raises one\u2019s hand to"
       ]
     },
     {
@@ -899,9 +979,7 @@
         "Preposition": [
           "with"
         ],
-        "SingletonHasBeenMatchedBy": [
-          "verb"
-        ]
+        "Actioned": true
       },
       "classification": [
         {
@@ -910,6 +988,24 @@
       ],
       "__sentence_examples": [
         "with no fixed reopening date"
+      ]
+    },
+    {
+      "premise": {
+        "Preposition": [
+          "under"
+        ],
+        "StatusNoun": true
+      },
+      "classification": [
+        {
+          "type": "time_status",
+          "property": "under_investigation"
+        }
+      ],
+      "__sentence_examples": [
+        "remains under investigation",
+        "is under arrest"
       ]
     },
     {
@@ -1040,6 +1136,33 @@
     },
     {
       "premise": {
+        "DependencyLabel": [
+          "appos"
+        ],
+        "SingletonHasBeenMatchedBy": [
+          "GPE",
+          "LOC"
+        ],
+        "not": {
+          "SourceSingletonHasBeenMatchedBy": [
+            "GPE",
+            "LOC"
+          ]
+        }
+      },
+      "classification": [
+        {
+          "type": "space",
+          "property": "stay in place"
+        }
+      ],
+      "__sentence_examples": [
+        "Parking Area, Newcastle",
+        "the station, London"
+      ]
+    },
+    {
+      "premise": {
         "Preposition": [
           "on or near"
         ],
@@ -1072,6 +1195,26 @@
       "__sentence_examples": [
         "recorded near Prince Albert Terrace"
       ]
+    },
+    {
+      "premise": {
+        "hasNMod": true,
+        "SingletonHasBeenMatchedBy": [
+          "LOC",
+          "FAC",
+          "GPE"
+        ]
+      },
+      "classification": [
+        {
+          "type": "space",
+          "property": "stay in place"
+        }
+      ],
+      "__sentence_examples": [
+        "the Percy Street entrance is currently closed (entrance reattached as an nmod orphan with no preposition; default to a spatial reading)"
+      ],
+      "__doc": "Default spatial classification for an nmod-attached location/facility/GPE entity when no Preposition-specific rule has already fired. 'stay in place' is the safe default; motion/from/near readings are caught by earlier prepositional rules with higher specificity. Must precede the unconstrained hasNMod fallback below — they tie on _rule_preposition_specificity (both zero), so JSON insertion order is the tiebreaker."
     },
     {
       "premise": {

@@ -1,0 +1,17 @@
+closure
+opening
+reopening
+disruption
+delay
+warning
+alert
+cancellation
+suspension
+reduction
+restriction
+diversion
+blockage
+interruption
+maintenance
+operation
+availability

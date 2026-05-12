@@ -8,18 +8,21 @@ __status__ = "Production"
 from functools import lru_cache
 
 
-@lru_cache(maxsize=4095)
 def ld(s, t):
-    if not s: return len(t)
-    if not t: return len(s)
-    if s[0] == t[0]: return ld(s[1:], t[1:])
-    l1 = ld(s, t[1:])
-    l2 = ld(s[1:], t)
-    l3 = ld(s[1:], t[1:])
-    return 1 + min(l1, l2, l3)
+    m, n = len(s), len(t)
+    if m == 0:
+        return n
+    if n == 0:
+        return m
+    dp = list(range(n + 1))
+    for i in range(1, m + 1):
+        prev, dp[0] = dp[0], i
+        for j in range(1, n + 1):
+            prev, dp[j] = dp[j], prev if s[i - 1] == t[j - 1] else 1 + min(dp[j], dp[j - 1], prev)
+    return dp[n]
 
 
-@lru_cache(maxsize=4096)
+@lru_cache(maxsize=65536)
 def lev(x, y):
     if len(x) == 0 and len(y) == 0:
         return 1.0

@@ -1,0 +1,153 @@
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix lifecycle: <https://ofox.co.uk/lifecycle#> .
+
+# ---------------------------------------------------------------------------
+# LifecycleStates.ttl — mutually-exclusive status terms for LaSSI ex-post
+# comparison.  Mirrors Paraphrase.ttl but inverted: phrases in the same
+# dimension that carry *different* partition tags are mutually exclusive.
+#
+# Schema
+# ------
+# lifecycle:LifecycleDimension — a named axis of lifecycle (e.g. "case status").
+# lifecycle:LifecyclePhrase    — a phrase that lives on that axis.
+# lifecycle:memberOf           — links a phrase to its dimension.
+# lifecycle:partition          — bucket label within the dimension.  Two phrases
+#                                in the same dimension contradict iff their
+#                                partition strings differ.
+# rdfs:label on a dimension    — internal dimension tag.
+# rdfs:label on a phrase       — the lowercase surface string to match against
+#                                a predicate's rel, property values, FVariable
+#                                names/specifications, and nested type props.
+# rdfs:comment                 — example sentence(s) that motivated the entry.
+# ---------------------------------------------------------------------------
+
+lifecycle:CaseLifecycle
+    a lifecycle:LifecycleDimension ;
+    rdfs:label "case_lifecycle" ;
+    rdfs:comment "e.g. 'Bicycle theft … under investigation' vs 'The bicycle theft … has concluded with a suspect being charged.'" .
+
+# ---------- Open / ongoing ----------
+
+lifecycle:phrase_under_investigation
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "under_investigation" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "open" .
+
+lifecycle:phrase_record
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "record" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "open" .
+
+lifecycle:phrase_recorded
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "recorded" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "open" .
+
+lifecycle:phrase_investigation
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "investigation" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "open" .
+
+lifecycle:phrase_pending
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "pending" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "open" .
+
+lifecycle:phrase_ongoing
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "ongoing" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "open" .
+
+lifecycle:phrase_open
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "open" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "open" .
+
+# ---------- Closed / resolved ----------
+
+lifecycle:phrase_concluded
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "concluded" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "closed" .
+
+lifecycle:phrase_conclude
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "conclude" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "closed" .
+
+lifecycle:phrase_charged
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "charged" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "closed" .
+
+lifecycle:phrase_dismissed
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "dismissed" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "closed" .
+
+lifecycle:phrase_resolved
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "resolved" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "closed" .
+
+lifecycle:phrase_closed
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "closed" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "closed" .
+
+# ---------- Descriptive / event-facet (no state claim) ----------
+# Verbs that talk about the event without asserting a case-lifecycle stage.
+# Same dimension as open/closed, but a distinct "descriptive" partition: the
+# partition check never contradicts these against open or closed, yet they
+# still register as lifecycle-aware indicators so that an open/closed claim
+# on the other side is detected as an asymmetric assertion.
+
+lifecycle:phrase_involve
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "involve" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "descriptive" .
+
+lifecycle:phrase_involved
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "involved" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "descriptive" .
+
+lifecycle:phrase_describe
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "describe" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "descriptive" .
+
+lifecycle:phrase_described
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "described" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "descriptive" .
+
+lifecycle:phrase_mention
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "mention" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "descriptive" .
+
+lifecycle:phrase_mentioned
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "mentioned" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "descriptive" .

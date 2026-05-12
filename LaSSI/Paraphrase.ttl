@@ -1,0 +1,73 @@
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix para: <https://ofox.co.uk/paraphrase#> .
+
+# ---------------------------------------------------------------------------
+# Paraphrase.ttl — domain paraphrase concepts for LaSSI ex-post comparison.
+#
+# Schema
+# ------
+# para:ParaphraseConcept  — a named group of surface-distinct phrases that
+#                           denote the same idea.
+# para:ParaphrasePhrase   — one phrase that belongs to a concept.
+# para:memberOf           — links a phrase to its concept.
+# para:form               — "name"      : the phrase is a bare FVariable name
+#                           "fnot_name" : the phrase is the inner name of a
+#                                         FNot(FVariable(name=...)) expression
+# rdfs:label on a concept — the internal concept tag (used as dict key)
+# rdfs:label on a phrase  — the lowercase surface string to match
+# rdfs:comment on concept — example sentence that motivated the entry
+# ---------------------------------------------------------------------------
+
+para:IndefiniteSuspension
+    a para:ParaphraseConcept ;
+    rdfs:label "indefinite_suspension" ;
+    rdfs:comment "e.g. 'Millbrae Station is closed until further notice due to maintenance work.' vs 'There is no fixed reopening date for the station.'" .
+
+para:phrase_until_further_notice
+    a para:ParaphrasePhrase ;
+    rdfs:label "until further notice" ;
+    para:memberOf para:IndefiniteSuspension ;
+    para:form "name" .
+
+para:phrase_indefinitely
+    a para:ParaphrasePhrase ;
+    rdfs:label "indefinitely" ;
+    para:memberOf para:IndefiniteSuspension ;
+    para:form "name" .
+
+para:phrase_reopening
+    a para:ParaphrasePhrase ;
+    rdfs:label "reopening" ;
+    para:memberOf para:IndefiniteSuspension ;
+    para:form "fnot_name" .
+
+para:phrase_resumption
+    a para:ParaphrasePhrase ;
+    rdfs:label "resumption" ;
+    para:memberOf para:IndefiniteSuspension ;
+    para:form "fnot_name" .
+
+para:phrase_restart
+    a para:ParaphrasePhrase ;
+    rdfs:label "restart" ;
+    para:memberOf para:IndefiniteSuspension ;
+    para:form "fnot_name" .
+
+para:UniversityStation
+    a para:ParaphraseConcept ;
+    rdfs:label "university_station" ;
+    rdfs:comment "University station and University metro station are the same thing." .
+
+para:phrase_university_station
+    a para:ParaphrasePhrase ;
+    rdfs:label "university station" ;
+    para:memberOf para:UniversityStation ;
+    para:form "name" .
+
+para:phrase_university_metro_station
+    a para:ParaphrasePhrase ;
+    rdfs:label "university metro station" ;
+    para:memberOf para:UniversityStation ;
+    para:form "name" .

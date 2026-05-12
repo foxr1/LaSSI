@@ -40,6 +40,65 @@ def score_from_meu(min_value, max_value, node_type, meu_db_row, honk):
             list(map(get_type, filter(lambda x: get_conf(x) == max_score, matched_meus))))
 
 
+_GEO_TYPES_FOR_PROMOTION = frozenset({"GPE", "LOC", "FAC", "SPACE"})
+
+
+def _promote_geo_suffixed_type(merged_node, meu_db_row, honk):
+    """Promote `merged_node.type` to a geo type when its name ends in a
+    HOnK GeoSuffixNoun and the prefix has a higher-specificity geo match in
+    the meuDB.
+
+    Why: the multi-word span (e.g. "Haymarket area") may not match a known
+    proper place in the meuDB on its own, so the chosen MEU classifies it as
+    `noun`; meanwhile the prefix alone ("Haymarket") matches as `LOC`.
+    Without this promotion the merged Singleton keeps the noun type, which
+    causes `make_arg` (in rewrite_kernels) to lowercase the named_entity and
+    prevents downstream similarity comparisons from recognising it as the
+    same place as a plain-prefix reference in another sentence.
+    """
+    if merged_node is None:
+        return merged_node
+    current_type = (merged_node.type or "").upper()
+    if current_type in _GEO_TYPES_FOR_PROMOTION:
+        return merged_node
+    name = merged_node.named_entity or ""
+    words = name.strip().split()
+    if len(words) < 2:
+        return merged_node
+    suffix_set = honk.getGeoSuffixNouns()
+    if not suffix_set or words[-1].lower() not in suffix_set:
+        return merged_node
+    prefix = " ".join(words[:-1]).strip()
+    if not prefix:
+        return merged_node
+
+    best_geo_type = None
+    best_conf = -1.0
+    for meu in meu_db_row.multi_entity_unit:
+        if hasattr(meu, "text"):
+            meu_text = meu.text
+            meu_type = meu.type
+            meu_conf = meu.confidence
+        else:
+            try:
+                meu_text = meu[4]
+                meu_type = meu[2]
+                meu_conf = meu[3]
+            except (IndexError, TypeError):
+                continue
+        if not meu_text or meu_text.strip() != prefix:
+            continue
+        if (meu_type or "").upper() not in {"GPE", "LOC", "FAC"}:
+            continue
+        if meu_conf > best_conf:
+            best_conf = meu_conf
+            best_geo_type = meu_type
+
+    if best_geo_type is None:
+        return merged_node
+    return merged_node.update_type(best_geo_type)
+
+
 def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, existentials):
     from LaSSI.structures.internal_graph.EntityRelationship import Singleton
     from LaSSI.utils.allChunks import allChunks
@@ -166,7 +225,8 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
     extra_props = None
 
     extra_names_list = []
-    
+    extra_types_collected = []
+
     # Track which names are current head candidates from the resolution d
     head_names = set(d.values())
 
@@ -178,13 +238,13 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
         # Pick the best entity from sorted_entities that is present as a head in resolution d.
         # Use hierarchical type comparison to find the most specific/important entity.
         if entity.named_entity in head_names:
-            is_better_type = (chosen_entity is None or 
-                             (honk.most_specific_type([chosen_entity.type, entity.type]) == entity.type and 
+            is_better_type = (chosen_entity is None or
+                             (honk.most_specific_type([chosen_entity.type, entity.type]) == entity.type and
                               entity.type != chosen_entity.type))
-            
+
             # Verbs are always strong candidates if nothing more specific is found
             is_verb_fallback = (entity.type.lower() == "verb" and (chosen_entity is None or chosen_entity.type.lower() != "verb"))
-            
+
             if is_better_type or is_verb_fallback:
                 chosen_entity = entity
 
@@ -196,6 +256,14 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
         extra_names_list.append(entity.named_entity)
         extra_min = entity.min if extra_min is None else extra_min if extra_min < entity.min else entity.min
         extra_max =  entity.max if extra_max is None else extra_max if extra_max > entity.max else entity.max
+
+        # Carry the entity's classification so the extra Singleton inherits it
+        # (rather than the previous hardcoded 'None' fallback).  We collect
+        # every non-chosen entity's type and reduce to the most specific one
+        # below, since `extra_name` may be assembled from words across several
+        # of them.
+        if entity.type and entity.type != "None":
+            extra_types_collected.append(entity.type)
 
         # Only keep "core" properties, as other properties will be added to "chosen entity" instead
         entity_props = {k: v for k, v in entity.get_props().items() if k in {'begin', 'end', 'number', 'pos', 'specification'}}
@@ -211,6 +279,7 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
                 seen_words.add(word)
     
     extra_name = " ".join(unique_words).strip()
+    extra_type = honk.most_specific_type(extra_types_collected) if extra_types_collected else "None"
 
     if norm_confidence > candidate_meu_score:
         candidate_meu_score = norm_confidence
@@ -259,7 +328,7 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
             "number": "none"
         }
         if extra_name != '':
-            new_properties['extra'] = [generate_extra_singleton(extra_name, extra_min, extra_max, extra_props)]
+            new_properties['extra'] = [generate_extra_singleton(extra_name, extra_min, extra_max, extra_props, extra_type)]
         new_properties = merge_properties(fusion_properties, new_properties)
 
         # Get score and type for newly created Singleton
@@ -281,7 +350,7 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
         # Convert back from frozenset to append new "extra" attribute
         new_properties = merge_properties(fusion_properties, chosen_entity.get_props())
         if extra_name != '':
-            new_properties['extra'] = [generate_extra_singleton(extra_name, extra_min, extra_max, extra_props)]
+            new_properties['extra'] = [generate_extra_singleton(extra_name, extra_min, extra_max, extra_props, extra_type)]
 
         merged_node = Singleton(
             id=node.id,
@@ -295,6 +364,8 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
     else:
         print("Error")
         merged_node = None
+
+    merged_node = _promote_geo_suffixed_type(merged_node, meu_db_row, honk)
 
     if has_negation and merged_node is not None:
         from LaSSI.structures.kernels.Sentence import is_kernel_in_props
@@ -311,14 +382,14 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
     return merged_node
 
 
-def generate_extra_singleton(extra_name, extra_min, extra_max, extra_props):
+def generate_extra_singleton(extra_name, extra_min, extra_max, extra_props, extra_type='None'):
     return Singleton(
         id=-1,
         named_entity=extra_name,
         properties=create_props_for_singleton(extra_props),
         min=extra_min,
         max=extra_max,
-        type='None',  # TODO: What should this type be?
+        type=extra_type,
         confidence=1
     )
 

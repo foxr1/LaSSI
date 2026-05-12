@@ -859,12 +859,17 @@ class AssignTypeToSingleton:
             for edge in gsm_item['phi']:
                 if edge['score']['child'] in self.nodes:  # Node might have been removed so check key exists
                     child = self.nodes[self.node_functions.get_node_id(edge['score']['child'])]
-                    if (hasattr(child, "named_entity") and child.named_entity in self.negations) or child.type == 'NEG':
+                    if (hasattr(child, "named_entity") and child.named_entity and child.named_entity.lower() in self.negations) or child.type == 'NEG':
                         # grouped_nodes.append(child)
                         found_negation = True
 
             # Check if BUT has a property NEG
             if 'neg' in gsm_item['properties']:
+                found_negation = True
+
+            # "No drugs offences" — det is "No"/"no"/"not"; treat as sentence negation
+            det_val = gsm_item['properties'].get('det')
+            if isinstance(det_val, str) and det_val.lower() in self.negations:
                 found_negation = True
 
             if found_negation:
@@ -923,12 +928,17 @@ class AssignTypeToSingleton:
             for edge in gsm_item['phi']:
                 if edge['score']['child'] in self.nodes:  # Node might have been removed so check key exists
                     child = self.nodes[self.node_functions.get_node_id(edge['score']['child'])]
-                    if (hasattr(child, "named_entity") and child.named_entity in self.negations) or child.type == 'NEG':
+                    if (hasattr(child, "named_entity") and child.named_entity and child.named_entity.lower() in self.negations) or child.type == 'NEG':
                         # grouped_nodes.append(child)
                         found_negation = True
 
             # Check if BUT has a property NEG
             if 'neg' in gsm_item['properties']:
+                found_negation = True
+
+            # "No drugs offences" — det is "No"/"no"/"not"; treat as sentence negation
+            det_val = gsm_item['properties'].get('det')
+            if isinstance(det_val, str) and det_val.lower() in self.negations:
                 found_negation = True
 
             if found_negation:

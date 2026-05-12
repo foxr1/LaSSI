@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, DefaultDict
 
+from LaSSI.structures import DependencyRoles
+
 
 class Grouping(Enum):
     AND = 0
@@ -61,6 +63,11 @@ class SetOfSingletons(NodeEntryPoint):  # Graph node representing conjunction/di
     confidence: float
     root: bool = False
 
+    @property
+    def properties(self):
+        from LaSSI.ner.node_functions import create_props_for_singleton
+        return create_props_for_singleton(self.get_props())
+
     def min_f(self):
         return min(int(self.min), min([x.min_f() for x in self.entities if x is not None]))
 
@@ -104,7 +111,10 @@ class SetOfSingletons(NodeEntryPoint):  # Graph node representing conjunction/di
         return SetOfSingletons(
             id=self.id,
             type=self.type,
-            entities=tuple(entity.strip_root_properties() for entity in self.entities),
+            entities=tuple(
+                entity.strip_root_properties() if entity is not None and hasattr(entity, "strip_root_properties") else entity
+                for entity in self.entities
+            ),
             min=self.min,
             max=self.max,
             confidence=self.confidence,
@@ -116,13 +126,28 @@ class SetOfSingletons(NodeEntryPoint):  # Graph node representing conjunction/di
         if properties is None:
             properties = dict()
         for entity in self.entities:
-            properties = merge_properties(properties, entity.get_props())
+            if entity is not None and hasattr(entity, "get_props"):
+                properties = merge_properties(properties, entity.get_props())
         return properties
+
+    def update_node_props(self, node_props):
+        new_entities = []
+        for entity in self.entities:
+            if entity is not None and hasattr(entity, "update_node_props"):
+                new_entities.append(entity.update_node_props(node_props))
+            else:
+                new_entities.append(entity)
+        return self.update_entities(new_entities)
+
+    def add_property(self, prop_key, prop_value):
+        node_props = self.get_props()
+        node_props[prop_key] = prop_value
+        return self.update_node_props(node_props)
 
     def get_name(self):
         # sorted_entities = sorted(self.entities, key=lambda x: float(dict(x.properties)['pos']))
         sorted_entity_names = list(
-            map(lambda x: x.named_entity if hasattr(x, 'named_entity') else x.get_name(), self.entities))
+            map(lambda x: x.named_entity if hasattr(x, 'named_entity') else x.get_name() if hasattr(x, "get_name") else str(x), self.entities))
         return f" {self.type}".join(sorted_entity_names)
 
     def get_node_properties_string(self, node_to_use):
@@ -145,6 +170,8 @@ class SetOfSingletons(NodeEntryPoint):  # Graph node representing conjunction/di
                     properties_list[key].append(properties_key_)
                 else:
                     if isinstance(properties_key_, Singleton):
+                        properties_list[key].append(self.get_node_string(properties_key_))
+                    elif isinstance(properties_key_, SetOfSingletons):
                         properties_list[key].append(self.get_node_string(properties_key_))
                     else:
                         for node in properties_key_:
@@ -179,10 +206,37 @@ class SetOfSingletons(NodeEntryPoint):  # Graph node representing conjunction/di
         return node_string
 
 
+def _deserialize_property_value(value):
+    if isinstance(value, list):
+        return tuple(_deserialize_property_value(x) for x in value)
+    if isinstance(value, dict):
+        if ('entities' in value and 'id' in value) or 'named_entity' in value:
+            return deserialize_NodeEntryPoint(value)
+        return {k: _deserialize_property_value(v) for k, v in value.items()}
+    return value
+
+
+def _deserialize_properties(properties):
+    if properties is None:
+        return frozenset()
+    return frozenset((k, _deserialize_property_value(v)) for k, v in properties.items())
+
+
+def _deserialize_relationship(data):
+    if data is None:
+        return None
+    return Relationship(
+        source=deserialize_NodeEntryPoint(data.get('source')),
+        target=deserialize_NodeEntryPoint(data.get('target')),
+        edgeLabel=deserialize_NodeEntryPoint(data.get('edgeLabel')),
+        isNegated=data.get('isNegated', False),
+    )
+
+
 def deserialize_NodeEntryPoint(data: dict) -> NodeEntryPoint:
     if data is None:
         return data
-    if data['type'] == 'SetOfSingletons':
+    if 'entities' in data:
         return SetOfSingletons(id=int(data.get('id')),
                                type=Grouping(int(data.get('type'))),
                                entities =tuple(map(deserialize_NodeEntryPoint, data.get('entities'))),
@@ -190,15 +244,16 @@ def deserialize_NodeEntryPoint(data: dict) -> NodeEntryPoint:
             max=int(data.get('max')),
             confidence=float(data.get('confidence')
                                              ))
-    elif data['type'] == 'Singleton':
+    elif 'named_entity' in data:
         return Singleton(
             id=int(data.get('id')),
             named_entity=data.get('named_entity'),
-            properties=frozenset(data.get('properties').items()),
+            properties=_deserialize_properties(data.get('properties')),
             min=int(data.get('min')),
             max=int(data.get('max')),
             confidence=float(data.get('confidence')),
                              type=data.get('type'),
+            kernel=_deserialize_relationship(data.get('kernel')),
                              )
 
 
@@ -475,6 +530,8 @@ class Singleton(NodeEntryPoint):  # Graph node representing just one entity
                 else:
                     if isinstance(properties_key_, Singleton):
                         properties_list[key].append(self.get_node_string(properties_key_))
+                    elif isinstance(properties_key_, SetOfSingletons):
+                        properties_list[key].append(self.get_node_string(properties_key_))
                     elif properties_key_ is not None:
                         for node in properties_key_:
                             if key == 'SENTENCE':  # It is a node with kernel (most likely)
@@ -530,10 +587,9 @@ class Singleton(NodeEntryPoint):  # Graph node representing just one entity
                                            target_name in p.causative_verbs or target_name in p.semi_modal_verbs or 
                                            target_name in p.means_verbs or target_name in p.materialisation_verbs)
                 
-                if node.kernel.target.type in ['JJ', 'JJS', 'RB'] or is_verb_in_ontology:
+                if node.kernel.target.type in DependencyRoles.copula_complement_pos_tags() or is_verb_in_ontology:
                     return f"{target}(?, {source}){properties}" if not node.kernel.isNegated else f"NOT({target}(?, {source}){properties})"
 
             return f"{edge_label}({source}, {target}){properties}" if not node.kernel.isNegated else f"NOT({edge_label}({source}, {target}){properties})"
         else:
             return node.named_entity
-

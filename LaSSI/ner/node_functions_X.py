@@ -22,7 +22,11 @@ def get_min_position(node):
         else:
             return int(float(node_props['pos']))
     else:
-        return min(filter(lambda y: y > -1, map(lambda x: get_min_position(x), node.entities)))
+        positions = [
+            pos for pos in map(lambda x: get_min_position(x), getattr(node, "entities", ()))
+            if pos is not None and pos > -1
+        ]
+        return min(positions) if positions else -1
 
 
 class NodeFunctions:

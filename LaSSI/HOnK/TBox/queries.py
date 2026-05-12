@@ -248,8 +248,14 @@ def addAdjective(arg, **kwargs):
         assert var is not None
         assert isinstance(var, str)
         return arg.add_adjective(var)
+    if isinstance(arg, FNot) or type(arg).__name__ == "FNot":
+        return FNot(addAdjective(arg.arg, **kwargs))
+    if isinstance(arg, FUnaryPredicate) or type(arg).__name__ == "FUnaryPredicate":
+        return FUnaryPredicate(arg.rel, addAdjective(arg.arg, **kwargs), arg.score, arg.properties)
+    if isinstance(arg, FBinaryPredicate) or type(arg).__name__ == "FBinaryPredicate":
+        return FBinaryPredicate(arg.rel, arg.src, addAdjective(arg.dst, **kwargs), arg.score, arg.properties)
     else:
-        raise RuntimeError("ERROR: we can add an adjective only to something that is a variable!")
+        return arg
 
 def dropCopula(arg, **kwargs):
     if arg is None:
@@ -257,8 +263,14 @@ def dropCopula(arg, **kwargs):
         return None
     if isinstance(arg, FVariable) or type(arg).__name__ == "FVariable":
         return arg.dropCopula()
+    if isinstance(arg, FNot) or type(arg).__name__ == "FNot":
+        return FNot(dropCopula(arg.arg, **kwargs))
+    if isinstance(arg, FUnaryPredicate) or type(arg).__name__ == "FUnaryPredicate":
+        return FUnaryPredicate(arg.rel, dropCopula(arg.arg, **kwargs), arg.score, arg.properties)
+    if isinstance(arg, FBinaryPredicate) or type(arg).__name__ == "FBinaryPredicate":
+        return FBinaryPredicate(arg.rel, dropCopula(arg.src, **kwargs), dropCopula(arg.dst, **kwargs), arg.score, arg.properties)
     else:
-        raise RuntimeError("ERROR: we can add an adjective only to something that is a variable!")
+        return arg
 
 def addSpecification(arg, **kwargs):
     if arg is None:

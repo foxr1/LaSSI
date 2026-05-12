@@ -485,8 +485,17 @@ def add_to_properties(kernel, node, source_or_target, kernel_nodes, properties, 
                             properties[type_key].append(entity)
                 else:
                     if 'actioned' in dict(node.properties) or 'action' in dict(node.properties):
-                        node = rewrite_action_ed_node(node, node, negations)
-                        type_key = 'SENTENCE'
+                        node_props = dict(node.properties)
+                        action_key = 'actioned' if 'actioned' in node_props else 'action'
+                        if node.type == 'verb' or not node.named_entity:
+                            # Verb node or nameless node: make it a sub-sentence event
+                            node = rewrite_action_ed_node(node, node, negations)
+                            type_key = 'SENTENCE'
+                        else:
+                            # Noun with adjectival past participle (e.g. "parked vehicles"):
+                            # record as amod rather than a spurious sub-sentence
+                            node_props['amod'] = node_props.pop(action_key)
+                            node = node.update_node_props(node_props)
                     kernel_nodes = add_to_kernel_nodes(node, kernel_nodes)
                     properties[type_key].append(node)
     return kernel, properties, kernel_nodes
@@ -752,19 +761,34 @@ def get_prepositions(node):
     found_prepositions = []
     node_props = dict(node.properties)
     _smart_apos = chr(0x2019)
+    float_keyed = {}
     for key in node_props:
         if key in {"mark", "adv", "advmod", "IN", "TO", "case"}:
             value = node_props[key]
             if isinstance(value, str):
-                found_prepositions.append(value.lower().replace(_smart_apos, "’"))
+                found_prepositions.append(value.lower().replace(_smart_apos, "'"))
         try:
             case_position = float(key)
-            found_prepositions.append(node_props[key].lower().replace(_smart_apos, "’"))
+            val = node_props[key].lower().replace(_smart_apos, "'")
+            found_prepositions.append(val)
+            float_keyed[case_position] = val
         except (ValueError, AttributeError):
             continue
 
     if node.type in {"IN", "TO", "RB"}:
         found_prepositions.append(node.named_entity.lower())
+
+    # Reconstruct compound prepositions from position-ordered tokens (e.g. "on or near")
+    if len(float_keyed) >= 2:
+        sorted_vals = [v for _, v in sorted(float_keyed.items())]
+        unique_vals = [sorted_vals[0]]
+        for v in sorted_vals[1:]:
+            if v != unique_vals[-1]:
+                unique_vals.append(v)
+        compound = ' '.join(unique_vals)
+        if compound not in found_prepositions:
+            found_prepositions.append(compound)
+
     return set(found_prepositions)
 
 

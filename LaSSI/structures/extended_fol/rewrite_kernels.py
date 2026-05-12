@@ -29,7 +29,7 @@ def is_existential(obj):
         return True
     if (not isinstance(obj, FVariable)) or (not type(obj).__name__ == "FVariable"):
         return False
-    return obj.name[0] == "?" and obj.name[1:].isdigit() and obj.type == "existential"
+    return obj.name is not None and obj.name[0] == "?" and obj.name[1:].isdigit() and obj.type == "existential"
 
 bogus_dst = FVariable(name="there", type="non_verb", specification=None, cop=None, id=None)
 bogus_src = {"it"}
@@ -53,6 +53,11 @@ def get_props(src):
         elif hasattr(src, "properties"):
             src_old_props = src.properties
     return src_old_props
+
+def formula_name(f):
+    if isinstance(f, FNot) or type(f).__name__ == "FNot":
+        return formula_name(f.arg)
+    return getattr(f, "name", None)
 
 def make_and(entities):
     entities = tuple(entities)
@@ -83,7 +88,8 @@ def has_prop_just_one_negated_constituent(prop):
     k, x = next(iter(prop))
     if k in Grouping.__members__.keys() or k == "SPECIFICATION":
         return False, prop
-    assert isinstance(x, tuple) and len(x) == 1
+    if not (isinstance(x, tuple) and len(x) == 1):
+        return False, prop
     v = x[0]
     if isinstance(v,FNot):
         return True, frozenset({(k, (v.arg, ))})
@@ -213,13 +219,29 @@ class RewriteKernels:
                                                                                                  FUnaryPredicate) or isinstance(
                 entity, FNot) or isinstance(entity, FAnd) or isinstance(entity, FOr):
             return entity
+        elif isinstance(entity, (list, tuple)):
+            if len(entity) == 0:
+                return None
+            if len(entity) == 1:
+                return self.make_arg(entity[0])
+            return make_and(self.make_arg(x) for x in entity)
         elif hasattr(entity, "kernel") and entity.kernel is not None:
             return self.rewrite_kernels(entity)
+        elif isinstance(entity, SetOfSingletons):
+            if entity.type == Grouping.AND:
+                return make_and(self.make_arg(x) for x in entity.entities)
+            if entity.type == Grouping.OR:
+                return make_or(self.make_arg(x) for x in entity.entities)
+            if entity.type == Grouping.NOT:
+                return make_not(self.make_arg(entity.entities[0]))
         props = entity if isinstance(entity, dict) else entity.get_props()
         specifiaction = None
-        if ("extra" in props) and (props["extra"] is not None) and (
-                (not isinstance(props["extra"], tuple)) or len(props["extra"]) == 1):
-            specifiaction = self.make_arg(props.pop("extra")[0]).name
+        if ("extra" in props) and (props["extra"] is not None):
+            extra_val = props.pop("extra")
+            if isinstance(extra_val, str):
+                specifiaction = extra_val
+            elif (not isinstance(extra_val, tuple)) or len(extra_val) == 1:
+                specifiaction = formula_name(self.make_arg(extra_val[0]))
         coplist = []
         cop = None
         if "cop" in props:
@@ -243,7 +265,7 @@ class RewriteKernels:
         named_entity = props.pop("named_entity", None) if isinstance(entity,
                                                                      dict) else entity.get_name()  # TODO: Is this okay for getting the name of SetOfSingletons?
         type = props.pop("type", None) if isinstance(entity, dict) else entity.type
-        if (type != "GPE") and (type != "SPACE"):
+        if type not in ("GPE", "SPACE", "LOC", "FAC"):
             named_entity = named_entity.lower()
         props2 = dict()
         asAll = False
@@ -253,9 +275,9 @@ class RewriteKernels:
                     asAll = True
             if k not in discard_properties and k not in {} and ((not isinstance(v, str)) or len(v) > 0):
                 if isinstance(v, tuple):
-                    props2[k] = tuple([self.make_arg(x) if isinstance(x, Singleton) else x for x in v])
+                    props2[k] = tuple([self.make_arg(x) if isinstance(x, (Singleton, SetOfSingletons)) else x for x in v])
                 else:
-                    props2[k] = self.make_arg(v) if isinstance(v, Singleton) else v
+                    props2[k] = self.make_arg(v) if isinstance(v, (Singleton, SetOfSingletons)) else v
         if (cop == "usually") or (isinstance(cop, FVariable) and (cop.name == "usually")):  ## TODO:adverb
             cop = None
         props2 = self.props_as_unique_itemset(props2)
@@ -399,10 +421,12 @@ class RewriteKernels:
                                 for x in v:
                                     if (foundSingleton == Grouping.NONE) and isinstance(x, SetOfSingletons) and (
                                             x.type != Grouping.NOT):
-                                        assert len(x.entities) == 1
-                                        foundSingleton = x.type
-                                        argument = x.entities[0]
-                                        forKey = k
+                                        if len(x.entities) == 1:
+                                            foundSingleton = x.type
+                                            argument = x.entities[0]
+                                            forKey = k
+                                        else:
+                                            j.append(self.make_arg(x))
                                     elif isinstance(x, str) or isinstance(x, Formula):
                                         j.append(x)
                                     elif isinstance(x, Singleton):
@@ -496,10 +520,12 @@ class RewriteKernels:
                             for x in v:
                                 if (foundSingleton == Grouping.NONE) and isinstance(x, SetOfSingletons) and (
                                         x.type != Grouping.NOT):
-                                    assert len(x.entities) == 1
-                                    foundSingleton = x.type
-                                    argument = x.entities[0]
-                                    forKey = k
+                                    if len(x.entities) == 1:
+                                        foundSingleton = x.type
+                                        argument = x.entities[0]
+                                        forKey = k
+                                    else:
+                                        j.append(self.make_arg(x))
                                 elif isinstance(x, str) or isinstance(x, Formula):
                                     j.append(x)
                                 elif isinstance(x, Singleton):
@@ -575,14 +601,23 @@ class RewriteKernels:
 
     def props_as_unique_itemset(self, prop):
         d = dict()
+        def unique_values(values):
+            return tuple(dict.fromkeys(values))
+
         for k, v in prop.items():
-            if k in discard_properties or len(k) == 0 or isinstance(v, str):
+            if k in discard_properties or len(k) == 0:
+                continue
+            if isinstance(v, str):
+                if k == "type":
+                    d[k] = (v,)
                 continue
             if not isinstance(v, (list, tuple, set, frozenset)):
                 d[k] = (v,)
                 continue
             if len(v)==1 or k in Grouping.__members__.keys() or k == "SPECIFICATION":
                 d[k] = tuple(set(v))
+            elif k in set(type_conversion.values()):
+                d[k] = unique_values(v)
             elif len(v) > 2:
                 if all(isinstance(x, (FVariable, FNot)) for x in v):
                     d[k] = (FAnd(tuple(set(v))),)
@@ -590,6 +625,9 @@ class RewriteKernels:
                     d[k] = tuple(set(v))
             else:
                 assert len(v)==2
+                if not all(isinstance(x, (FVariable, FNot)) for x in v):
+                    d[k] = tuple(set(v))
+                    continue
                 type_per_item = []
                 negated_args = []
                 for idx, x in enumerate(v):
@@ -614,12 +652,16 @@ class RewriteKernels:
                     else:
                         if idx in negated_args:
                             neg_arg = v[idx].arg
-                            assert (neg_arg.specification is None) or len(neg_arg.specification) == 0
-                            d[k] = (FNot(FVariable(neg_arg.name, neg_arg.type, v[opp].name if not opp in negated_args else v[opp].arg.name, neg_arg.cop, neg_arg.id,
-                                              neg_arg.properties, spec_negation=opp in negated_args)),)
+                            if (neg_arg.specification is None) or len(neg_arg.specification) == 0:
+                                d[k] = (FNot(FVariable(neg_arg.name, neg_arg.type, formula_name(v[opp]), neg_arg.cop, neg_arg.id,
+                                                  neg_arg.properties, spec_negation=opp in negated_args)),)
+                            else:
+                                d[k] = tuple(set(v))
                         else:
-                            assert (v[idx].specification is None) or len(v[idx].specification) == 0
-                            d[k] = (FVariable(v[idx].name, v[idx].type, v[opp].name if not opp in negated_args else v[opp].arg.name, v[idx].cop,  v[idx].id, v[idx].properties, spec_negation=opp in negated_args), )
+                            if (v[idx].specification is None) or len(v[idx].specification) == 0:
+                                d[k] = (FVariable(v[idx].name, v[idx].type, formula_name(v[opp]), v[idx].cop,  v[idx].id, v[idx].properties, spec_negation=opp in negated_args), )
+                            else:
+                                d[k] = tuple(set(v))
         return frozenset(d.items())
 
     def rewrite_kernels(self, obj=None) -> Formula:

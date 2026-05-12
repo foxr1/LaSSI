@@ -48,12 +48,15 @@ def process_sentence_worker(args):
     org_entities_for_replacement = []
 
     for ent in results.ents:
-        monad = ent.text.replace(" ", "")
+        monad = ent.text #.replace(" ", "") # TODO: This is affecting sentences from NEET, what was this used for before?
         if ent.type == "ORG":
             org_entities_for_replacement.append((ent.text, monad))
 
+        # TODO: Might not need this hardcode but leaving for now...
+        ent_type = "LOC" if ent.type == "FAC" else ent.type
+
         multi_entity_unit.append(MeuDBEntry(
-            ent.text, ent.type, ent.start_char, ent.end_char,
+            ent.text, ent_type, ent.start_char, ent.end_char,
             monad, lev(monad.lower(), ent.text.lower()), monad, "Stanza"))
 
     for sent in results.sentences:
