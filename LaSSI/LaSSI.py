@@ -654,11 +654,16 @@ class LaSSI():
     def _invalidate_stale_cache(self, expected_count):
         expected_row_count = len(self.row_to_sub_indices) if hasattr(self, 'row_to_sub_indices') else expected_count
         
-        # Check if the core merged caches (meuDB and internals) are valid and in sync
-        # If one is missing or invalid, both must be invalidated because internals 
-        # requires the unmerged meuDB to be reconstructed correctly.
+        # Internals are persisted per YAML row, but the lower-level graph caches
+        # stay per sub-sentence.  MeuDBs feed graph→kernel construction, so the
+        # on-disk MeuDB cache must also remain per sub-sentence; otherwise a
+        # later rerun zips sub-sentence graphs against merged row-level MeuDBs
+        # and shifts every sentence after the first split row.
         core_caches_valid = True
-        for core_cache in (self.meuDB, self.internals):
+        for core_cache, expected in (
+                (self.meuDB, expected_count),
+                (self.internals, expected_row_count),
+        ):
             if not os.path.isfile(core_cache):
                 core_caches_valid = False
                 break
@@ -666,7 +671,7 @@ class LaSSI():
                 with open(core_cache, 'r') as f:
                     data = json.load(f)
                 count = len(data) if isinstance(data, list) else None
-                if count != expected_row_count:
+                if count != expected:
                     core_caches_valid = False
                     break
             except Exception:
@@ -683,10 +688,10 @@ class LaSSI():
             except Exception:
                 count = None
             
-            valid_count = expected_count if path == self.datagramdb_output else expected_row_count
+            valid_count = expected_count if path in (self.datagramdb_output, self.meuDB) else expected_row_count
             
             should_delete = (count is None or count != valid_count)
-            if path in (self.meuDB, self.internals) and not core_caches_valid:
+            if path in (self.meuDB, self.internals, self.logical_rewriting) and not core_caches_valid:
                 should_delete = True
                 
             if should_delete:
@@ -767,6 +772,7 @@ class LaSSI():
                             new_props[k] = existing + items
                         else:
                             new_props[k] = [existing] + items
+                    # new_props['SENTENCE'].append(sub_kernel)
                 else:
                     new_props['SENTENCE'].append(sub_kernel)
             merged.append(primary.update_node_props(new_props))
@@ -790,16 +796,12 @@ class LaSSI():
         return merged
 
     def _persist_merged_caches(self, intermediate_representations):
-        """Overwrite the meuDB / internals cache files with the merged-per-row
-        representation so subsequent runs and other consumers see one entry per
-        YAML row, not per sub-sentence. The lower-level GSM / datagramdb caches
-        intentionally remain per-sub-sentence — they record what Java actually
-        processed, and merging them would lose graph fidelity."""
-        try:
-            with open(self.meuDB, 'w') as f:
-                f.write(json_dumps(self.meu_dbs))
-        except Exception as exc:
-            self.logger(f"Could not persist merged meuDBs.json: {exc}")
+        """Overwrite the internals cache with the merged-per-row representation.
+
+        Do not overwrite ``meuDBs.json`` here: graph rewriting caches are
+        per-sub-sentence, and future reruns need a matching per-sub-sentence
+        MeuDB cache while reconstructing internals.
+        """
         try:
             with open(self.internals, 'w') as f:
                 f.write(json_dumps(intermediate_representations))
@@ -884,7 +886,7 @@ class LaSSI():
             _honk_closed = (
                 {p.lower() for p in honk.getPrepositions()} |
                 {c.lower() for c in honk.getConjunctions()} |
-                {'the', 'a', 'an', 'and', 'or', 'nor', 'yet', 'so'}
+                {'the', 'an', 'and', 'or', 'nor', 'yet', 'so'}
             )
         else:
             _honk_closed = None
@@ -924,7 +926,7 @@ class LaSSI():
         "on", "in", "at", "by", "for", "with", "about", "against", "between",
         "into", "through", "during", "before", "after", "above", "below", "to",
         "from", "up", "down", "of", "off", "over", "under", "near", "and", "but",
-        "or", "nor", "yet", "so", "the", "a", "an",
+        "or", "nor", "yet", "so", "the", "an",
     }
 
     def normalise_text(self, text, closed_class_lower=None):
@@ -950,9 +952,17 @@ class LaSSI():
 
         for word in words[1:]:
             clean_word = "".join(c for c in word if c.isalpha()).lower()
-            normalised = word.lower() if clean_word in closed else word
-            # Drop consecutive duplicate closed-class tokens (scraping artefact)
             prev_clean = "".join(c for c in sanitized_words[-1] if c.isalpha()).lower()
+            # A single uppercase letter immediately after a capitalised non-closed-class
+            # word is a compound identifier (e.g. "Class A", "Type B") — preserve its
+            # case so CoreNLP does not reparse it as a plain article/determiner.
+            is_compound_id = (
+                len(word) == 1 and word[0].isupper()
+                and sanitized_words[-1][0].isupper()
+                and prev_clean not in closed
+            )
+            normalised = word.lower() if (clean_word in closed and not is_compound_id) else word
+            # Drop consecutive duplicate closed-class tokens (scraping artefact)
             if clean_word in closed and clean_word == prev_clean:
                 continue
             sanitized_words.append(normalised)

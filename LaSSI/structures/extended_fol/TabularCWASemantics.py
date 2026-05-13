@@ -253,6 +253,47 @@ class TabularCWASemantics:
     def __call__(self, i, j):
         return self.get_straightforward_id_similarity(self.sentence_to_id[i], self.sentence_to_id[j])
 
+    def _predicates_share_core(self, p1, p2):
+        """True iff two predicates share their core relation + arguments,
+        ignoring optional properties (TIME, SPACE, SPECIFICATION, etc.).
+
+        Used as a fallback in the FNot vs non-FNot branch: when one side is
+        negated and the inner refers to the same event as the other side
+        (matching rel and matching/implying src+dst), they describe opposite
+        polarities of the same event and should be treated as exclusive even
+        when asymmetric optional properties make the full-property comparison
+        return INDIFFERENT.
+        """
+        from LaSSI.HOnK.HOnK import CasusHappening, HOnKSingleton
+        from LaSSI.HOnK.TBox.ExpandConstituents import compare_variable, isImplication, isExistential
+        from LaSSI.structures.extended_fol.Formulae import FBinaryPredicate, FUnaryPredicate
+
+        def _agrees(cmp):
+            return cmp == CasusHappening.EQUIVALENT or isImplication(cmp)
+
+        def _args_match(a, b, cache):
+            # Two existential variables refer to the same anonymous entity for
+            # core-matching purposes — neither side has committed to a name.
+            if isExistential(a) and isExistential(b):
+                return True
+            return _agrees(compare_variable(cache, a, b))
+
+        if isinstance(p1, FBinaryPredicate) and isinstance(p2, FBinaryPredicate):
+            rel_cmp = (CasusHappening.EQUIVALENT if p1.rel == p2.rel
+                       else HOnKSingleton.get().name_eq(p1.rel, p2.rel))
+            if not _agrees(rel_cmp):
+                return False
+            d = dict()
+            return _args_match(p1.src, p2.src, d) and _args_match(p1.dst, p2.dst, d)
+        if isinstance(p1, FUnaryPredicate) and isinstance(p2, FUnaryPredicate):
+            rel_cmp = (CasusHappening.EQUIVALENT if p1.rel == p2.rel
+                       else HOnKSingleton.get().name_eq(p1.rel, p2.rel))
+            if not _agrees(rel_cmp):
+                return False
+            d = dict()
+            return _args_match(p1.arg, p2.arg, d)
+        return False
+
     def determine(self, i, j):
         from LaSSI.HOnK.HOnK import CasusHappening
         from LaSSI.structures.extended_fol.Enums import PairwiseCases
@@ -273,20 +314,33 @@ class TabularCWASemantics:
         elif isinstance(x, FNot):
             i_new = self.negation_resolution.get(i, i)
             val = self.ec.determine_raw(i_new, j, False, True)
-            if isImplication(val):
-                if isImplication(self.ec.determine_raw(j, i_new, isRightDrop=True)):
-                    return PairwiseCases.ConflictingImplication
-            elif val == CasusHappening.EQUIVALENT:
+            # NOT(A) vs B: treat as exclusive whenever the inner contents have
+            # any implication relationship (in either direction) or are
+            # equivalent, since the negated specific/general counterpart of an
+            # asserted predicate is taken to refer to the same event.
+            if isImplication(val) or val == CasusHappening.EQUIVALENT:
+                return PairwiseCases.ConflictingImplication
+            val_rev = self.ec.determine_raw(j, i_new, isRightDrop=True)
+            if isImplication(val_rev) or val_rev == CasusHappening.EQUIVALENT:
+                return PairwiseCases.ConflictingImplication
+            # Property-level comparison may return INDIFFERENT when both sides
+            # carry asymmetric optional properties (e.g. one has TIME, the
+            # other SPECIFICATION).  Fall back to comparing just the predicate
+            # cores — if they refer to the same event, NOT(A) vs B is exclusive.
+            if self._predicates_share_core(x.arg, y):
                 return PairwiseCases.ConflictingImplication
             val = transformCaseWhenOneArgIsNegated(val)
             return ExpandConstituents.rectify_implication(val)
         elif isinstance(y, FNot):
             j_new = self.negation_resolution.get(j, j)
             val = self.ec.determine_raw(i, j_new, False, isRightDrop=True)
-            if isImplication(val):
-                if isImplication(self.ec.determine_raw(j_new, i, True)):
-                    return PairwiseCases.ConflictingImplication
-            elif val == CasusHappening.EQUIVALENT:
+            # Symmetric to the x-FNot branch above.
+            if isImplication(val) or val == CasusHappening.EQUIVALENT:
+                return PairwiseCases.ConflictingImplication
+            val_rev = self.ec.determine_raw(j_new, i, True)
+            if isImplication(val_rev) or val_rev == CasusHappening.EQUIVALENT:
+                return PairwiseCases.ConflictingImplication
+            if self._predicates_share_core(x, y.arg):
                 return PairwiseCases.ConflictingImplication
             val = transformCaseWhenOneArgIsNegated(val)
             return ExpandConstituents.rectify_implication(val)

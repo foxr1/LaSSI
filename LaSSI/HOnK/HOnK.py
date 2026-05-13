@@ -744,7 +744,7 @@ class HOnK(RDFGraph):
             * neqTo: bidirectional antonyms.
         """
         import pickle
-        adj_cache = os.path.join(self.cache_path, "honk_oxstore.adj.pkl")
+        adj_cache = os.path.join(self.cache_path, "honk_oxstore.adj.v2.pkl")
         # The RocksDB store directory mtime updates on every open (LOG churn),
         # so anchor freshness on `honk_oxstore.mtime` (which records the TTL
         # mtime when the store was built — invariant unless TTL changes).
@@ -788,9 +788,10 @@ class HOnK(RDFGraph):
         isA_preds = _preds_of_class("isA")
         partOf_preds = _preds_of_class("partOf")
         neqTo_preds = _preds_of_class("neqTo")
+        formOf_preds = _preds_of_class("formOf")
 
         # Pass 1: collect raw edge tuples (URIs) and the URIs we need labels for.
-        eq_edges, isA_edges, partOf_edges, neqTo_edges = [], [], [], []
+        eq_edges, isA_edges, partOf_edges, neqTo_edges, formOf_edges = [], [], [], [], []
         needed_uris: set = set()
 
         def _collect(pred_list, dest):
@@ -809,6 +810,8 @@ class HOnK(RDFGraph):
         print(f"[HOnK]   adjacency: collected {len(partOf_edges)} partOf edges in {time.time()-_t:.1f}s", flush=True)
         _t = time.time(); _collect(neqTo_preds, neqTo_edges)
         print(f"[HOnK]   adjacency: collected {len(neqTo_edges)} neqTo edges in {time.time()-_t:.1f}s", flush=True)
+        _t = time.time(); _collect(formOf_preds, formOf_edges)
+        print(f"[HOnK]   adjacency: collected {len(formOf_edges)} formOf edges in {time.time()-_t:.1f}s", flush=True)
 
         # Pass 2: single full-scan over rdfs:label triples — ~50s for the
         # 10M-row label table, vs ~150s for ~1M individual URI round-trips.
@@ -858,6 +861,17 @@ class HOnK(RDFGraph):
                 for lo in o_ls:
                     self._neqTo_adj.setdefault(ls, set()).add(lo)
                     self._neqTo_adj.setdefault(lo, set()).add(ls)
+        # formOf (inflectional/morphological forms, e.g. offences → offence) are
+        # treated as bidirectional equivalences so that plural/singular and
+        # spelling-variant surface forms match the same ontology concept.
+        for s_uri, o_uri in formOf_edges:
+            s_ls = uri_to_labels.get(s_uri); o_ls = uri_to_labels.get(o_uri)
+            if not s_ls or not o_ls:
+                continue
+            for ls in s_ls:
+                for lo in o_ls:
+                    self._eq_adj.setdefault(ls, set()).add(lo)
+                    self._eq_adj.setdefault(lo, set()).add(ls)
 
         n_eq = sum(len(v) for v in self._eq_adj.values())
         n_isA = sum(len(v) for v in self._isA_supers.values())

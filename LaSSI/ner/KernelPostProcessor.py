@@ -636,15 +636,34 @@ class KernelPostProcessor:
         if not space_types:
             return entity
 
+        props = dict(entity.properties)
+        existing_type = props.get('type', '')
+
         if len(space_types) == 1:
             new_type = space_types[0]
+            if isinstance(existing_type, str) and new_type in existing_type:
+                return entity
+            if isinstance(existing_type, SetOfSingletons) and any(
+                    isinstance(e, Singleton) and e.named_entity == new_type
+                    for e in existing_type.entities):
+                return entity
         else:
-            new_type = f"OR({', '.join(space_types)})"
+            # Build a logical OR (SetOfSingletons of Grouping.OR) so that the
+            # disjunction propagates through logical rewriting as a proper FOr
+            # rather than being serialised as an "OR(...)" string that the ex
+            # post phase has to special-case.
+            existing_names = set()
+            if isinstance(existing_type, SetOfSingletons) and existing_type.type == Grouping.OR:
+                existing_names = {
+                    e.named_entity for e in existing_type.entities if isinstance(e, Singleton)
+                }
+            elif isinstance(existing_type, str) and existing_type:
+                existing_names = {existing_type}
+            if existing_names and set(space_types).issubset(existing_names):
+                return entity
+            new_type = self.rewriter._merge_disjunctive_property_value(
+                entity, 'type', *space_types)
 
-        props = dict(entity.properties)
-        existing_type = str(props.get('type', '') or '')
-        if new_type in existing_type:
-            return entity
         props['type'] = new_type
         return entity.update_node_props(props)
 
@@ -1106,7 +1125,7 @@ class KernelPostProcessor:
 
     def acl_replacement(self, kernel, acl_relcl_map):
         # TODO: This isn't entirely recursive...
-        if len(acl_relcl_map.values()) > 0 and kernel.kernel is not None:
+        if len(acl_relcl_map.values()) > 0 and getattr(kernel, 'kernel', None) is not None:
             kernel_source = self.get_acl_replacement(acl_relcl_map, kernel.kernel.source)
             kernel_target = self.get_acl_replacement(acl_relcl_map, kernel.kernel.target)
 
@@ -1121,6 +1140,14 @@ class KernelPostProcessor:
                         properties_to_keep[key].append(new_prop)
                     else:
                         for prop_node in properties_key_:
+                            if isinstance(prop_node, SetOfSingletons):
+                                properties_to_keep[key].append(self.get_acl_replacement(acl_relcl_map, prop_node))
+                                continue
+
+                            if not isinstance(prop_node, Singleton):
+                                properties_to_keep[key].append(prop_node)
+                                continue
+
                             if prop_node.kernel is not None and prop_node.kernel.target is not None and prop_node.kernel.target.id in acl_relcl_map.keys():
                                 continue
 
@@ -1166,8 +1193,9 @@ class KernelPostProcessor:
         else:
             return kernel
 
-    @staticmethod
-    def get_acl_replacement(acl_relcl_map, node):
+    def get_acl_replacement(self, acl_relcl_map, node):
+        if isinstance(node, SetOfSingletons):
+            return node.update_entities([self.get_acl_replacement(acl_relcl_map, entity) for entity in node.entities])
         return acl_relcl_map[node.id] if node is not None and node.id in acl_relcl_map.keys() else node
 
     # ------------------------------------------------------------------

@@ -325,9 +325,8 @@ def _strip_geo_generic_suffix(name: str | None) -> str | None:
 
 
 def _has_near_place(fvar) -> bool:
-    """True iff the FVariable's type property includes 'near place', whether
-    expressed directly, inside a serialised "OR(...)" string, or as an FOr
-    object containing FVariable disjuncts."""
+    """True iff the FVariable's type property includes 'near place', either
+    directly or as a disjunct of an FOr object."""
     from LaSSI.structures.extended_fol.Formulae import FOr as _FOr
     if not isinstance(fvar, FVariable) or not fvar.properties:
         return False
@@ -344,9 +343,6 @@ def _has_near_place(fvar) -> bool:
                 continue
             v_str = v if isinstance(v, str) else getattr(v, "name", None)
             if v_str and "near place" in v_str.lower():
-                return True
-            or_parts = _parse_or_string(v_str) if v_str else None
-            if or_parts and any("near place" in p.lower() for p in or_parts):
                 return True
     return False
 
@@ -509,11 +505,12 @@ def _lifecycle_partition_contradiction(lhs, rhs) -> bool:
 def _space_near_place_names(formula):
     """Concrete near-place value names from a predicate's SPACE property.
 
-    Picks up FVariable entries whose `type` property includes 'near place'
-    (including the serialised OR form 'OR(stay in place, near place)').
-    Existentials and unnamed entries are skipped — we want named micro-
-    locations such as 'Parking Area' or 'Central Station area'.
+    Picks up FVariable entries whose `type` property includes 'near place',
+    either directly or as a disjunct of an FOr.  Existentials and unnamed
+    entries are skipped — we want named micro-locations such as 'Parking Area'
+    or 'Central Station area'.
     """
+    from LaSSI.structures.extended_fol.Formulae import FOr as _FOr
     if not isinstance(formula, (FBinaryPredicate, FUnaryPredicate)):
         return None
     if not formula.properties:
@@ -542,8 +539,17 @@ def _space_near_place_names(formula):
             continue
         is_near = False
         for t in type_vals:
-            t_str = t if isinstance(t, str) else (t.name if isinstance(t, FVariable) else str(t))
-            if "near place" in str(t_str).lower():
+            if isinstance(t, _FOr):
+                for arg in getattr(t, "args", ()) or ():
+                    arg_name = getattr(arg, "name", None)
+                    if arg_name and "near place" in arg_name.lower():
+                        is_near = True
+                        break
+                if is_near:
+                    break
+                continue
+            t_str = t if isinstance(t, str) else (t.name if isinstance(t, FVariable) else None)
+            if t_str and "near place" in str(t_str).lower():
                 is_near = True
                 break
         if is_near:
@@ -591,13 +597,6 @@ def _is_change_of_state_relation(rel):
     return str(rel).lower() in {str(v).lower() for v in change_verbs}
 
 
-def _parse_or_string(s):
-    """Parse 'OR(a, b, ...)' strings into a list of part strings, or return None."""
-    if isinstance(s, str) and s.startswith("OR(") and s.endswith(")"):
-        return [part.strip() for part in s[3:-1].split(",")]
-    return None
-
-
 def _compare_single_prop_val(d, lhs_val, rhs_val):
     """Compare one property value (str, FVariable, FOr) in the lhs→rhs direction."""
     from LaSSI.structures.extended_fol.Formulae import FOr, FVariable as _FVar
@@ -607,10 +606,10 @@ def _compare_single_prop_val(d, lhs_val, rhs_val):
     def _name_match(a, b):
         if a == b:
             return True
-        if isinstance(a, str) and isinstance(b, _FVar):
-            return a == b.name
-        if isinstance(a, _FVar) and isinstance(b, str):
-            return a.name == b
+        a_name = a if isinstance(a, str) else (a.name if isinstance(a, _FVar) else None)
+        b_name = b if isinstance(b, str) else (b.name if isinstance(b, _FVar) else None)
+        if a_name is not None and b_name is not None and a_name == b_name:
+            return True
         return False
 
     if isinstance(rhs_val, FOr):
@@ -620,20 +619,6 @@ def _compare_single_prop_val(d, lhs_val, rhs_val):
     if isinstance(lhs_val, FOr):
         # rhs is a disjunct of lhs → lhs is more general → lhs does not imply rhs
         if any(_name_match(rhs_val, arg) for arg in lhs_val.args):
-            return CasusHappening.INDIFFERENT
-
-    # Handle string-serialised OR values, e.g. "OR(stay in place, near place)".
-    # These arise when the pipeline serialises an FOr type as its string repr
-    # instead of a proper FOr JSON object.  Semantics mirror the FOr branches above.
-    rhs_or_parts = _parse_or_string(rhs_val)
-    if rhs_or_parts is not None:
-        lhs_name = lhs_val if isinstance(lhs_val, str) else (lhs_val.name if isinstance(lhs_val, _FVar) else None)
-        if lhs_name is not None and lhs_name in rhs_or_parts:
-            return CasusHappening.GENERAL_IMPLICATION
-    lhs_or_parts = _parse_or_string(lhs_val)
-    if lhs_or_parts is not None:
-        rhs_name = rhs_val if isinstance(rhs_val, str) else (rhs_val.name if isinstance(rhs_val, _FVar) else None)
-        if rhs_name is not None and rhs_name in lhs_or_parts:
             return CasusHappening.INDIFFERENT
 
     if isinstance(lhs_val, _FVar) and isinstance(rhs_val, _FVar):
@@ -1055,7 +1040,7 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
             # their city but disagreeing on the named micro-location should
             # not collect partial credit either.
             _space_mismatch = _space_mismatch_contradiction(x, y)
-            if _lifecycle_verdict in ('contradiction', 'asymmetric') or _space_mismatch:
+            if _lifecycle_verdict == 'contradiction' or _space_mismatch:
                 val = CasusHappening.EXCLUSIVES
                 antonymRelationContradiction = True
             elif isinstance(x, FBinaryPredicate) and isinstance(y, FBinaryPredicate):
