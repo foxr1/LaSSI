@@ -17,6 +17,7 @@ import numpy
 from LaSSI.external_services.Services import Services
 from LaSSI.ner.KernelPostProcessor import KernelPostProcessor
 from LaSSI.ner.MergeSetOfSingletons import merge_properties
+from LaSSI.ner.node_functions import create_existential_node
 from LaSSI.ner.node_functions_X import create_props_for_singleton, NodeFunctions
 from LaSSI.ner.string_functions import is_label_verb, check_semi_modal, lemmatize_verb
 from LaSSI.structures import DependencyRoles
@@ -132,13 +133,17 @@ class CreateFinalKernelX:
                 kernel = self.kernel_post_processing(kernel, position_pairs)
 
                 # Only check for empty kernel if more than one root node, as if there is only 1 root node we need something, even if it is empty...
-                if len(filtered_top_node_ids) > 1:
-                    kernel = self.check_if_empty_kernel(kernel)  # Check we do not have be(?, ?) as a kernel
-                    if kernel is not None: # (not empty)
-                        # if not loop_settings.edgeForKernel:
-                        nx.set_node_attributes(self.G, {node_id: kernel}, 'data')
-                else:
-                    nx.set_node_attributes(self.G, {node_id: kernel}, 'data')
+                # if len(filtered_top_node_ids) > 1:
+                #     kernel = self.check_if_empty_kernel(kernel)  # Check we do not have be(?, ?) as a kernel
+                #     if kernel is not None: # (not empty)
+                #         # if not loop_settings.edgeForKernel:
+                #         nx.set_node_attributes(self.G, {node_id: kernel}, 'data')
+                # else:
+                #     nx.set_node_attributes(self.G, {node_id: kernel}, 'data')
+
+                # Hoist empty copula wrappers to their underlying SENTENCE kernels
+                kernel = self.check_if_empty_kernel(kernel)
+                nx.set_node_attributes(self.G, {node_id: kernel}, 'data')
 
                 # Strip 'root'/'kernel' so the same node is not re-used as a root next iteration
                 attributes_to_update = {
@@ -163,6 +168,33 @@ class CreateFinalKernelX:
             [n_id for n_id in sorted_G if n_id in filtered_top_node_ids][-1]
             if len(filtered_top_node_ids) > 0 else sorted_G[-1]
         ]['data']
+
+        # If the highest topological node is a copula ("are"), but we have a semantic verb ("carry out")
+        # in our roots, swap them so the final kernel prioritizes the semantic action.
+        if len(filtered_top_node_ids) > 1 and isinstance(final_kernel, Singleton) and final_kernel.kernel is not None:
+            try:
+                copula_forms = self.services.getHOnK().getCopulaSurfaceForms() or set()
+            except Exception:
+                copula_forms = set()
+            copula_lower = {str(f).lower() for f in copula_forms}
+
+            def is_copula_node(node_data):
+                if not isinstance(node_data,
+                                  Singleton) or node_data.kernel is None or node_data.kernel.edgeLabel is None:
+                    return False
+                ename = node_data.kernel.edgeLabel.named_entity if isinstance(node_data.kernel.edgeLabel,
+                                                                              Singleton) else ""
+                parts = [p for p in ename.split() if p]
+                if not parts: return False
+                return all(p.lower() in copula_lower or lemmatize_verb(p).lower() in copula_lower for p in parts)
+
+            # If the final kernel defaulted to a copula, search the other roots for the semantic verb
+            if is_copula_node(final_kernel):
+                for nid in reversed([n for n in sorted_G if n in filtered_top_node_ids]):
+                    cand = self.G.nodes[nid]['data']
+                    if isinstance(cand, Singleton) and cand.kernel is not None and not is_copula_node(cand):
+                        final_kernel = cand
+                        break
 
         # Multi-component reconciliation: hoist subordinate clauses as SENTENCE properties
         # of the primary kernel.
@@ -214,8 +246,10 @@ class CreateFinalKernelX:
                     elif k not in merged_props:
                         merged_props[k] = v
             final_kernel = final_kernel.update_node_props(merged_props)
-        elif (
-            is_multi_component and
+        
+        # Reconciliation logic for existential constructions and disconnected components
+        if (
+            (is_multi_component or len(filtered_top_node_ids) > 1) and
             primary_root_id is None and
             isinstance(final_kernel, Singleton) and
             final_kernel.kernel is not None
@@ -226,6 +260,11 @@ class CreateFinalKernelX:
             # inspections/repairs conj as its own component). Promote that
             # nominal component as the kernel target; demote any existing
             # location target to SPACE.
+            #
+            # This also handles the single-component case where an existential 
+            # copula root ("There are...") and a semantic verb root ("...carried out")
+            # are both detected. In that case, we "steal" the nominal target from
+            # the copula kernel and promote it to the verb kernel.
             verb_root_id = None
             for nid in filtered_top_node_ids:
                 cand = self.G.nodes[nid]['data']
@@ -274,6 +313,11 @@ class CreateFinalKernelX:
                     )
                 if isinstance(node, Singleton):
                     if node.kernel is not None:
+                        # Allow "weak" copula kernels to be treated as nominals (via their target)
+                        if (node.kernel.edgeLabel is not None and 
+                            node.kernel.edgeLabel.named_entity == 'be' and
+                            node.kernel.target is not None):
+                            return True
                         return False
                     return 'verb' not in (node.type or '').lower()
                 return False
@@ -285,6 +329,8 @@ class CreateFinalKernelX:
                     return min(positions) if positions else None
                 if isinstance(node, Singleton):
                     p = dict(node.properties).get('pos')
+                    if p is None and node.kernel is not None:
+                        return _min_position(node.kernel.target)
                     try:
                         return float(p)
                     except (TypeError, ValueError):
@@ -311,6 +357,12 @@ class CreateFinalKernelX:
                     break
 
             if chosen_nominal is not None:
+                # If the chosen nominal is a weak copula kernel, extract its target
+                if (isinstance(chosen_nominal, Singleton) and chosen_nominal.kernel is not None and 
+                    chosen_nominal.kernel.edgeLabel is not None and 
+                    chosen_nominal.kernel.edgeLabel.named_entity == 'be'):
+                    chosen_nominal = chosen_nominal.kernel.target
+
                 print(f"[constructSentence] chosen_nominal branch firing: chosen_nominal.named_entity={getattr(chosen_nominal, 'named_entity', '?')!r}")
                 new_props = defaultdict(list)
                 for k, v in dict(final_kernel.properties).items():
@@ -326,6 +378,8 @@ class CreateFinalKernelX:
                     if old_target.id not in existing_space_ids:
                         new_props['SPACE'].append(old_target)
                 final_kernel = final_kernel.update_node_props(new_props)
+
+                final_kernel = final_kernel.update_kernel(create_existential_node(), "source")
                 final_kernel = final_kernel.update_kernel(chosen_nominal, "target")
 
         # Phase 4: post-processing pipeline
@@ -433,6 +487,13 @@ class CreateFinalKernelX:
 
         # Keep only genuine roots: nodes with no incoming edges
         candidates = {nid for nid in filtered_top_node_ids if len(list(self.G.in_edges(nid))) == 0}
+
+        # candidates = {
+        #     nid for nid in filtered_top_node_ids
+        #     if len([(u, v, data) for u, v, data in self.G.in_edges(nid, data=True) if
+        #             data['label'].named_entity != 'acl']) == 0
+        # }
+
         if candidates:
             filtered_top_node_ids = candidates
 
@@ -502,33 +563,69 @@ class CreateFinalKernelX:
         return final_kernel
 
     # Check if final kernel is "empty" be(?, ?) and use the properties of 'SENTENCE'
-    def check_if_empty_kernel(self, kernel, force=False):
+    def check_if_empty_kernel(self, kernel, force=False):  # Note: use _check_if_empty_kernel in KernelPostProcessor.py
         properties_to_keep = dict()
         new_kernel = None
         if (
-                isinstance(kernel,
-                           Singleton) and kernel.kernel is not None and kernel.kernel.edgeLabel is not None and (
-                kernel.kernel.edgeLabel.named_entity == "be" if not force else True)
-                and
-                (
-                        ((kernel.kernel.source is not None and kernel.kernel.source.type == 'existential') and (
-                                kernel.kernel.target is not None and kernel.kernel.target.type == 'existential'))
-                        or
-                        ((kernel.kernel.source is None) and (kernel.kernel.target is None))
-                )
+                isinstance(kernel, Singleton) and
+                kernel.kernel is not None and
+                kernel.kernel.edgeLabel is not None and
+                (kernel.kernel.edgeLabel.named_entity == "be" if not force else True)
         ):
-            node_props = dict(kernel.properties)
-            if len(node_props) > 0 and 'SENTENCE' in node_props:
-                for key in node_props:
-                    if key == 'SENTENCE':
-                        new_kernel = node_props['SENTENCE'][0]
-                        new_kernel = self.check_if_empty_kernel(new_kernel)
-                    else:
-                        properties_to_keep[key] = node_props[key]
+            source_empty = kernel.kernel.source is None or kernel.kernel.source.type == 'existential'
+            target_empty = kernel.kernel.target is None or kernel.kernel.target.type == 'existential'
+            is_be = kernel.kernel.edgeLabel.named_entity == "be"
+
+            if (source_empty or target_empty) if is_be else (source_empty and target_empty):
+                node_props = dict(kernel.properties)
+                if len(node_props) > 0 and 'SENTENCE' in node_props:
+                    for key in node_props:
+                        if key == 'SENTENCE':
+                            new_kernel = node_props['SENTENCE'][0]
+                            new_kernel = self.check_if_empty_kernel(new_kernel, force)
+
+                            if is_be and new_kernel is not None and new_kernel.kernel is not None:
+                                outer_nominal = kernel.kernel.source if not source_empty else kernel.kernel.target
+                                inner_source = new_kernel.kernel.source
+                                inner_target = new_kernel.kernel.target
+
+                                # Check if the inner verb syntax mapped the nominal to its source
+                                if outer_nominal is not None and inner_source is not None and getattr(inner_source,
+                                                                                                      'id',
+                                                                                                      None) == getattr(
+                                        outer_nominal, 'id', None):
+                                    is_loc = False
+
+                                    # Safe to invert if target is empty, existential, or a location
+                                    if inner_target is None or getattr(inner_target, 'type', None) == 'existential':
+                                        is_loc = True
+                                    elif hasattr(self, 'post') and hasattr(self.post,
+                                                                           'matchers') and self.post.matchers.is_location_like(
+                                            inner_target):
+                                        is_loc = True
+                                    elif hasattr(self, 'matchers') and self.matchers.is_location_like(inner_target):
+                                        is_loc = True
+
+                                    if is_loc:
+                                        from LaSSI.ner.node_functions import create_existential_node
+                                        new_kernel = new_kernel.update_kernel(create_existential_node(), "source")
+                                        new_kernel = new_kernel.update_kernel(outer_nominal, "target")
+
+                                        # Demote the location target to a SPACE property
+                                        if inner_target is not None and getattr(inner_target, 'type',
+                                                                                None) != 'existential':
+                                            if 'SPACE' not in properties_to_keep:
+                                                properties_to_keep['SPACE'] = []
+                                            properties_to_keep['SPACE'].append(inner_target)
+                        else:
+                            properties_to_keep[key] = node_props[key]
 
         if new_kernel is not None:
             if len(properties_to_keep) > 0:
-                return new_kernel.update_node_props(properties_to_keep)
+                from LaSSI.ner.MergeSetOfSingletons import merge_properties
+                # Merge the outer wrapper's properties directly onto the inner kernel
+                merged_props = merge_properties(dict(new_kernel.properties), properties_to_keep)
+                return new_kernel.update_node_props(merged_props)
             else:
                 return new_kernel
         else:

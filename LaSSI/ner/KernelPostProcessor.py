@@ -75,6 +75,7 @@ class KernelPostProcessor:
         `LaSSI/ner/structural_rewrites/__init__.py` — see that module's
         docstring for the registration recipe."""
         pipeline = [
+            ('hoist_empty_kernel',                    self._check_if_empty_kernel),
             ('dedupe_properties',                     self.remove_duplicate_properties),
             ('fold_phrasal_advs',                     self.check_for_adv),
             ('promote_contextual_sentence_kernel',     self.promote_contextual_sentence_kernel),
@@ -931,7 +932,12 @@ class KernelPostProcessor:
         source = promote_from_node(kernel.kernel.source)
         target = promote_from_node(kernel.kernel.target)
 
-        if logical_keys and target is None and isinstance(source, Singleton) and source.type != 'existential':
+        source_is_entity = (
+                (isinstance(source, Singleton) and source.type != 'existential') or
+                isinstance(source, SetOfSingletons)
+        )
+
+        if logical_keys and target is None and source_is_entity:
             kernel = kernel.update_kernel(_make_existential(), 'source')
             kernel = kernel.update_kernel(source, 'target')
         else:
@@ -1175,6 +1181,18 @@ class KernelPostProcessor:
                 else:
                     properties_to_keep[key].append(properties_key_)
 
+            source_was_placeholder = (
+                    kernel.kernel.source is not None and
+                    kernel.kernel.source.id in acl_relcl_map and
+                    kernel.kernel.source.type == 'existential'
+            )
+
+            # Shift to target if we have a source replacement but no target
+            if source_was_placeholder and kernel_target is None:
+                from LaSSI.ner.node_functions import create_existential_node
+                kernel_target = kernel_source
+                kernel_source = create_existential_node()
+
             return Singleton(
                 id=kernel.id,
                 named_entity='',
@@ -1312,36 +1330,69 @@ class KernelPostProcessor:
             properties=create_props_for_singleton(properties_to_keep),
         )
 
-    def _check_if_empty_kernel(self, kernel, force=False):
-        """Local copy of `check_if_empty_kernel` from the orchestrator —
-        `remove_duplicate_properties` invokes it recursively when scanning
-        SENTENCE child kernels. Kept here to avoid an import cycle."""
+    def _check_if_empty_kernel(self, kernel, force=False):  # Note: use _check_if_empty_kernel in KernelPostProcessor.py
         properties_to_keep = dict()
         new_kernel = None
         if (
-                isinstance(kernel,
-                           Singleton) and kernel.kernel is not None and kernel.kernel.edgeLabel is not None and (
-                kernel.kernel.edgeLabel.named_entity == "be" if not force else True)
-                and
-                (
-                        ((kernel.kernel.source is not None and kernel.kernel.source.type == 'existential') and (
-                                kernel.kernel.target is not None and kernel.kernel.target.type == 'existential'))
-                        or
-                        ((kernel.kernel.source is None) and (kernel.kernel.target is None))
-                )
+                isinstance(kernel, Singleton) and
+                kernel.kernel is not None and
+                kernel.kernel.edgeLabel is not None and
+                (kernel.kernel.edgeLabel.named_entity == "be" if not force else True)
         ):
-            node_props = dict(kernel.properties)
-            if len(node_props) > 0 and 'SENTENCE' in node_props:
-                for key in node_props:
-                    if key == 'SENTENCE':
-                        new_kernel = node_props['SENTENCE'][0]
-                        new_kernel = self._check_if_empty_kernel(new_kernel)
-                    else:
-                        properties_to_keep[key] = node_props[key]
+            source_empty = kernel.kernel.source is None or kernel.kernel.source.type == 'existential'
+            target_empty = kernel.kernel.target is None or kernel.kernel.target.type == 'existential'
+            is_be = kernel.kernel.edgeLabel.named_entity == "be"
+
+            if (source_empty or target_empty) if is_be else (source_empty and target_empty):
+                node_props = dict(kernel.properties)
+                if len(node_props) > 0 and 'SENTENCE' in node_props:
+                    for key in node_props:
+                        if key == 'SENTENCE':
+                            new_kernel = node_props['SENTENCE'][0]
+                            new_kernel = self._check_if_empty_kernel(new_kernel, force)
+
+                            if is_be and new_kernel is not None and new_kernel.kernel is not None:
+                                outer_nominal = kernel.kernel.source if not source_empty else kernel.kernel.target
+                                inner_source = new_kernel.kernel.source
+                                inner_target = new_kernel.kernel.target
+
+                                # Check if the inner verb syntax mapped the nominal to its source
+                                if outer_nominal is not None and inner_source is not None and getattr(inner_source,
+                                                                                                      'id',
+                                                                                                      None) == getattr(
+                                        outer_nominal, 'id', None):
+                                    is_loc = False
+
+                                    # Safe to invert if target is empty, existential, or a location
+                                    if inner_target is None or getattr(inner_target, 'type', None) == 'existential':
+                                        is_loc = True
+                                    elif hasattr(self, 'post') and hasattr(self.post,
+                                                                           'matchers') and self.post.matchers.is_location_like(
+                                            inner_target):
+                                        is_loc = True
+                                    elif hasattr(self, 'matchers') and self.matchers.is_location_like(inner_target):
+                                        is_loc = True
+
+                                    if is_loc:
+                                        from LaSSI.ner.node_functions import create_existential_node
+                                        new_kernel = new_kernel.update_kernel(create_existential_node(), "source")
+                                        new_kernel = new_kernel.update_kernel(outer_nominal, "target")
+
+                                        # Demote the location target to a SPACE property
+                                        if inner_target is not None and getattr(inner_target, 'type',
+                                                                                None) != 'existential':
+                                            if 'SPACE' not in properties_to_keep:
+                                                properties_to_keep['SPACE'] = []
+                                            properties_to_keep['SPACE'].append(inner_target)
+                        else:
+                            properties_to_keep[key] = node_props[key]
 
         if new_kernel is not None:
             if len(properties_to_keep) > 0:
-                return new_kernel.update_node_props(properties_to_keep)
+                from LaSSI.ner.MergeSetOfSingletons import merge_properties
+                # Merge the outer wrapper's properties directly onto the inner kernel
+                merged_props = merge_properties(dict(new_kernel.properties), properties_to_keep)
+                return new_kernel.update_node_props(merged_props)
             else:
                 return new_kernel
         else:

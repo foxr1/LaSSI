@@ -964,15 +964,15 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                 keyCmpElements = CasusHappening.GENERAL_IMPLICATION
                 keyCmpElementsInv = CasusHappening.INDIFFERENT
                 hasDirectSubset = True
-            elif set(dLHS.keys()).issubset(set(dRHS.keys())) and set(dLHS.keys()) != set(dRHS.keys()):
-                # LHS keys are a strict subset of RHS keys: RHS carries
-                # property obligations (e.g. CAUSATION) that LHS makes no
-                # claim about.  The forward direction (x→y) cannot license
-                # those extras → INDIFFERENT.  The inverse direction (y→x)
-                # can drop the extras → LOSE_SPEC_IMPLICATION (rule 5).
-                keyCmpElements = CasusHappening.INDIFFERENT
-                keyCmpElementsInv = CasusHappening.LOSE_SPEC_IMPLICATION
-                hasDirectSubset = True
+            # elif set(dLHS.keys()).issubset(set(dRHS.keys())) and set(dLHS.keys()) != set(dRHS.keys()):
+            #     # LHS keys are a strict subset of RHS keys: RHS carries
+            #     # property obligations (e.g. CAUSATION) that LHS makes no
+            #     # claim about.  The forward direction (x→y) cannot license
+            #     # those extras → INDIFFERENT.  The inverse direction (y→x)
+            #     # can drop the extras → LOSE_SPEC_IMPLICATION (rule 5).
+            #     keyCmpElements = CasusHappening.INDIFFERENT
+            #     keyCmpElementsInv = CasusHappening.LOSE_SPEC_IMPLICATION
+            #     hasDirectSubset = True
             else:
             # if is_direct_subset(yprop, xprop):
             #     keyCmpElements = CasusHappening.GENERAL_IMPLICATION
@@ -1040,7 +1040,18 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
             # their city but disagreeing on the named micro-location should
             # not collect partial credit either.
             _space_mismatch = _space_mismatch_contradiction(x, y)
-            if _lifecycle_verdict == 'contradiction' or _space_mismatch:
+
+            _causation_mismatch = False
+            if hasattr(x, 'properties') and hasattr(y, 'properties') and x.properties and y.properties:
+                x_caus = [v for k, v in x.properties if k in ("CAUSATION", "CAUSE")]
+                y_caus = [v for k, v in y.properties if k in ("CAUSATION", "CAUSE")]
+                if x_caus and y_caus:
+                    # If both have a cause, but evaluating them yields INDIFFERENT, it's a hard contradiction
+                    caus_cmp = simplifyConstituents([compare_variable(d, xc, yc) for xc in x_caus for yc in y_caus])
+                    if caus_cmp == CasusHappening.INDIFFERENT:
+                        _causation_mismatch = True
+
+            if _lifecycle_verdict == 'contradiction' or _space_mismatch or _causation_mismatch:
                 val = CasusHappening.EXCLUSIVES
                 antonymRelationContradiction = True
             elif isinstance(x, FBinaryPredicate) and isinstance(y, FBinaryPredicate):
