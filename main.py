@@ -31,7 +31,7 @@ if __name__ == '__main__':
     if commonsense_qa:
         dataset_name = get_dataset()
     else:
-        dataset_name = "neet/evidence_cases/crime_005.yaml"
+        dataset_name = "neet/evidence_cases/crime_001.yaml"
 
     fuzzyDBs = "connection.yaml"
 

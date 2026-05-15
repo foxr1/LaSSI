@@ -68,18 +68,20 @@ class FuzzyStringMatchDatabase:
                 poll[score].add(monad)
         return poll
 
-    def typed_similarity(self, table, query, score=1.0):
+    def typed_similarity(self, table, query, threshold=1.0):
         query = query.replace("'", "''")
         poll = defaultdict(set)
         with self.connection.cursor() as cursor:
             sql_query = f"""SELECT idx, similarity(t, '{query}') AS sml, type
                                FROM {table}
-                               WHERE t % '{query}' AND similarity(t, '{query}')>={score}
+                               WHERE t % '{query}' AND similarity(t, '{query}') >= {threshold}
                                ORDER BY sml DESC, t"""
             cursor.execute(sql_query)
 
-            for monad, score, r_type in cursor:
-                poll[score].add((monad, r_type))
+            for monad, db_similarity_score, r_type in cursor:
+                for single_type in r_type.split(","):
+                    poll[db_similarity_score].add((monad, single_type))
+
         return poll
 
     def morphosyntax(self, table, word, ending):
@@ -131,7 +133,7 @@ class DBFuzzyStringMatching:
         return self.db.similarity(self.tablename, objectString, score=threshold)
 
     def typedFuzzyMatch(self, threshold: float, objectString: str):
-        return self.db.typed_similarity(self.tablename, objectString, score=threshold)
+        return self.db.typed_similarity(self.tablename, objectString, threshold=threshold)
 
 
 if __name__ == "__main__":

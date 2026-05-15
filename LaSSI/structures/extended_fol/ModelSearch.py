@@ -6,6 +6,8 @@ from pydatagramdb import result
 from LaSSI.structures.extended_fol.Formulae import *
 from LaSSI.HOnK.HOnK import CasusHappening
 
+_TRACE_COMPARE = True  # toggle for debug tracing
+
 
 class ModelSearchBasis:
     def __init__(self, original, constituents):
@@ -42,11 +44,20 @@ class ModelSearch:
 
     @staticmethod
     def _same_relation(lhs, rhs):
-        return (
-                isinstance(lhs, (FUnaryPredicate, FBinaryPredicate)) and
-                isinstance(rhs, (FUnaryPredicate, FBinaryPredicate)) and
-                lhs.rel == rhs.rel
-        )
+        if not (isinstance(lhs, (FUnaryPredicate, FBinaryPredicate)) and
+                isinstance(rhs, (FUnaryPredicate, FBinaryPredicate))):
+            return False
+        if lhs.rel == rhs.rel:
+            return True
+        # Synonymous relations (e.g. 'carry out' / 'do') should also count
+        # so the contextual guard fires and re-checks the originals' properties.
+        from LaSSI.HOnK.HOnK import HOnKSingleton
+        from LaSSI.HOnK.TBox.ExpandConstituents import isImplication
+        if HOnKSingleton.isReady():
+            rel_cmp = HOnKSingleton.get().name_eq(lhs.rel, rhs.rel)
+            if rel_cmp == CasusHappening.EQUIVALENT or isImplication(rel_cmp):
+                return True
+        return False
 
     @staticmethod
     def _has_properties(formula):
@@ -56,11 +67,31 @@ class ModelSearch:
         )
 
     def _guard_contextual_implication(self, objLHS, objRHS, verdict):
-        from LaSSI.HOnK.TBox.ExpandConstituents import test_pairwise_sentence_similarity, isImplication
+        from LaSSI.HOnK.TBox.ExpandConstituents import (
+            test_pairwise_sentence_similarity, isImplication,
+            compare_variable, simplifyConstituentsAcross, simplifyConstituents,
+        )
         if not isImplication(verdict):
             return verdict
-        if not (self._same_relation(objLHS.original, objRHS.original) and self._has_properties(objRHS.original)):
+        # When either original carries properties (CAUSATION, SPACE, etc.),
+        # re-check whether the originals' properties are compatible.
+        # Expansion-derived implications strip optional properties and can
+        # produce false positives when the originals disagree on those
+        # properties (e.g. different causes).
+        if not (self._has_properties(objLHS.original) or self._has_properties(objRHS.original)):
+            if _TRACE_COMPARE:
+                print(f"[GUARD] no properties on either original, returning verdict={verdict}")
             return verdict
+        # First try a full direct comparison of the originals.  This covers
+        # the common case where the relation names are string-equal or the
+        # ontology recognises them as synonyms.
+        if _TRACE_COMPARE:
+            lhs_props = getattr(objLHS.original, 'properties', None)
+            rhs_props = getattr(objRHS.original, 'properties', None)
+            print(f"[GUARD] LHS original: rel={getattr(objLHS.original,'rel','?')}, dst={getattr(objLHS.original,'dst','?')}, props={lhs_props}")
+            print(f"[GUARD] RHS original: rel={getattr(objRHS.original,'rel','?')}, dst={getattr(objRHS.original,'dst','?')}, props={rhs_props}")
+            print(f"[GUARD] LHS str: {objLHS.original}")
+            print(f"[GUARD] RHS str: {objRHS.original}")
         direct = test_pairwise_sentence_similarity(
             self.pairwise_similarity_cache,
             objLHS.original,
@@ -68,8 +99,46 @@ class ModelSearch:
             store=False,
             shift=False,
         )
+        if _TRACE_COMPARE:
+            print(f"[GUARD] direct comparison: {direct}")
+            # Check if it was in cache
+            cache_key = (objLHS.original, objRHS.original)
+            if cache_key in self.pairwise_similarity_cache:
+                print(f"[GUARD] NOTE: result was in pairwise_similarity_cache!")
         if direct == CasusHappening.INDIFFERENT:
             return CasusHappening.INDIFFERENT
+        # If the full comparison didn't return INDIFFERENT but also didn't
+        # return the expansion-level implication (e.g. because the relation
+        # names differ and aren't linked in the ontology), fall back to a
+        # property-only comparison.  The expansion already established that
+        # the predicates are semantically related, so we only need to check
+        # whether the properties (CAUSATION, SPACE, etc.) are compatible.
+        if direct != CasusHappening.EQUIVALENT and not isImplication(direct):
+            if _TRACE_COMPARE:
+                print(f"[GUARD] direct was not eq/impl, checking properties directly")
+            xorig = objLHS.original
+            yorig = objRHS.original
+            if (hasattr(xorig, 'properties') and hasattr(yorig, 'properties')
+                    and xorig.properties and yorig.properties):
+                xprop = set() if xorig.properties is None else xorig.properties
+                yprop = set() if yorig.properties is None else yorig.properties
+                dLHS = dict(xprop)
+                dRHS = dict(yprop)
+                keys = set(dLHS.keys()) | set(dRHS.keys())
+                d = self.pairwise_similarity_cache
+                for key in keys:
+                    if key in dLHS and key in dRHS:
+                        lhs_bests = [
+                            simplifyConstituents([compare_variable(d, xx, yy) for yy in dRHS[key]])
+                            for xx in dLHS[key]
+                        ]
+                        prop_cmp = simplifyConstituentsAcross(lhs_bests) if lhs_bests else CasusHappening.EQUIVALENT
+                        if _TRACE_COMPARE:
+                            print(f"[GUARD] property key={key}: prop_cmp={prop_cmp}")
+                        if prop_cmp == CasusHappening.INDIFFERENT:
+                            return CasusHappening.INDIFFERENT
+        if _TRACE_COMPARE:
+            print(f"[GUARD] returning verdict={verdict}")
         return verdict
 
     def searchInSet(self, lhs, rhsSet, isRightDrop = False):
@@ -89,6 +158,8 @@ class ModelSearch:
         cp = (objLHS.original, objRHS.original)
         if (objLHS.original == objRHS.original):
             self.main_cache[cp] = CasusHappening.EQUIVALENT
+            if _TRACE_COMPARE:
+                print(f"[COMPARE] path=EQUAL_ORIGINALS, result=EQUIVALENT")
             return self.main_cache[cp]
         elif ((objLHS.original == make_not(objRHS.original)) or
               (objLHS.original == make_not(objLHS.original)) or
@@ -97,11 +168,17 @@ class ModelSearch:
               (make_not(objRHS.original) in objLHS.unary) or
               (make_not(objRHS.original) in objLHS.binary)):
             self.main_cache[cp] = CasusHappening.EXCLUSIVES
+            if _TRACE_COMPARE:
+                print(f"[COMPARE] path=NEGATION, result=EXCLUSIVES")
             return self.main_cache[cp]
         elif ((objLHS.original in objRHS.unary) or
               (objLHS.original in objRHS.binary)):
+            if _TRACE_COMPARE:
+                print(f"[COMPARE] path=LHS_ORIG_IN_RHS_EXPANSION, lhs_rel={getattr(objLHS.original,'rel','?')}, rhs_rel={getattr(objRHS.original,'rel','?')}")
             self.main_cache[cp] = self._guard_contextual_implication(
                 objLHS, objRHS, CasusHappening.GENERAL_IMPLICATION)
+            if _TRACE_COMPARE:
+                print(f"[COMPARE] path=LHS_ORIG_IN_RHS_EXPANSION, result={self.main_cache[cp]}")
             return self.main_cache[cp]
         else:
             # Performing the constituents search:
@@ -109,19 +186,33 @@ class ModelSearch:
                 negForm = make_not(lhs) if not isinstance(lhs, FNot) else lhs.arg
                 if negForm in objRHS.unary:
                     self.main_cache[cp] = CasusHappening.EXCLUSIVES
+                    if _TRACE_COMPARE:
+                        print(f"[COMPARE] path=NEG_UNARY_EXPANSION, result=EXCLUSIVES")
                     return self.main_cache[cp]
             for lhs in objLHS.binary:
                 negForm = make_not(lhs) if not isinstance(lhs, FNot) else lhs.arg
                 if negForm in objRHS.binary:
                     self.main_cache[cp] = CasusHappening.EXCLUSIVES
+                    if _TRACE_COMPARE:
+                        print(f"[COMPARE] path=NEG_BINARY_EXPANSION, result=EXCLUSIVES")
                     return self.main_cache[cp]
             for lhs in objLHS.unary:
                 if lhs in objRHS.unary:
-                    self.main_cache[cp] = CasusHappening.GENERAL_IMPLICATION
+                    if _TRACE_COMPARE:
+                        print(f"[COMPARE] path=UNARY_EXPANSION_MATCH, matched={lhs}")
+                    self.main_cache[cp] = self._guard_contextual_implication(
+                        objLHS, objRHS, CasusHappening.GENERAL_IMPLICATION)
+                    if _TRACE_COMPARE:
+                        print(f"[COMPARE] path=UNARY_EXPANSION_MATCH, result={self.main_cache[cp]}")
                     return self.main_cache[cp]
             for lhs in objLHS.binary:
                 if lhs in objRHS.binary:
-                    self.main_cache[cp] = CasusHappening.GENERAL_IMPLICATION
+                    if _TRACE_COMPARE:
+                        print(f"[COMPARE] path=BINARY_EXPANSION_MATCH, matched={lhs}")
+                    self.main_cache[cp] = self._guard_contextual_implication(
+                        objLHS, objRHS, CasusHappening.GENERAL_IMPLICATION)
+                    if _TRACE_COMPARE:
+                        print(f"[COMPARE] path=BINARY_EXPANSION_MATCH, result={self.main_cache[cp]}")
                     return self.main_cache[cp]
             # Performing the exhaustive search:
             # Scan unary AND binary expansions for EXCLUSIVES first — a
@@ -171,6 +262,10 @@ class ModelSearch:
                     elems.add(val)
             from LaSSI.HOnK.TBox.ExpandConstituents import simplifyConstituentsAcross
             result = simplifyConstituentsAcross(elems)
+            if _TRACE_COMPARE:
+                print(f"[COMPARE] path=EXHAUSTIVE_SEARCH, elems={elems}, pre_guard_result={result}")
             result = self._guard_contextual_implication(objLHS, objRHS, result)
+            if _TRACE_COMPARE:
+                print(f"[COMPARE] path=EXHAUSTIVE_SEARCH, post_guard_result={result}")
             self.main_cache[cp] = result
             return result

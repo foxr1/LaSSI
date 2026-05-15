@@ -191,7 +191,26 @@ class KernelLogicalRewriter:
 
                     val_to_add = prop_node
                     if selected_function.argument == "subject" and hasattr(prop_node, 'kernel') and prop_node.kernel is not None:
-                        val_to_add = prop_node.kernel.source
+                        # TODO: This might be too hacky, return to this later... (e.g. take[mark:while](?, place)[noun:maintenance work]
+                        #  I think really the source should just be maintenance work but it is a property for some reason
+                        _props = dict(prop_node.properties)
+                        # Only apply the len==1 shortcut for raw (non-classified) properties.
+                        # Already-classified keys (e.g. TIME, SPACE) are logical slots, not entity subjects.
+                        _non_logical_keys = [k for k in _props if isinstance(k, str) and not k.isupper()]
+                        if prop_node.kernel.source.type == 'existential' and len(_props) == 1 and _non_logical_keys:
+                            val_to_add = _props[_non_logical_keys[0]][0]
+                        elif (
+                            selected_rule.logicalConstructName == "temporal_context" and
+                            prop_node.kernel.source.type == 'existential' and
+                            prop_node.kernel.target is not None and
+                            isinstance(prop_node.kernel.target, Singleton)
+                        ):
+                            # Occurrence clause: the kernel target is the entity that occurred
+                            # (e.g. "after storm damage occurred" → target=storm_damage).
+                            val_to_add = prop_node.kernel.target
+                        else:
+                            val_to_add = prop_node.kernel.source
+
                         if isinstance(val_to_add, Singleton):
                             # Incorporate the verb (edge label) as the 'type' of the subject
                             edge_name = prop_node.kernel.edgeLabel.named_entity
@@ -204,6 +223,11 @@ class KernelLogicalRewriter:
                             while base_parts and base_parts[0].lower() in prefix_terms:
                                 base_parts = base_parts[1:]
                             base_verb = ' '.join(base_parts)
+
+                            if prop_node.kernel.target is not None and hasattr(prop_node.kernel.target, 'named_entity'):
+                                combined_verb = f"{base_verb} {prop_node.kernel.target.named_entity}"
+                                if any(combined_verb.lower() == str(v).lower() for v in honk.getPhrasalVerbs() if v):
+                                    base_verb = combined_verb
 
                             v_props = dict(val_to_add.properties)
                             v_props['type'] = base_verb
@@ -426,12 +450,12 @@ class KernelLogicalRewriter:
         for key in properties:
             for prop_node in properties[key]:
                 if isinstance(prop_node, Singleton):
-                    if kernel.kernel.source.id == prop_node.id:
+                    if kernel.kernel.source is not None and kernel.kernel.source.id == prop_node.id and (prop_node.id != -1 or kernel.kernel.source.named_entity == prop_node.named_entity):
                         kernel = kernel.update_kernel(prop_node, "source")
                         nodes_to_remove.append(prop_node)
                     elif not is_copula_kernel and kernel.kernel.target is not None and (
-                        kernel.kernel.target.id == prop_node.id or
-                        ('extra' in dict(prop_node.properties) and len([x for x in list(dict(prop_node.properties)['extra']) if x.id == kernel.kernel.target.id]) > 0)
+                        (kernel.kernel.target.id == prop_node.id and (prop_node.id != -1 or kernel.kernel.target.named_entity == prop_node.named_entity)) or
+                        ('extra' in dict(prop_node.properties) and len([x for x in list(dict(prop_node.properties)['extra']) if x.id == kernel.kernel.target.id and (x.id != -1 or x.named_entity == kernel.kernel.target.named_entity)]) > 0)
                     ):
                         if key == 'INSTRUMENT':
                             kernel = kernel.update_kernel(None, "target")

@@ -136,9 +136,10 @@ class LaSSI():
 
             self.logger(" - Loading the tab files or streaming those remotely, if required.")
             import tempfile
-            for k, v in fuzzyDBs.fuzzy_dbs.items():
-                self.logger(f" - Loading {k}.")
-                FuzzyStringMatchDatabase.instance().create(k, v)
+            if fuzzyDBs.fuzzy_dbs is not None:
+                for k, v in fuzzyDBs.fuzzy_dbs.items():
+                    self.logger(f" - Loading {k}.")
+                    FuzzyStringMatchDatabase.instance().create(k, v)
         else:
             self.logger("skipping postgres services initialization (disable_fuzzy_honk=True)")
 

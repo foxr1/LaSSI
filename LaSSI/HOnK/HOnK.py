@@ -1010,22 +1010,28 @@ class HOnK(RDFGraph):
     def dumpTypedObjectsToTAB(self, filename: str | io.IOBase):
         l = self.getTypedObjects()
         n = len(l)
-        f = None
-        if isinstance(filename, io.IOBase):
-            f = filename
-        else:
-            f = open(str(filename), "w")
-        # Write a header row so FuzzyStringMatchDatabase.create()'s next(f) skip is harmless
+        f = filename if isinstance(filename, io.IOBase) else open(str(filename), "w")
+
         f.write(f"id\tidx\tt\ttype{os.linesep}")
         count = 1
         for k, v in l.items():
-            t = self.most_specific_type(v)
-            # Escape backslashes so PostgreSQL COPY doesn't treat them as escape sequences
             k_escaped = k.replace("\\", "\\\\")
-            f.write(f"{count}\t{k_escaped}\t{k_escaped}\t{t}")
+
+            # Get all unique generalised types for this word
+            generalized_types = {self.most_specific_type([single_type]) for single_type in v}
+
+            # Clean up "None" if other valid types exist
+            if len(generalized_types) > 1:
+                generalized_types.discard("None")
+            elif not generalized_types:
+                generalized_types.add("None")
+
+            # Join them into a single string: e.g. "verb,noun"
+            combined_types = ",".join(generalized_types)
+
+            f.write(f"{count}\t{k_escaped}\t{k_escaped}\t{combined_types}{os.linesep}")
             count += 1
-            if count <= n:
-                f.write(os.linesep)
+
         return f
 
     @lru_cache(maxsize=4096)

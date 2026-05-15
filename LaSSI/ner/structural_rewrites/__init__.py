@@ -27,6 +27,7 @@ from LaSSI.ner.structural_rewrites.stative_eventive_swap import StativeEventiveS
 from LaSSI.ner.structural_rewrites.specification_into_space import FoldSpecificationIntoSpaceRule
 from LaSSI.ner.structural_rewrites.requirement_simplifier import RequirementClauseSimplifierRule
 from LaSSI.ner.structural_rewrites.passive_progressive import PassiveProgressiveRewrite
+from LaSSI.ner.structural_rewrites.existential_passive_and_promote import ExistentialPassiveAndPromoteRule
 from LaSSI.ner.structural_rewrites.relcl_target_lift import RelclTargetLiftRule
 from LaSSI.ner.structural_rewrites.strip_aux_from_edge import StripAuxFromEdgeLabelRule
 from LaSSI.ner.structural_rewrites.singleton_and_location_to_space import SingletonAndLocationToSpaceRule
@@ -42,6 +43,7 @@ def default_registry() -> RuleRegistry:
         RelclTargetLiftRule(),
         RequirementClauseSimplifierRule(),
         PassiveProgressiveRewrite(),
+        ExistentialPassiveAndPromoteRule(),
         StripAuxFromEdgeLabelRule(),
         SingletonAndLocationToSpaceRule(),
         ParticipialCollapseRule(),
@@ -59,6 +61,7 @@ __all__ = [
     "FoldSpecificationIntoSpaceRule",
     "RequirementClauseSimplifierRule",
     "PassiveProgressiveRewrite",
+    "ExistentialPassiveAndPromoteRule",
     "RelclTargetLiftRule",
     "StripAuxFromEdgeLabelRule",
     "SingletonAndLocationToSpaceRule",

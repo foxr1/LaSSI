@@ -188,6 +188,14 @@ def is_phrasal_verb(kernel, node, initial_node, has_nmod, value, structural_cont
             parts = parts[1:]
             if parts:
                 candidates.add(' '.join(parts))
+        
+        if hasattr(node.kernel, 'target') and node.kernel.target is not None and hasattr(node.kernel.target, 'named_entity'):
+            target_name = node.kernel.target.named_entity
+            new_candidates = set()
+            for c in candidates:
+                new_candidates.add(f"{c} {target_name}")
+            candidates.update(new_candidates)
+
         return any(is_name_in_honk(candidate, honk.getPhrasalVerbs(), False) for candidate in candidates) == value
     return not value
 

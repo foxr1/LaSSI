@@ -823,7 +823,7 @@ def compare_variable(d, lhs, rhs):
             if (specEQ == copCompareInv) and (specEQ == CasusHappening.EQUIVALENT):
                 val = CasusHappening.EXCLUSIVES
     if val == CasusHappening.INDIFFERENT:
-        _interactive_paraphrase_prompt(lhs, rhs)
+        # _interactive_paraphrase_prompt(lhs, rhs)
         # Re-check after potential TTL update — user may have added the pair
         if _paraphrase_match(lhs, rhs):
             val = CasusHappening.EQUIVALENT
@@ -960,6 +960,18 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
             hasDirectSubset = False
             dLHS = dict(xprop)
             dRHS = dict(yprop)
+            def _value_in_other(val, other_dict):
+                for ok in other_dict:
+                    for ov in other_dict[ok]:
+                        comparison = compare_variable(d, val, ov)
+                        reverse_comparison = compare_variable(d, ov, val)
+                        if (
+                                comparison == CasusHappening.EQUIVALENT
+                                or isImplication(comparison)
+                                or isImplication(reverse_comparison)):
+                            return True
+                return False
+
             if (is_direct_subset(xprop, yprop) and len(xprop)>0) or (len(yprop) == 0 and len(xprop) > 0):
                 keyCmpElements = CasusHappening.GENERAL_IMPLICATION
                 keyCmpElementsInv = CasusHappening.INDIFFERENT
@@ -981,18 +993,6 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
             # else:
                 # dLHS = dict(xprop)
                 # dRHS = dict(yprop)
-                def _value_in_other(val, other_dict):
-                    for ok in other_dict:
-                        for ov in other_dict[ok]:
-                            comparison = compare_variable(d, val, ov)
-                            reverse_comparison = compare_variable(d, ov, val)
-                            if (
-                                    comparison == CasusHappening.EQUIVALENT
-                                    or isImplication(comparison)
-                                    or isImplication(reverse_comparison)):
-                                return True
-                    return False
-
                 for key in keys:
                     if key in dLHS and key in dRHS:
                         # For each lhs value find its best match across all rhs
@@ -1011,13 +1011,19 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                         keyCmp[key] = simplifyConstituentsAcross(lhs_bests) if lhs_bests else CasusHappening.EQUIVALENT
                         keyCmpInv[key] = simplifyConstituentsAcross(rhs_bests) if rhs_bests else CasusHappening.EQUIVALENT
                     elif key in dLHS:
+                        # LHS has a property that RHS lacks -> LHS is more specific.
+                        # LHS -> RHS is a GENERAL_IMPLICATION (Specific implies General).
+                        # RHS -> LHS is an INSTANTIATION_IMPLICATION/INDIFFERENT.
                         soft = any(_value_in_other(xx, dRHS) for xx in dLHS[key])
-                        keyCmp[key] = CasusHappening.INSTANTIATION_IMPLICATION if soft else CasusHappening.INDIFFERENT
-                        keyCmpInv[key] = CasusHappening.GENERAL_IMPLICATION
-                    else:
-                        soft = any(_value_in_other(yy, dLHS) for yy in dRHS[key])
                         keyCmp[key] = CasusHappening.GENERAL_IMPLICATION
                         keyCmpInv[key] = CasusHappening.INSTANTIATION_IMPLICATION if soft else CasusHappening.INDIFFERENT
+                    else:
+                        # RHS has a property that LHS lacks -> LHS is more general.
+                        # LHS -> RHS is an INSTANTIATION_IMPLICATION/INDIFFERENT.
+                        # RHS -> LHS is a GENERAL_IMPLICATION (Specific implies General).
+                        soft = any(_value_in_other(yy, dLHS) for yy in dRHS[key])
+                        keyCmp[key] = CasusHappening.INSTANTIATION_IMPLICATION if soft else CasusHappening.INDIFFERENT
+                        keyCmpInv[key] = CasusHappening.GENERAL_IMPLICATION
                 if len(keyCmp) > 0:
                     keyCmpElements = simplifyConstituentsAcross({keyCmp[key] for key in keyCmp})
                     keyCmpElementsInv = simplifyConstituentsAcross({keyCmpInv[key] for key in keyCmpInv})
@@ -1042,14 +1048,14 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
             _space_mismatch = _space_mismatch_contradiction(x, y)
 
             _causation_mismatch = False
-            if hasattr(x, 'properties') and hasattr(y, 'properties') and x.properties and y.properties:
-                x_caus = [v for k, v in x.properties if k in ("CAUSATION", "CAUSE")]
-                y_caus = [v for k, v in y.properties if k in ("CAUSATION", "CAUSE")]
-                if x_caus and y_caus:
-                    # If both have a cause, but evaluating them yields INDIFFERENT, it's a hard contradiction
-                    caus_cmp = simplifyConstituents([compare_variable(d, xc, yc) for xc in x_caus for yc in y_caus])
-                    if caus_cmp == CasusHappening.INDIFFERENT:
-                        _causation_mismatch = True
+            # if hasattr(x, 'properties') and hasattr(y, 'properties') and x.properties and y.properties:
+            #     x_caus = [v for k, v in x.properties if k in ("CAUSATION", "CAUSE")]
+            #     y_caus = [v for k, v in y.properties if k in ("CAUSATION", "CAUSE")]
+            #     if x_caus and y_caus:
+            #         # If both have a cause, but evaluating them yields INDIFFERENT, it's a hard contradiction
+            #         caus_cmp = simplifyConstituents([compare_variable(d, xc, yc) for xc in x_caus for yc in y_caus])
+            #         if caus_cmp == CasusHappening.INDIFFERENT:
+            #             _causation_mismatch = True
 
             if _lifecycle_verdict == 'contradiction' or _space_mismatch or _causation_mismatch:
                 val = CasusHappening.EXCLUSIVES
@@ -1133,11 +1139,30 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                 # If keyCmp[k] IS an implication, the LHS is more specific and
                 # fully satisfies the RHS property — even if the inverse direction
                 # is INDIFFERENT (RHS is more general, e.g. OR type vs near place).
-                rhs_obligation_unmet = any(
-                    v == CasusHappening.INDIFFERENT
-                    and not isImplication(keyCmp.get(k, CasusHappening.INDIFFERENT))
-                    for k, v in keyCmpInv.items()
-                )
+                rhs_obligation_unmet = False
+                for k in dRHS:
+                    if k not in dLHS:
+                        # If the key is missing entirely, check if it softly matches something else
+                        if not any(_value_in_other(yy, dLHS) for yy in dRHS[k]):
+                            rhs_obligation_unmet = True
+                            break
+                    else:
+                        # For keys present in both, ensure EVERY RHS value has a valid LHS match
+                        for yy in dRHS[k]:
+                            unmet = True
+                            for xx in dLHS[k]:
+                                cv_fwd = compare_variable(d, xx, yy)
+                                cv_rev = compare_variable(d, yy, xx)
+                                # If they are not entirely disjoint, the RHS obligation is met
+                                if cv_fwd not in (CasusHappening.INDIFFERENT, CasusHappening.EXCLUSIVES) or \
+                                        cv_rev not in (CasusHappening.INDIFFERENT, CasusHappening.EXCLUSIVES):
+                                    unmet = False
+                                    break
+                            if unmet:
+                                rhs_obligation_unmet = True
+                                break
+                    if rhs_obligation_unmet:
+                        break
                 if val == CasusHappening.EQUIVALENT:
                     if keyComparisonOutcome == CasusHappening.EQUIVALENT:
                         if isImplication(keyCmpElements):

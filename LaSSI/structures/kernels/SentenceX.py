@@ -784,6 +784,7 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
     # Priority 1: Find an edge that is explicitly marked as 'kernel' or 'root'
     for edge in edges:
         source_data = G.nodes[edge[0]]['data']
+        target_data = G.nodes[edge[1]]['data']
         edge_label = edge[3]['label']
         if (
                 (is_valid_verb(edge_label) or is_valid_verb(source_data)) and
@@ -791,7 +792,8 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
                         'kernel' in edge_label.get_props() or 'root' in edge_label.get_props() or
                         'kernel' in source_data.get_props() or 'root' in source_data.get_props()
                 ) and
-                edge[0] == root_sentence_id
+                edge[0] == root_sentence_id and
+                edge_label.named_entity not in {'aux'} and target_data.type != 'existential'  # TODO: Hacky fix??
         ):
             chosen_edge = edge
             break

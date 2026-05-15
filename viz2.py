@@ -229,7 +229,22 @@ def _render_pairwise_table(entry: dict, lines: list) -> html.Div:
     all_cols    = atom_cols + result_cols
 
     _subscripts = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
-    alias = {c: f"P{str(idx + 1).translate(_subscripts)}" for idx, c in enumerate(atom_cols)}
+    alias = {}
+    import re
+    for idx, c in enumerate(atom_cols):
+        p_sub = f"P{str(idx + 1).translate(_subscripts)}"
+        lat_c = atoms.get(c, c)
+        is_neg = r'\neg' in lat_c
+        m = re.search(r'\\(?:textit|textsf)\{([^}]+)\}', lat_c)
+        if m:
+            core = m.group(1)
+            core = re.sub(r'\\[a-zA-Z]+', '', core)
+            core = re.sub(r'[{}]', '', core).strip()
+            if is_neg:
+                core = f"¬{core}"
+            alias[c] = f"{core} ({p_sub})"
+        else:
+            alias[c] = p_sub
 
     conflict_pairs, discriminating, blocking_per_row = _analyze_atoms(rows, atom_cols, rc_j)
     verdict, verdict_colour, explanation = _classify_relationship(

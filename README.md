@@ -33,10 +33,10 @@ sudo apt install postgresql -y
 sudo -u postgres psql
 ```
 ```postgresql
-create database conceptnet;
+create database lassi;
 create user lassi with encrypted password 'drowssap';
-grant all privileges on database conceptnet to lassi;
-\c conceptnet postgres
+grant all privileges on database lassi to lassi;
+\c lassi postgres
 grant all on schema public to lassi;
 exit
 ```

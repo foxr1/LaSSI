@@ -36,7 +36,7 @@ dependencies = [
     "plotille==5.0.0",
     "urllib3==2.2.2",
     "antlr4-python3-runtime==4.13.1",
-    "StanfordNLPExtractor @ git+https://github.com/datagram-db/stanfordnlp_dg_server.git",
+    "StanfordNLPExtractor @ git+https://github.com/foxr1/stanfordnlp_dg_server.git",
     "FunctionalMatch @ git+https://github.com/foxr1/FunctionalMatch.git",
     "PyDatagramDB @ git+https://github.com/foxr1/datagram-db.git@fix-macos-build",
     "pyoxigraph",

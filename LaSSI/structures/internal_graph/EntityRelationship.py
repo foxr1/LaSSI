@@ -561,8 +561,36 @@ class Singleton(NodeEntryPoint):  # Graph node representing just one entity
                 node, SetOfSingletons) and node_string == 'None' else node_string
 
             # Add properties
-            node_string = f"{node_string}{self.get_node_properties_string(node)}"
+            node_string = f"{node_string}{self.to_superscript(f'({node.type})') if isinstance(node, Singleton) else ''}{self.get_node_properties_string(node)}"
         return node_string
+
+    def to_superscript(self, text):
+        if 'existential' in text or text is None:
+            return ''
+
+        superscript_map = {
+            '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+            '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+            '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾',
+            'a': 'ᵃ', 'b': 'ᵇ', 'c': 'ᶜ', 'd': 'ᵈ', 'e': 'ᵉ',
+            'f': 'ᶠ', 'g': 'ᵍ', 'h': 'ʰ', 'i': 'ⁱ', 'j': 'ʲ',
+            'k': 'ᵏ', 'l': 'ˡ', 'm': 'ᵐ', 'n': 'ⁿ', 'o': 'ᵒ',
+            'p': 'ᵖ', 'r': 'ʳ', 's': 'ˢ', 't': 'ᵗ', 'u': 'ᵘ',
+            'v': 'ᵛ', 'w': 'ʷ', 'x': 'ˣ', 'y': 'ʸ', 'z': 'ᶻ',
+            'A': 'ᴬ', 'B': 'ᴮ', 'D': 'ᴰ', 'E': 'ᴱ', 'G': 'ᴳ',
+            'H': 'ᴴ', 'I': 'ᴵ', 'J': 'ᴶ', 'K': 'ᴷ', 'L': 'ᴸ',
+            'M': 'ᴹ', 'N': 'ᴺ', 'O': 'ᴼ', 'P': 'ᴾ', 'R': 'ᴿ',
+            'T': 'ᵀ', 'U': 'ᵁ', 'V': 'ⱽ', 'W': 'ᵂ'
+        }
+        result = ""
+        for char in str(text):
+            if char in superscript_map:
+                result += superscript_map[char]
+            else:
+                # Get the lowercase version if uppercase doesn't exist
+                lower_char = char.lower()
+                result += superscript_map.get(lower_char, lower_char)
+        return result
 
     # Rewrite Singleton(kernel) in form edgeLabel[props](source[props], target[props])[props]
     def to_string(self, node=None):
