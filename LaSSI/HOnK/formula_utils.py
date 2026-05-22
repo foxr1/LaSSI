@@ -75,6 +75,16 @@ def getAtoms(self):
 
 from LaSSI.structures.extended_fol.Formulae import *
 
+def _has_atomizable_content(self):
+    if practicalInstance(self, FUnaryPredicate, "FUnaryPredicate") or practicalInstance(self, FBinaryPredicate,
+                                                                                        "FBinaryPredicate"):
+        return True
+    if practicalInstance(self, FNot, "FNot"):
+        return _has_atomizable_content(self.arg)
+    if practicalInstance(self, FAnd, "FAnd") or practicalInstance(self, FOr, "FOr"):
+        return any(_has_atomizable_content(x) for x in self.args)
+    return False
+
 def semantic(self, d: Dict[Formula, bool]):
     """
     This function decomposes the formula (self) in its atomic constituents, returned as a bag of atoms
@@ -84,17 +94,21 @@ def semantic(self, d: Dict[Formula, bool]):
         assert self in d
         return d[self]
     elif practicalInstance(self, FAnd, "FAnd"):
-        return min(map(lambda x: semantic(x, d), self.args))
+        vals = [semantic(x, d) for x in self.args if _has_atomizable_content(x)]
+        return min(vals) if vals else 1
     elif practicalInstance(self, FOr, "FOr"):
-        return max(map(lambda x: semantic(x, d), self.args))
+        vals = [semantic(x, d) for x in self.args if _has_atomizable_content(x)]
+        return max(vals) if vals else 0
     elif practicalInstance(self, FNot, "FNot"):
         if self in d:
             return d[self]
+        if not _has_atomizable_content(self.arg):
+            return 1
         else:
             return 1 - semantic(self.arg, d)
     else:
         print("WARNING: cannot perform the atomization of a variable")
-        return 0
+        return 1
 
 
 def semantic_bdd(self, atom_to_bdd, manager):
@@ -114,17 +128,23 @@ def semantic_bdd(self, atom_to_bdd, manager):
     elif practicalInstance(self, FAnd, "FAnd"):
         result = manager.true
         for arg in self.args:
+            if not _has_atomizable_content(arg):
+                continue
             result = manager.apply('and', result, semantic_bdd(arg, atom_to_bdd, manager))
         return result
     elif practicalInstance(self, FOr, "FOr"):
         result = manager.false
         for arg in self.args:
+            if not _has_atomizable_content(arg):
+                continue
             result = manager.apply('or', result, semantic_bdd(arg, atom_to_bdd, manager))
         return result
     elif practicalInstance(self, FNot, "FNot"):
         if self in atom_to_bdd:
             return atom_to_bdd[self]
+        if not _has_atomizable_content(self.arg):
+            return manager.true
         return manager.apply('not', semantic_bdd(self.arg, atom_to_bdd, manager))
     else:
         print("WARNING: cannot perform the atomization of a variable")
-        return manager.false
+        return manager.true

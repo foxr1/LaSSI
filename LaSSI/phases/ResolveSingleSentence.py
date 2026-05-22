@@ -1,4 +1,5 @@
 import logging
+import re
 import time as ti
 
 from LaSSI.similarities.levenshtein import lev
@@ -6,6 +7,16 @@ from LaSSI.structures.meuDB.meuDB import MeuDBEntry, MeuDB
 
 services = None
 stanza_service = None
+
+# ISO 8601 datetime: 2026-04-14T14:00Z, 2026-04-14T14:00:00, 2026-04-14T14:00+02:00, etc.
+# CoreNLP tokenises this into multiple chunks at `T` and the dashes, so add an
+# explicit DATE MEU spanning the whole thing — TypeResolver.mergeMeuNodes folds
+# the chunks back into a single node when a MEU contains them.
+_ISO_8601_DATETIME = re.compile(
+    r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?\b"
+)
+
+
 
 def logger_func(x):
     return
@@ -29,6 +40,12 @@ def process_sentence_worker(args):
     start_time = ti.time()
 
     multi_entity_unit = []
+
+    for m in _ISO_8601_DATETIME.finditer(sentence):
+        text = m.group(0)
+        multi_entity_unit.append(MeuDBEntry(
+            text, "DATE", m.start(), m.end(),
+            text, 1.0, text, "ISO8601"))
 
     if not disable_fuzzy_honk:
         multi_entity_unit.extend(services.getFuzzyHOnK().resolve_u(

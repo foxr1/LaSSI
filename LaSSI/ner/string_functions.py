@@ -37,7 +37,8 @@ def normalise_apostrophes(name):
     return canonical
 
 
-@lru_cache(maxsize=1)
+_ontology_class_suffix_terms_cache: frozenset | None = None
+
 def _ontology_class_suffix_terms():
     """All facility / access-point / route / location nouns that HOnK knows
     about, as a frozenset of lowercase strings. These are the candidate
@@ -45,6 +46,9 @@ def _ontology_class_suffix_terms():
     (e.g. `station`, `bridge`, `car park`, `metro station` if classed as
     such, etc.). Sourced from the noun lists loaded into HOnK from
     ``raw_data/nouns/`` — no hardcoded suffix list lives here."""
+    global _ontology_class_suffix_terms_cache
+    if _ontology_class_suffix_terms_cache:
+        return _ontology_class_suffix_terms_cache
     try:
         honk = Services.getInstance().getHOnK()
     except Exception:
@@ -56,7 +60,10 @@ def _ontology_class_suffix_terms():
             out.update(getter() or set())
         except Exception:
             continue
-    return frozenset(s.lower() for s in out if isinstance(s, str) and s)
+    result = frozenset(s.lower() for s in out if isinstance(s, str) and s)
+    if result:
+        _ontology_class_suffix_terms_cache = result
+    return result
 
 
 def class_suffix_variants(name):

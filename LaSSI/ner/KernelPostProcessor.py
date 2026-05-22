@@ -578,17 +578,35 @@ class KernelPostProcessor:
         if len(entities) < 2:
             return None
 
+        # Only apposite location runs ("near Fenkle Street, Newcastle") get
+        # unwrapped — same heuristic as the SPACE classifier — so weather
+        # ANDs (rain, °C, wind, % chance) where entities are nouns of mixed
+        # types aren't accidentally split.
+        LOC_TYPES = {'GPE', 'LOC', 'FAC'}
+        if not all(
+            isinstance(ent, Singleton)
+            and str(getattr(ent, 'type', '')).upper() in LOC_TYPES
+            for ent in entities
+        ):
+            return None
+
         case_signatures = []
         for ent in entities:
-            if not isinstance(ent, Singleton):
-                return None
             sig = self._space_case_signature(ent)
-            if not sig:
-                return None
             case_signatures.append(sig)
 
+        # The principal (first) entity must carry the surface case markers
+        # ("near X"). Subsequent entities are either co-marked (the old
+        # bleed-through behaviour) or empty — the latter is the natural
+        # parse for an appositional sibling that never received any case
+        # info of its own ("Fenkle Street, Newcastle" → Newcastle is bare).
+        # Reject only when a subsequent sibling carries a *different,
+        # non-empty* case signature, which would mean two distinct
+        # prepositional anchors that must stay separate.
         first_sig = case_signatures[0]
-        if not all(sig == first_sig for sig in case_signatures[1:]):
+        if not first_sig:
+            return None
+        if not all(sig == first_sig or not sig for sig in case_signatures[1:]):
             return None
 
         principal = self._reapply_space_type_from_prepositions(entities[0])
@@ -1319,7 +1337,7 @@ class KernelPostProcessor:
                         properties=create_props_for_singleton(found_properties),
                     )]
 
-        return Singleton(
+        deduped = Singleton(
             id=kernel.id,
             named_entity=kernel.named_entity,
             type=kernel.type,
@@ -1329,6 +1347,211 @@ class KernelPostProcessor:
             kernel=kernel.kernel,
             properties=create_props_for_singleton(properties_to_keep),
         )
+        return self._remove_redundant_back_references(deduped)
+
+    # ------------------------------------------------------------------
+    # _remove_redundant_back_references
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _collect_kernel_covered_ids(kernel):
+        """Ids of every Singleton that already appears as part of the
+        kernel's own subject/predicate/object (or an AND-grouped
+        target).  Used to detect places where the parse later refers to
+        the *same* entity from a sub-property of a sibling — e.g. a
+        colon-list enumeration that sticks the head NP ("Met Office") as
+        an `extra` on a later item, or an upstream rule that promotes
+        an AND target into a QUANTITY property *as well* as keeping it
+        in the target slot.  Both shapes are redundancy, not new
+        information."""
+        ids = set()
+        if not isinstance(kernel, Singleton) or kernel.kernel is None:
+            return ids
+        for end in (kernel.kernel.source, kernel.kernel.edgeLabel, kernel.kernel.target):
+            if isinstance(end, Singleton):
+                if end.id is not None:
+                    ids.add(end.id)
+            elif isinstance(end, SetOfSingletons):
+                for entity in end.entities:
+                    if isinstance(entity, Singleton) and entity.id is not None:
+                        ids.add(entity.id)
+        return ids
+
+    @staticmethod
+    def _target_and_entity_ids(kernel):
+        """Ids of the entities that sit directly inside an AND-grouped
+        kernel target.  These are the items already enumerated in the
+        target conjunction, so any property value that names the same
+        ids is duplication of the target."""
+        ids = set()
+        if not isinstance(kernel, Singleton) or kernel.kernel is None:
+            return ids
+        target = kernel.kernel.target
+        if isinstance(target, SetOfSingletons) and target.type == Grouping.AND:
+            for entity in target.entities:
+                if isinstance(entity, Singleton) and entity.id is not None:
+                    ids.add(entity.id)
+        return ids
+
+    @classmethod
+    def _strip_back_pointing_extras(cls, node, covered_ids):
+        """Recursively remove `extra` properties whose Singleton value's
+        `id` already appears in `covered_ids` (the kernel's own
+        src/edge/target ids).  Walks through SetOfSingletons and into
+        nested Singleton properties so a back-reference is stripped
+        regardless of how deeply the upstream parse buried it.
+
+        Preserves the *shape* of the property value across the filter —
+        a list stays a list, a `SetOfSingletons` stays a
+        `SetOfSingletons`, a bare `Singleton` is either kept or dropped
+        but never silently re-wrapped or unwrapped.  Downstream code in
+        `rewrite_kernels.make_arg` indexes `extra` with `[0]` whenever
+        the value is not a tuple, so unwrapping a single-element list
+        into a bare Singleton would crash there.
+        """
+        if isinstance(node, SetOfSingletons):
+            new_entities = [cls._strip_back_pointing_extras(e, covered_ids) for e in node.entities]
+            if any(a is not b for a, b in zip(node.entities, new_entities)):
+                node = node.update_entities(new_entities)
+            return node
+        if not isinstance(node, Singleton):
+            return node
+        original_props = dict(node.properties)
+        new_props = {}
+        for k, v in original_props.items():
+            if k == 'extra':
+                if isinstance(v, Singleton) and v.id in covered_ids:
+                    continue
+                if isinstance(v, (list, tuple)):
+                    kept = [
+                        item for item in v
+                        if not (isinstance(item, Singleton) and item.id in covered_ids)
+                    ]
+                    if not kept:
+                        continue
+                    # Preserve list/tuple shape — don't unwrap to a bare
+                    # Singleton even when only one element survives, so
+                    # downstream `extra_val[0]` indexing stays valid.
+                    new_props[k] = kept if isinstance(v, list) else tuple(kept)
+                    continue
+                if isinstance(v, SetOfSingletons):
+                    kept_entities = [
+                        e for e in v.entities
+                        if not (isinstance(e, Singleton) and e.id in covered_ids)
+                    ]
+                    if not kept_entities:
+                        continue
+                    if len(kept_entities) == len(v.entities):
+                        new_props[k] = v
+                    else:
+                        new_props[k] = v.update_entities(kept_entities)
+                    continue
+            new_props[k] = v
+        if new_props == original_props:
+            return node
+        return node.update_node_props(new_props)
+
+    @classmethod
+    def _drop_property_items_in_ids(cls, value, exclude_ids):
+        """Filter `value` so any Singleton whose id is in `exclude_ids`
+        is removed.  Handles bare Singleton / list / SetOfSingletons /
+        nested SetOfSingletons.  Returns `None` when the entire value
+        ends up empty so the caller can drop the property key.
+
+        Preserves wrapping shape across the filter — a list stays a
+        list of whatever's left, a `SetOfSingletons` stays a
+        `SetOfSingletons` even if it ends up with one entity.
+        Downstream code (`rewrite_kernels.make_arg`) makes assumptions
+        about subscriptability that re-wrapping would violate.
+        """
+        if isinstance(value, list):
+            kept = []
+            for item in value:
+                filtered = cls._drop_property_items_in_ids(item, exclude_ids)
+                if filtered is None:
+                    continue
+                kept.append(filtered)
+            if not kept:
+                return None
+            return kept
+        if isinstance(value, SetOfSingletons):
+            new_entities = []
+            for entity in value.entities:
+                filtered = cls._drop_property_items_in_ids(entity, exclude_ids)
+                if filtered is None:
+                    continue
+                new_entities.append(filtered)
+            if not new_entities:
+                return None
+            if len(new_entities) == len(value.entities):
+                return value
+            return value.update_entities(new_entities)
+        if isinstance(value, Singleton) and value.id in exclude_ids:
+            return None
+        return value
+
+    def _remove_redundant_back_references(self, kernel):
+        """Two structural dedupe passes the lighter `kernel_nodes` set in
+        `remove_duplicate_properties` doesn't catch:
+
+        1. **Back-pointing inner `extra`**.  When the parse promotes a
+           colon-list head NP ("Met Office") to the kernel src AND
+           leaves a copy as an `extra` on an AND-grouped sibling
+           ("wind"), the second reference is redundant.  Strip the
+           `extra` from every Singleton reachable through the kernel
+           target's *inner entities* whose value's id matches the
+           kernel src / edgeLabel / target.
+
+           IMPORTANT: only inner entities are walked — never the
+           kernel source's own properties.  Upstream compound merging
+           routinely produces Singletons that share an `id` with the
+           kernel src (e.g. "Met Office" with `extra:forecast` where
+           both Singletons inherit `id=0` from the same pre-merge root
+           node).  Stripping the source's own `extra` against
+           `covered_ids` would mistake the source's legitimate spec
+           for a back-reference and erase it.
+
+        2. **Property value duplicating an AND target entity**.  When
+           an upstream promotion (e.g. `QUANTITY`) emits a property
+           whose value names an entity that already sits in the
+           kernel's AND-grouped target, the property item is purely
+           duplication.  Filter it out — keep unique siblings (a
+           `QUANTITY` °C alongside duplicated mph / % chance keeps the
+           °C and drops the duplicates).
+        """
+        if not isinstance(kernel, Singleton) or kernel.kernel is None:
+            return kernel
+
+        covered_ids = self._collect_kernel_covered_ids(kernel)
+        new_kernel = kernel
+        if covered_ids and isinstance(kernel.kernel.target, SetOfSingletons):
+            # Walk only into the AND target's individual entities, so the
+            # source's own properties stay untouched.
+            new_entities = [
+                self._strip_back_pointing_extras(e, covered_ids)
+                for e in kernel.kernel.target.entities
+            ]
+            if any(a is not b for a, b in zip(kernel.kernel.target.entities, new_entities)):
+                cleaned_target = kernel.kernel.target.update_entities(new_entities)
+                new_kernel = new_kernel.update_kernel(cleaned_target, 'target')
+
+        target_ids = self._target_and_entity_ids(new_kernel)
+        if target_ids:
+            props = dict(new_kernel.properties)
+            changed = False
+            for key in list(props):
+                if key == 'SENTENCE':
+                    continue
+                filtered = self._drop_property_items_in_ids(props[key], target_ids)
+                if filtered is None:
+                    del props[key]
+                    changed = True
+                elif filtered is not props[key]:
+                    props[key] = filtered
+                    changed = True
+            if changed:
+                new_kernel = new_kernel.update_node_props(props)
+        return new_kernel
 
     def _check_if_empty_kernel(self, kernel, force=False):  # Note: use _check_if_empty_kernel in KernelPostProcessor.py
         properties_to_keep = dict()

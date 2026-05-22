@@ -209,6 +209,39 @@ def create_cop(node, kernel, target_or_source):
     return kernel
 
 
+_VERBLESS_POST_COLON_LABELS = frozenset({'dep', 'obl', 'obj', 'dobj', 'xcomp', 'ccomp'})
+
+
+def _is_verbless_nominal_sentence(root_node, edges, root_sentence_id):
+    if getattr(root_node, 'type', None) == 'verb':
+        return False
+    root_props = dict(root_node.properties) if hasattr(root_node, 'properties') else {}
+    if root_props.get('punct') != ':':
+        return False
+    for edge in edges:
+        if edge[0] == root_sentence_id and edge[3]['label'].named_entity in _VERBLESS_POST_COLON_LABELS:
+            return True
+    return False
+
+
+def _build_implicit_be_kernel(root_node):
+    be_label = Singleton(
+        id=-1,
+        named_entity="be",
+        properties=frozenset(dict().items()),
+        min=root_node.min,
+        max=root_node.max,
+        type="verb",
+        confidence=1.0,
+    )
+    return Relationship(
+        source=root_node,
+        target=create_existential_node(),
+        edgeLabel=be_label,
+        isNegated=False,
+    )
+
+
 def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposition_labels, node_functions,
                     prev_loop_settings, acl_relcl_map):
     edges = list(edges)
@@ -233,8 +266,17 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
 
     # With graph created, make the 'Sentence' object
     kernel = None
-    G, kernel = assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_preposition_labels,
-                              node_functions)  # Phase 3.2
+    # Verbless nominal-sentence pattern: a non-verb root with a `:` punct marker
+    # and at least one `dep` child (Stanza's generic dependency for post-colon
+    # content). The colon is a zero-copula ("forecast for X: rain, wind, ..."
+    # = "the forecast IS rain, wind, ..."). Pre-commit to be(root, ?) so
+    # kernel selection can't grab a spurious downstream verb candidate
+    # (e.g. Tyne via the `upon` case marker).
+    if _is_verbless_nominal_sentence(root_node, edges, root_sentence_id):
+        kernel = _build_implicit_be_kernel(root_node)
+    else:
+        G, kernel = assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_preposition_labels,
+                                  node_functions)  # Phase 3.2
     kernel_nodes = set()
     properties = defaultdict(list)
 

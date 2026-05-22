@@ -35,18 +35,6 @@ lifecycle:phrase_under_investigation
     lifecycle:memberOf lifecycle:CaseLifecycle ;
     lifecycle:partition "open" .
 
-lifecycle:phrase_record
-    a lifecycle:LifecyclePhrase ;
-    rdfs:label "record" ;
-    lifecycle:memberOf lifecycle:CaseLifecycle ;
-    lifecycle:partition "open" .
-
-lifecycle:phrase_recorded
-    a lifecycle:LifecyclePhrase ;
-    rdfs:label "recorded" ;
-    lifecycle:memberOf lifecycle:CaseLifecycle ;
-    lifecycle:partition "open" .
-
 lifecycle:phrase_investigation
     a lifecycle:LifecyclePhrase ;
     rdfs:label "investigation" ;
@@ -116,6 +104,18 @@ lifecycle:phrase_closed
 # still register as lifecycle-aware indicators so that an open/closed claim
 # on the other side is detected as an asymmetric assertion.
 
+lifecycle:phrase_record
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "record" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "descriptive" .
+
+lifecycle:phrase_recorded
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "recorded" ;
+    lifecycle:memberOf lifecycle:CaseLifecycle ;
+    lifecycle:partition "descriptive" .
+
 lifecycle:phrase_involve
     a lifecycle:LifecyclePhrase ;
     rdfs:label "involve" ;
@@ -151,3 +151,172 @@ lifecycle:phrase_mentioned
     rdfs:label "mentioned" ;
     lifecycle:memberOf lifecycle:CaseLifecycle ;
     lifecycle:partition "descriptive" .
+
+# ---------------------------------------------------------------------------
+# Weather precipitation dimension — wet vs dry forecast assertions.
+# Phrases on opposite partitions contradict, giving us the "neqTo" between
+# e.g. 'rain' and 'dry' that the underlying HOnK ontology does not encode.
+#
+# Source sentences: weather_002–weather_008 evidence cases pair a forecast
+# describing rain/precipitation with one describing dry/no-rain conditions.
+# ---------------------------------------------------------------------------
+
+lifecycle:WeatherPrecipitation
+    a lifecycle:LifecycleDimension ;
+    rdfs:label "weather_precipitation" ;
+    rdfs:comment "e.g. 'Newcastle is forecast to have light rain.' vs 'Newcastle is forecast to have dry and clear conditions with no rain.'" .
+
+# ---------- Wet ----------
+
+lifecycle:phrase_rain
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "rain" ;
+    lifecycle:memberOf lifecycle:WeatherPrecipitation ;
+    lifecycle:partition "wet" .
+
+lifecycle:phrase_raining
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "raining" ;
+    lifecycle:memberOf lifecycle:WeatherPrecipitation ;
+    lifecycle:partition "wet" .
+
+lifecycle:phrase_rainfall
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "rainfall" ;
+    lifecycle:memberOf lifecycle:WeatherPrecipitation ;
+    lifecycle:partition "wet" .
+
+lifecycle:phrase_precipitation
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "precipitation" ;
+    lifecycle:memberOf lifecycle:WeatherPrecipitation ;
+    lifecycle:partition "wet" .
+
+lifecycle:phrase_shower
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "shower" ;
+    lifecycle:memberOf lifecycle:WeatherPrecipitation ;
+    lifecycle:partition "wet" .
+
+lifecycle:phrase_rain_shower
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "rain shower" ;
+    lifecycle:memberOf lifecycle:WeatherPrecipitation ;
+    lifecycle:partition "wet" .
+
+lifecycle:phrase_drizzle
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "drizzle" ;
+    lifecycle:memberOf lifecycle:WeatherPrecipitation ;
+    lifecycle:partition "wet" .
+
+lifecycle:phrase_wet
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "wet" ;
+    lifecycle:memberOf lifecycle:WeatherPrecipitation ;
+    lifecycle:partition "wet" .
+
+# ---------- Dry ----------
+
+lifecycle:phrase_dry
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "dry" ;
+    lifecycle:memberOf lifecycle:WeatherPrecipitation ;
+    lifecycle:partition "dry" .
+
+lifecycle:phrase_arid
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "arid" ;
+    lifecycle:memberOf lifecycle:WeatherPrecipitation ;
+    lifecycle:partition "dry" .
+
+# ---------------------------------------------------------------------------
+# Sky-cover dimension — cloudy vs clear forecast assertions.
+# Used by weather_002/003/004/005/006/007/008 where forecasts describe the
+# sky as cloudy/overcast on one side and clear/sunny on the other.
+# ---------------------------------------------------------------------------
+
+lifecycle:SkyCondition
+    a lifecycle:LifecycleDimension ;
+    rdfs:label "sky_condition" ;
+    rdfs:comment "e.g. 'Newcastle is expected to be cloudy.' vs 'Newcastle is forecast to have clear skies with no clouds.'" .
+
+# ---------- Overcast ----------
+
+lifecycle:phrase_cloudy
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "cloudy" ;
+    lifecycle:memberOf lifecycle:SkyCondition ;
+    lifecycle:partition "overcast" .
+
+lifecycle:phrase_overcast
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "overcast" ;
+    lifecycle:memberOf lifecycle:SkyCondition ;
+    lifecycle:partition "overcast" .
+
+lifecycle:phrase_clouds
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "clouds" ;
+    lifecycle:memberOf lifecycle:SkyCondition ;
+    lifecycle:partition "overcast" .
+
+lifecycle:phrase_cloud
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "cloud" ;
+    lifecycle:memberOf lifecycle:SkyCondition ;
+    lifecycle:partition "overcast" .
+
+# ---------- Clear ----------
+
+lifecycle:phrase_clear
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "clear" ;
+    lifecycle:memberOf lifecycle:SkyCondition ;
+    lifecycle:partition "clear" .
+
+lifecycle:phrase_clear_skies
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "clear skies" ;
+    lifecycle:memberOf lifecycle:SkyCondition ;
+    lifecycle:partition "clear" .
+
+lifecycle:phrase_sunny
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "sunny" ;
+    lifecycle:memberOf lifecycle:SkyCondition ;
+    lifecycle:partition "clear" .
+
+lifecycle:phrase_sunny_spells
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "sunny spells" ;
+    lifecycle:memberOf lifecycle:SkyCondition ;
+    lifecycle:partition "clear" .
+
+# ---------------------------------------------------------------------------
+# Flood-alert presence dimension — used by weather_001 where the Environment
+# Agency either reports active flood warnings/alerts or reports their absence.
+# ---------------------------------------------------------------------------
+
+lifecycle:FloodAlertPresence
+    a lifecycle:LifecycleDimension ;
+    rdfs:label "flood_alert_presence" ;
+    rdfs:comment "e.g. 'The Environment Agency reports no active flood warnings.' vs 'The Environment Agency has issued active flood warnings.'" .
+
+lifecycle:phrase_active
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "active" ;
+    lifecycle:memberOf lifecycle:FloodAlertPresence ;
+    lifecycle:partition "present" .
+
+lifecycle:phrase_issued
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "issued" ;
+    lifecycle:memberOf lifecycle:FloodAlertPresence ;
+    lifecycle:partition "present" .
+
+lifecycle:phrase_absence
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "absence" ;
+    lifecycle:memberOf lifecycle:FloodAlertPresence ;
+    lifecycle:partition "absent" .

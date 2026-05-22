@@ -11,10 +11,52 @@ class GraphSanitiser:
 
 
     def sanitise(self, G):
+        G = self.flip_measurement_compounds(G)
         G = self.sanitiseCompoundChainsByPosition(G)
         G = self.dropSpuriousApposEdges(G)
         G = self.reconnectOrphanComponents(G)
         G = self.resolveMultipleInDobj(G)
+        return G
+
+    def flip_measurement_compounds(self, G):
+        # `wind 3.09 mph` as mph(NN) -compound-> wind, -nummod-> 3.09:
+        # the unit is the head and the entity is a modifier. Rewrite so the
+        # entity becomes the surviving node and the unit moves onto it as a
+        # `measurement` property like "3.09 mph".
+        units_of_measure = {u.lower() for u in self.honk.getUnitsOfMeasure()} if self.honk else set()
+        if not units_of_measure:
+            return G
+        for edge in list(G.edges(data=True)):
+            if edge[2]['label'].named_entity != 'compound':
+                continue
+            head_id, entity_id = edge[0], edge[1]
+            if head_id not in G or entity_id not in G:
+                continue
+            head = G.nodes[head_id]['data']
+            if not isinstance(head, Singleton):
+                continue
+            head_name = (head.named_entity or '').strip()
+            if head_name.lower() not in units_of_measure:
+                continue
+            entity = G.nodes[entity_id]['data']
+            if not isinstance(entity, Singleton):
+                continue
+            head_props = dict(head.properties)
+            value = head_props.get('nummod')
+            measurement = f"{value} {head_name}".strip() if value is not None else head_name
+            entity_new = entity.add_property('measurement', measurement)
+            nx.set_node_attributes(G, {entity_id: entity_new}, 'data')
+            for src, _dst, _key, data in list(G.in_edges(head_id, keys=True, data=True)):
+                if src == entity_id:
+                    continue
+                G.add_edge(src, entity_id, label=data['label'], isNegated=data.get('isNegated', False))
+            for _src, dst, _key, data in list(G.out_edges(head_id, keys=True, data=True)):
+                if dst == entity_id:
+                    continue
+                if data['label'].named_entity in {'nummod', 'compound'}:
+                    continue
+                G.add_edge(entity_id, dst, label=data['label'], isNegated=data.get('isNegated', False))
+            G.remove_node(head_id)
         return G
 
     def sanitiseCompoundChainsByPosition(self, G):

@@ -15,6 +15,29 @@
 # para:form               — "name"      : the phrase is a bare FVariable name
 #                           "fnot_name" : the phrase is the inner name of a
 #                                         FNot(FVariable(name=...)) expression
+# para:numericMin / para:numericMax — OPTIONAL closed-interval bounds on a
+#                           concept.  Any FVariable whose name parses as a
+#                           number (tolerating a trailing '%' and the
+#                           LaSSI-specific "<dot>" placeholder, e.g.
+#                           "12<dot>76") falls into the concept iff the value
+#                           is in [min, max].  Either bound may be omitted to
+#                           leave that side open.  Use these instead of
+#                           enumerating every numeric phrase ("57","58",…)
+#                           when the concept is about a magnitude band rather
+#                           than specific observed values.
+# para:numericDomain      — OPTIONAL scoping for a range-bearing concept: a
+#                           reference to ANOTHER ParaphraseConcept whose
+#                           members denote valid host head-nouns.  A numeric
+#                           range only fires when the FVariable being matched
+#                           sits as the `cop` of a parent FVariable whose own
+#                           name belongs to the named domain concept.
+#                           Without this, "12<dot>76" (a temperature) would
+#                           land in OneInSixProbability simply because it
+#                           parses to a number inside the range; scoping it
+#                           to `numericDomain para:ChanceNoun` restricts the
+#                           range to children of `chance`/`% chance`/`likelihood`
+#                           /`probability`.  May be declared multiple times
+#                           for a concept covered by several host families.
 # rdfs:label on a concept — the internal concept tag (used as dict key)
 # rdfs:label on a phrase  — the lowercase surface string to match
 # rdfs:comment on concept — example sentence that motivated the entry
@@ -70,4 +93,145 @@ para:phrase_university_metro_station
     a para:ParaphrasePhrase ;
     rdfs:label "university metro station" ;
     para:memberOf para:UniversityStation ;
+    para:form "name" .
+
+# ---------------------------------------------------------------------------
+# Chance / probability head-nouns.
+#
+# The Stanza+gsm pipeline parses "<N>% chance" as a single head FVariable named
+# "% chance" (with the integer in cop), while "<adjective> chance" — e.g.
+# "better-than-even chance", "one-in-six chance", "very low chance" — comes out
+# as the bare head FVariable "chance" (with the qualifier in amod/cop). Without
+# this concept the two head-nouns never line up, so a probability claim with a
+# numeric form and one with a natural-language qualifier are compared as
+# unrelated terms. Grouping them here is just head-noun unification; the
+# magnitude buckets below carry the actual probability semantics.
+# ---------------------------------------------------------------------------
+
+para:ChanceNoun
+    a para:ParaphraseConcept ;
+    rdfs:label "chance_noun" ;
+    rdfs:comment "e.g. '57% chance of precipitation' vs 'better-than-even chance of precipitation' — same head concept, different magnitude." .
+
+para:phrase_pct_chance
+    a para:ParaphrasePhrase ;
+    rdfs:label "% chance" ;
+    para:memberOf para:ChanceNoun ;
+    para:form "name" .
+
+para:phrase_chance
+    a para:ParaphrasePhrase ;
+    rdfs:label "chance" ;
+    para:memberOf para:ChanceNoun ;
+    para:form "name" .
+
+para:phrase_likelihood
+    a para:ParaphrasePhrase ;
+    rdfs:label "likelihood" ;
+    para:memberOf para:ChanceNoun ;
+    para:form "name" .
+
+para:phrase_probability
+    a para:ParaphrasePhrase ;
+    rdfs:label "probability" ;
+    para:memberOf para:ChanceNoun ;
+    para:form "name" .
+
+# ---------------------------------------------------------------------------
+# Probability magnitude buckets.
+#
+# Each concept binds the numeric percentage that appears as the cop of
+# "% chance" to the natural-language qualifier that appears as the amod/cop of
+# bare "chance". The fractions "one-in-N" are bucketed to the closest integer
+# percent observed in the Met Office data:
+#   "one-in-three"  ≈ 33%  → matches 34%
+#   "one-in-four"   ≈ 25%  → matches 27% (closest observed)
+#   "one-in-six"    ≈ 17%  → matches 16%
+#   "one-in-ten"    ≈ 10%  → matches 10%
+#   "better-than-even" > 50% → matches 57%
+#   "very low"      < ~10% → matches 7% and 9%
+# ---------------------------------------------------------------------------
+
+para:BetterThanEvenProbability
+    a para:ParaphraseConcept ;
+    rdfs:label "better_than_even_probability" ;
+    para:numericMin 51 ;
+    para:numericMax 100 ;
+    para:numericDomain para:ChanceNoun ;
+    rdfs:comment "e.g. '57% chance of precipitation' vs 'better-than-even chance of precipitation'.  Any percentage strictly greater than 50 lands here via the numeric range — explicit phrase members below are kept for documentation but are redundant once the range is in place.  Range scoped to ChanceNoun so that a numeric value parsed as 57 from, say, °C(cop:57) does NOT collapse into this bucket." .
+
+para:phrase_better_than_even
+    a para:ParaphrasePhrase ;
+    rdfs:label "better-than-even" ;
+    para:memberOf para:BetterThanEvenProbability ;
+    para:form "name" .
+
+para:OneInThreeProbability
+    a para:ParaphraseConcept ;
+    rdfs:label "one_in_three_probability" ;
+    para:numericMin 30 ;
+    para:numericMax 40 ;
+    para:numericDomain para:ChanceNoun ;
+    rdfs:comment "e.g. '34% chance of precipitation' vs 'one-in-three chance of rain' (≈33%).  Range covers values that round to ≈1/3." .
+
+para:phrase_one_in_three
+    a para:ParaphrasePhrase ;
+    rdfs:label "one-in-three" ;
+    para:memberOf para:OneInThreeProbability ;
+    para:form "name" .
+
+para:OneInFourProbability
+    a para:ParaphraseConcept ;
+    rdfs:label "one_in_four_probability" ;
+    para:numericMin 23 ;
+    para:numericMax 29 ;
+    para:numericDomain para:ChanceNoun ;
+    rdfs:comment "e.g. '27% chance of precipitation' vs 'one-in-four chance of rain' (≈25%)." .
+
+para:phrase_one_in_four
+    a para:ParaphrasePhrase ;
+    rdfs:label "one-in-four" ;
+    para:memberOf para:OneInFourProbability ;
+    para:form "name" .
+
+para:OneInSixProbability
+    a para:ParaphraseConcept ;
+    rdfs:label "one_in_six_probability" ;
+    para:numericMin 11 ;
+    para:numericMax 22 ;
+    para:numericDomain para:ChanceNoun ;
+    rdfs:comment "e.g. '16% chance of precipitation' vs 'one-in-six chance of rain' (≈16.7%)." .
+
+para:phrase_one_in_six
+    a para:ParaphrasePhrase ;
+    rdfs:label "one-in-six" ;
+    para:memberOf para:OneInSixProbability ;
+    para:form "name" .
+
+para:OneInTenProbability
+    a para:ParaphraseConcept ;
+    rdfs:label "one_in_ten_probability" ;
+    para:numericMin 10 ;
+    para:numericMax 10 ;
+    para:numericDomain para:ChanceNoun ;
+    rdfs:comment "e.g. '10% chance of precipitation' vs 'one-in-ten chance of rain'.  Narrow range — 'one-in-ten' is a specific bucket, not a band." .
+
+para:phrase_one_in_ten
+    a para:ParaphrasePhrase ;
+    rdfs:label "one-in-ten" ;
+    para:memberOf para:OneInTenProbability ;
+    para:form "name" .
+
+para:VeryLowProbability
+    a para:ParaphraseConcept ;
+    rdfs:label "very_low_probability" ;
+    para:numericMin 1 ;
+    para:numericMax 9 ;
+    para:numericDomain para:ChanceNoun ;
+    rdfs:comment "e.g. '7%/9% chance of precipitation' vs 'very low chance of rain' — single-digit probability." .
+
+para:phrase_very_low
+    a para:ParaphrasePhrase ;
+    rdfs:label "very low" ;
+    para:memberOf para:VeryLowProbability ;
     para:form "name" .

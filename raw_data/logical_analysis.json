@@ -963,6 +963,24 @@
     },
     {
       "premise": {
+        "Number": true,
+        "SingletonHasBeenMatchedBy": [
+          "SUTime"
+        ]
+      },
+      "classification": [
+        {
+          "type": "time",
+          "property": "defined"
+        }
+      ],
+      "__sentence_examples": [
+        "14 April 2026",
+        "January 2025"
+      ]
+    },
+    {
+      "premise": {
         "Number": true
       },
       "classification": [
@@ -1064,6 +1082,28 @@
         "The love for people",
         "a desire for justice",
         "accessories for laptop computer"
+      ]
+    },
+    {
+      "premise": {
+        "Preposition": [
+          "for"
+        ],
+        "SingletonHasBeenMatchedBy": [
+          "GPE",
+          "LOC",
+          "FAC"
+        ]
+      },
+      "classification": [
+        {
+          "type": "space",
+          "property": "stay in place"
+        }
+      ],
+      "__sentence_examples": [
+        "Met Office forecast for Newcastle upon Tyne",
+        "tickets for London"
       ]
     },
     {
@@ -1215,6 +1255,21 @@
         "the Percy Street entrance is currently closed (entrance reattached as an nmod orphan with no preposition; default to a spatial reading)"
       ],
       "__doc": "Default spatial classification for an nmod-attached location/facility/GPE entity when no Preposition-specific rule has already fired. 'stay in place' is the safe default; motion/from/near readings are caught by earlier prepositional rules with higher specificity. Must precede the unconstrained hasNMod fallback below — they tie on _rule_preposition_specificity (both zero), so JSON insertion order is the tiebreaker."
+    },
+    {
+      "premise": {
+        "SingletonHasBeenMatchedBy": [
+          "GPE",
+          "LOC",
+          "FAC"
+        ]
+      },
+      "classification": [
+        {
+          "type": "space",
+          "property": "stay in place"
+        }
+      ]
     },
     {
       "premise": {

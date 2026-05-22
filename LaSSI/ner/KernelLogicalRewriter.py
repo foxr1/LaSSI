@@ -173,7 +173,44 @@ class KernelLogicalRewriter:
                                     node_props["extra"] = [node_to_add]
                         elif logical_type is not None:
                             node_props["type"] = logical_type
-                        prop_node = prop_node.update_node_props(node_props)
+                        # When the relation's source is a conjunction
+                        # (AND/OR/...), only one conjunct genuinely owns the
+                        # nmod target. The conjunct closest in surface order
+                        # to `node_to_add` is the original modifier head;
+                        # apply the rewrite to that conjunct alone so the
+                        # `extra` doesn't bleed across the whole group.
+                        if (
+                            isinstance(prop_node, SetOfSingletons)
+                            and 'extra' in node_props
+                            and isinstance(node_to_add, Singleton)
+                        ):
+                            target_min = node_to_add.min
+                            best_idx = None
+                            best_gap = None
+                            for idx, entity in enumerate(prop_node.entities):
+                                if not isinstance(entity, Singleton):
+                                    continue
+                                if entity.max <= target_min:
+                                    gap = target_min - entity.max
+                                    if best_gap is None or gap < best_gap:
+                                        best_gap = gap
+                                        best_idx = idx
+                            new_entities = list(prop_node.entities)
+                            if best_idx is not None:
+                                entity = new_entities[best_idx]
+                                entity_props = dict(entity.properties)
+                                if 'extra' in entity_props:
+                                    existing = entity_props['extra']
+                                    existing = list(existing) if isinstance(existing, (list, tuple)) else [existing]
+                                    if node_to_add.id not in [x.id for x in existing if isinstance(x, Singleton)]:
+                                        existing.append(node_to_add)
+                                    entity_props['extra'] = existing
+                                else:
+                                    entity_props['extra'] = [node_to_add]
+                                new_entities[best_idx] = entity.update_node_props(entity_props)
+                            prop_node = prop_node.update_entities(new_entities)
+                        else:
+                            prop_node = prop_node.update_node_props(node_props)
 
                     val_to_add = prop_node if number_value is None or (number_value is not None and not hasattr(selected_function, "hasNumber")) else number_value
                     if isinstance(val_to_add, Singleton):

@@ -27,7 +27,7 @@ class LogicalClassification:
 def normalized_node_type(node, honk=None):
     if node is None:
         return "None"
-    if node.type == "DATE":
+    if node.type in ("DATE", "TIME"):
         return "SUTime"
     if (
             honk is not None and

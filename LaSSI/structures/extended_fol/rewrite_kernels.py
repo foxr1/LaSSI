@@ -331,13 +331,21 @@ class RewriteKernels:
                 f.write(f"DEBUG be copula: dst={dst}, type={type(dst)}, getattr={getattr(dst, 'type', None)}, name={getattr(dst, 'name', None)}\n")
         
         is_verb_in_ontology = False
+        is_weather_condition_adjective = False
         if hasattr(dst, 'name') and dst.name is not None:
             is_verb_in_ontology = dst.name in self.p.state_verbs or dst.name in self.p.transitive_verbs or dst.name in self.p.movement_verbs or dst.name in self.p.phrasal_verbs or dst.name in self.p.causative_verbs or dst.name in self.p.semi_modal_verbs or dst.name in self.p.means_verbs or dst.name in self.p.materialisation_verbs
+            # Block the copula-to-verb promotion when `dst` is a WeatherConditionNoun
+            weather_nouns = getattr(self.p, 'weather_condition_nouns', None) or set()
+            if dst.name in weather_nouns:
+                is_verb_in_ontology = False
+            weather_adjectives = getattr(self.p, 'weather_condition_adjectives', None) or set()
+            dst_name = str(dst.name).lower()
+            is_weather_condition_adjective = dst_name in {str(x).lower() for x in weather_adjectives}
             with open("DEBUG_LOG.txt", "a") as f:
                 f.write(f"DEBUG is_verb_in_ontology: {is_verb_in_ontology} for {dst.name}\n")
-        
+
         if (rel == "be" and isinstance(dst, FVariable) and (dst.type == "JJ" or is_verb_in_ontology)
-                and dst.name is not None and src is not None):
+                and not is_weather_condition_adjective and dst.name is not None and src is not None):
             existential_id = self.e.increaseAndGetExistential()
             agent = FVariable(name=f"?{existential_id}", type="existential",
                               specification=None, cop=None, id=None)

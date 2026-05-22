@@ -17,3 +17,8 @@ warning
 alert
 drizzle
 thunderstorm
+chance
+probability
+likelihood
+spell
+shower

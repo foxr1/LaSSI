@@ -33,6 +33,12 @@ from LaSSI.ner.structural_rewrites.strip_aux_from_edge import StripAuxFromEdgeLa
 from LaSSI.ner.structural_rewrites.singleton_and_location_to_space import SingletonAndLocationToSpaceRule
 from LaSSI.ner.structural_rewrites.participial_collapse import ParticipialCollapseRule
 from LaSSI.ner.structural_rewrites.after_occurrence_context_to_causation import AfterOccurrenceContextToCausationRule
+from LaSSI.ner.structural_rewrites.specification_and_to_target import SpecificationAndToTargetRule
+from LaSSI.ner.structural_rewrites.auxiliary_periphrasis_promotion import AuxiliaryPeriphrasisPromotionRule
+from LaSSI.ner.structural_rewrites.time_canonicalisation import TimeCanonicalisationRule
+from LaSSI.ner.structural_rewrites.lifecycle_subject_promotion import LifecycleSubjectPromotionRule
+from LaSSI.ner.structural_rewrites.flatten_nested_and import FlattenNestedAndRule
+from LaSSI.ner.structural_rewrites.weather_amod_condition import WeatherAmodConditionRule
 
 
 def default_registry() -> RuleRegistry:
@@ -48,6 +54,12 @@ def default_registry() -> RuleRegistry:
         SingletonAndLocationToSpaceRule(),
         ParticipialCollapseRule(),
         AfterOccurrenceContextToCausationRule(),
+        AuxiliaryPeriphrasisPromotionRule(),
+        SpecificationAndToTargetRule(),
+        TimeCanonicalisationRule(),
+        WeatherAmodConditionRule(),
+        LifecycleSubjectPromotionRule(),
+        FlattenNestedAndRule(),
     ])
 
 
@@ -67,6 +79,12 @@ __all__ = [
     "SingletonAndLocationToSpaceRule",
     "ParticipialCollapseRule",
     "AfterOccurrenceContextToCausationRule",
+    "SpecificationAndToTargetRule",
+    "AuxiliaryPeriphrasisPromotionRule",
+    "TimeCanonicalisationRule",
+    "WeatherAmodConditionRule",
+    "LifecycleSubjectPromotionRule",
+    "FlattenNestedAndRule",
     "append_unique_property_value",
     "default_registry",
     "property_values",

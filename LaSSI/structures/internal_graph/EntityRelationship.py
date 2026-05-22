@@ -131,10 +131,16 @@ class SetOfSingletons(NodeEntryPoint):  # Graph node representing conjunction/di
         return properties
 
     def update_node_props(self, node_props):
+        union = self.get_props()
+        truly_new = {k: v for k, v in node_props.items() if k not in union}
+        if not truly_new:
+            return self
         new_entities = []
         for entity in self.entities:
-            if entity is not None and hasattr(entity, "update_node_props"):
-                new_entities.append(entity.update_node_props(node_props))
+            if entity is not None and hasattr(entity, "update_node_props") and hasattr(entity, "get_props"):
+                entity_props = entity.get_props()
+                entity_props.update(truly_new)
+                new_entities.append(entity.update_node_props(entity_props))
             else:
                 new_entities.append(entity)
         return self.update_entities(new_entities)

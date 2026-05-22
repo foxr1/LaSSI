@@ -6,7 +6,8 @@ from pydatagramdb import result
 from LaSSI.structures.extended_fol.Formulae import *
 from LaSSI.HOnK.HOnK import CasusHappening
 
-_TRACE_COMPARE = True  # toggle for debug tracing
+_TRACE_COMPARE = False  # toggle for debug tracing
+_TRACE_EXCLUSIVES_ONLY = True  # log only paths that return EXCLUSIVES
 
 
 class ModelSearchBasis:
@@ -161,7 +162,33 @@ class ModelSearch:
             if _TRACE_COMPARE:
                 print(f"[COMPARE] path=EQUAL_ORIGINALS, result=EQUIVALENT")
             return self.main_cache[cp]
-        elif ((objLHS.original == make_not(objRHS.original)) or
+        from LaSSI.HOnK.TBox.LifecycleManager import _lifecycle_partition_verdict
+        if _lifecycle_partition_verdict(objLHS.original, objRHS.original) == 'contradiction':
+            self.main_cache[cp] = CasusHappening.EXCLUSIVES
+            if _TRACE_COMPARE:
+                print(f"[COMPARE] path=LIFECYCLE_PARTITION_CONTRADICTION, result=EXCLUSIVES")
+            return self.main_cache[cp]
+        # Property-level SPACE contradictions are unambiguous: distinct named
+        # geo entities in the SPACE slot mean the two predicates refer to
+        # disjoint locations and cannot both hold of the same event.  The
+        # expansion search strips properties, so this can't be derived
+        # downstream — and the exhaustive loop's same-rel EXCLUSIVES
+        # suppression (for WordNet synonym/antonym noise) would otherwise
+        # mask the legitimate contradiction when both originals share rel.
+        from LaSSI.HOnK.TBox.SpatialReasoner import _space_mismatch_contradiction, _space_city_mismatch_contradiction, _space_named_geo_entities
+        _sp1 = _space_mismatch_contradiction(objLHS.original, objRHS.original)
+        _sp2 = _space_city_mismatch_contradiction(objLHS.original, objRHS.original)
+        if _sp1 or _sp2:
+            from LaSSI.ner.string_functions import _ontology_class_suffix_terms
+            _suffix = _ontology_class_suffix_terms()
+            _lhs_names = _space_named_geo_entities(objLHS.original)
+            _rhs_names = _space_named_geo_entities(objRHS.original)
+            print(f"[SPACE-MISMATCH] LHS={_lhs_names} RHS={_rhs_names} near={_sp1} city={_sp2} suffix_terms_size={len(_suffix)} station_in_suffix={'station' in _suffix}")
+            self.main_cache[cp] = CasusHappening.EXCLUSIVES
+            if _TRACE_COMPARE:
+                print(f"[COMPARE] path=SPACE_MISMATCH, result=EXCLUSIVES")
+            return self.main_cache[cp]
+        if ((objLHS.original == make_not(objRHS.original)) or
               (objLHS.original == make_not(objLHS.original)) or
               (make_not(objLHS.original) in objRHS.unary) or
               (make_not(objLHS.original) in objRHS.binary) or
@@ -221,20 +248,12 @@ class ModelSearch:
             # in unary would mask a real contradiction in binary.
             #
             # Guard against spurious EXCLUSIVES via synonym-of-mine ⇄
-            # antonym-of-theirs WordNet paths: when the originals literally
-            # share the same `rel` string, expansion-derived antonymy is
+            # antonym-of-theirs WordNet paths: when the originals have the
+            # same ontology-backed relation, expansion-derived antonymy is
             # untrustworthy ("record" vs the synonym "write off" both surface
             # as antonyms in WordNet despite both being live verbs of the same
             # event).  In that case, suppress EXCLUSIVES propagation.
-            same_rel_originals = (
-                isinstance(objLHS.original, FBinaryPredicate)
-                and isinstance(objRHS.original, FBinaryPredicate)
-                and objLHS.original.rel == objRHS.original.rel
-            ) or (
-                isinstance(objLHS.original, FUnaryPredicate)
-                and isinstance(objRHS.original, FUnaryPredicate)
-                and objLHS.original.rel == objRHS.original.rel
-            )
+            same_rel_originals = self._same_relation(objLHS.original, objRHS.original)
             elems = set()
             for lhs in objLHS.unary:
                 if (isRightDrop) and isinstance(lhs, FNot):

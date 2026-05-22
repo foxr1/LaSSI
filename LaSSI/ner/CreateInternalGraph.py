@@ -55,7 +55,7 @@ class CreateInternalGraph:
         # Phase 1
         G = builder.build(gsm_json, self.node_functions)
 
-        # Phases 1.1, 1.2, 1.25, 1.5
+        # Phases 1.05, 1.1, 1.2, 1.25, 1.5
         G = sanitiser.sanitise(G)
 
         # Phases 2, 2.1, 2.5

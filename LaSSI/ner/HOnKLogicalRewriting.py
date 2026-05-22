@@ -117,6 +117,12 @@ def is_status_noun(kernel, node, initial_node, has_nmod, value, structural_conte
 def is_weather_condition_noun(kernel, node, initial_node, has_nmod, value, structural_context=None):
     return _is_node_in_honk_set(node, honk.getWeatherConditionNouns(), value)
 
+def is_weather_condition_adjective(kernel, node, initial_node, has_nmod, value, structural_context=None):
+    return _is_node_in_honk_set(node, honk.getWeatherConditionAdjectives(), value)
+
+def is_prediction_verb(kernel, node, initial_node, has_nmod, value, structural_context=None):
+    return _is_node_in_honk_set(node, honk.getPredictionVerbs(), value)
+
 def has_measurement(kernel, node, initial_node, has_nmod, value, structural_context=None):
     # TODO: Aware this is definitely wrong, what is the better way of resolving the measurement?
     if has_nmod:
@@ -218,6 +224,8 @@ predicate_interpretation = {
     "ServiceStateNoun": is_service_state_noun,
     "StatusNoun": is_status_noun,
     "WeatherConditionNoun": is_weather_condition_noun,
+    "WeatherConditionAdjective": is_weather_condition_adjective,
+    "PredictionVerb": is_prediction_verb,
     "StateVerb": is_in_state,
     "Actioned": has_actioned_status,
     "MotionVerb": has_movement,

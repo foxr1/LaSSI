@@ -1,6 +1,7 @@
 import networkx as nx
 import json
 import os
+import re
 from LaSSI.ner.MergeSetOfSingletons import _promote_geo_suffixed_type
 from LaSSI.structures import DependencyRoles
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton, Grouping
@@ -42,7 +43,7 @@ class TypeResolver:
         meu_entities = []
         if not self.meu_db_row:
             return meu_entities
-            
+
         for meu in self.meu_db_row.multi_entity_unit:
             start_meu = meu.start_char
             end_meu = meu.end_char
@@ -55,18 +56,73 @@ class TypeResolver:
                     meu_entities.append(meu)
         return meu_entities
 
+    def _is_part_of_multiword_toponym(self, item):
+        # True if the node's character span is strictly contained within a
+        # longer MEU entry of type GPE/LOC. Catches cases like "Tyne" inside
+        # "Newcastle upon Tyne" — HOnK already emits the multi-word entry as
+        # GPE 1.0, so the single-token child shouldn't be promoted to a verb
+        # by the equal-confidence tiebreak below.
+        if self.meu_db_row is None:
+            return False
+        item_min, item_max = item.min, item.max
+        if item_min is None or item_max is None or item_min < 0:
+            return False
+        item_len = item_max - item_min
+        for meu in self.meu_db_row.multi_entity_unit:
+            if str(meu.type).upper() not in {'GPE', 'LOC'}:
+                continue
+            meu_len = meu.end_char - meu.start_char
+            if meu_len <= item_len:
+                continue
+            if meu.start_char <= item_min and item_max <= meu.end_char:
+                return True
+        return False
+
+    def _is_weather_condition_noun(self, item):
+        # True if the node's lemma/surface form matches a HOnK
+        # WeatherConditionNoun (rain, precipitation, cloud, wind, snow, …).
+        # These nouns commonly attach to a case marker ("of rain", "with
+        # rain") which would otherwise let the equal-confidence tiebreak
+        # below promote them to verb-typed. Weather *condition* nouns are
+        # never the semantic verb of a clause, so block that promotion.
+        weather_nouns = self.honk.getWeatherConditionNouns() if self.honk else set()
+        if not weather_nouns:
+            return False
+        candidates = {item.named_entity}
+        props = dict(getattr(item, 'properties', frozenset())) if getattr(item, 'properties', None) is not None else {}
+        if isinstance(props.get('lemma'), str):
+            candidates.add(props['lemma'])
+        candidates_lc = {str(c).lower() for c in candidates if c}
+        ontology_lc = {str(w).lower() for w in weather_nouns if w}
+        return bool(candidates_lc & ontology_lc)
+
     def mergeMeuNodes(self, G):
         if self.meu_db_row is None:
             return G
 
-        multi_word_meus = [meu for meu in self.meu_db_row.multi_entity_unit if " " in meu.text]
+        # Also fold no-space MEUs that the tokenizer split into chunks — e.g.
+        # ISO 8601 datetimes ("2026-04-14T14:00Z") which CoreNLP breaks at the
+        # `T` and dashes. The `len(meu_nodes_ids) > 1` check below is the real
+        # gate; single-token MEUs are no-ops regardless.
+        multi_word_meus = [
+            meu for meu in self.meu_db_row.multi_entity_unit
+            if " " in meu.text or re.search(r"\d[-:T]\d", meu.text)
+        ]
         multi_word_meus.sort(key=lambda x: len(x.text), reverse=True)
 
         for meu in multi_word_meus:
+            # For no-space MEUs the tokenizer may have glued a trailing
+            # sentence-final punctuation onto the last token (e.g.
+            # "Z<dot>" for "Z." after "...T14:00Z."). Accept any node whose
+            # start lies inside the MEU even if its end pokes past.
+            no_space_special = " " not in meu.text
             meu_nodes_ids = []
             for node_id, node_data in G.nodes(data=True):
                 singleton = node_data['data']
                 if singleton.min >= meu.start_char and singleton.max <= meu.end_char:
+                    meu_nodes_ids.append(node_id)
+                elif (no_space_special
+                      and meu.start_char <= singleton.min < meu.end_char):
                     meu_nodes_ids.append(node_id)
             
             if len(meu_nodes_ids) > 1:
@@ -131,6 +187,58 @@ class TypeResolver:
                         if changed: break
 
             remaining = [nid for nid in meu_nodes_ids if nid in G]
+
+            # Multi-token MEU fallback for cases the lexical-merge loop above
+            # can't reach because the joining edge isn't one of
+            # fixed/mwe/orig/compound/flat. Two patterns:
+            #   - ISO 8601 datetimes ("2026-04-14T14:00Z") whose fragments are
+            #     wired via `nummod`/`case`.
+            #   - Multi-token toponyms ("Newcastle upon Tyne") joined by
+            #     `nmod` + `case:upon` — HOnK ships these as a single GPE MEU
+            #     so the span is unambiguous.
+            # In both cases fold the leftover nodes into the leftmost so the
+            # merged node carries the MEU's name and type.
+            is_iso_datetime = " " not in meu.text and re.search(r"\d[-:T]\d", meu.text)
+            # Gate toponym fallback on high confidence: HOnK ships noisy LOC
+            # matches like "Light rain" at ~0.8 from fuzzy lookups that should
+            # not fold their tokens into one location.  Also drop MEUs whose
+            # first token is a determiner — Stanza occasionally tags spans
+            # like "the Percy Street" as LOC 1.0, but the determiner belongs
+            # to whatever noun the location modifies (here, "entrance"), not
+            # to the location itself.  Folding those would consume the `the`
+            # node and break the determiner attachment downstream.
+            first_token = meu.text.split(" ", 1)[0].lower() if meu.text else ""
+            is_multi_token_toponym = (
+                " " in meu.text
+                and str(meu.type).upper() in {'GPE', 'LOC'}
+                and meu.confidence >= 0.95
+                and first_token not in {"the", "a", "an"}
+            )
+            if len(remaining) > 1 and (is_iso_datetime or is_multi_token_toponym):
+                remaining.sort(key=lambda nid: G.nodes[nid]['data'].min)
+                head_id = remaining[0]
+                head_data = G.nodes[head_id]['data']
+                combined_props = dict(head_data.properties)
+                for nid in remaining[1:]:
+                    if nid not in G:
+                        continue
+                    for k, v in dict(G.nodes[nid]['data'].properties).items():
+                        if k not in combined_props:
+                            combined_props[k] = v
+                    G = nx.contracted_nodes(G, head_id, nid, self_loops=False)
+                    G.nodes[head_id].pop('contraction', None)
+                merged_singleton = Singleton(
+                    id=head_data.id,
+                    named_entity=meu.text,
+                    properties=frozenset(combined_props.items()),
+                    min=meu.start_char,
+                    max=meu.end_char,
+                    type=meu.type,
+                    confidence=meu.confidence,
+                )
+                nx.set_node_attributes(G, {head_id: merged_singleton}, 'data')
+                remaining = [head_id]
+
             if len(remaining) == 1:
                 surviving = G.nodes[remaining[0]]['data']
                 type_ok = (meu.type != "None" or surviving.type in {"None", "existential", "noun"})
@@ -224,6 +332,16 @@ class TypeResolver:
                                         'obj' not in dict(item.properties) and
                                         not any(e[2]['label'].named_entity in ('compound', 'amod') for e in
                                                 G.in_edges(item.id, data=True)) and
+                                        # HOnK grouped this token into a longer toponym (e.g.
+                                        # "Tyne" inside "Newcastle upon Tyne"); don't override
+                                        # that with a verb reading from the same equal-confidence
+                                        # candidate set.
+                                        not self._is_part_of_multiword_toponym(item) and
+                                        # HOnK marks this lemma as a weather-condition
+                                        # noun (rain, precipitation, cloud, ...) — don't
+                                        # let it become a verb just because it picked up
+                                        # a case marker like "of rain" / "with rain".
+                                        not self._is_weather_condition_noun(item) and
                                         ('on' not in case_in_props(dict(item.properties), True)) and
                                         ((
                                                 (len(G.in_edges(item.id)) > 0 and any(case_in_props(dict(G.nodes[x]['data'].properties)) for x in [edge[0] for edge in G.in_edges(item.id)])) or

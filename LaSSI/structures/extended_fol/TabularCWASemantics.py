@@ -295,6 +295,12 @@ class TabularCWASemantics:
         return False
 
     def determine(self, i, j):
+        _result = self._determine_impl(i, j)
+        x = self.minimal_constituents.fromId(i)
+        y = self.minimal_constituents.fromId(j)
+        return _result
+
+    def _determine_impl(self, i, j):
         from LaSSI.HOnK.HOnK import CasusHappening
         from LaSSI.structures.extended_fol.Enums import PairwiseCases
         x = self.minimal_constituents.fromId(i)
@@ -468,6 +474,9 @@ class TabularCWASemantics:
         both numerator and denominator), so we count over the full declared
         variable set.
         """
+        # Self-similarity
+        if i == j:
+            return 1.0
         Si_bdd = self._bdd_for_sentence(i)
         Sj_bdd = self._bdd_for_sentence(j)
         constraints = self._universal_truth_bdd(set(self.minimal_constituent_dict[i]),

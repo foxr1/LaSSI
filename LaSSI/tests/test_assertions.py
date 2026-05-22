@@ -10,7 +10,7 @@ class TestLaSSI(unittest.TestCase):
     def test_string_reps(self, force_dirs=False):
         assertions = {}
         rel_dir = os.path.dirname(os.path.abspath(__file__))
-        file_path = os.path.join(rel_dir, "assertions/assertions_new.txt")
+        file_path = os.path.join(rel_dir, "assertions/assertions_neet.txt")
         with open(file_path, 'r') as f:
             for line in f:
                 if not line.startswith('//') and line.strip() != "":
