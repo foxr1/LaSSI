@@ -1,5 +1,6 @@
 import os
 from LaSSI.structures.extended_fol.Formulae import FVariable, FNot, FAnd, FOr, FUnaryPredicate, FBinaryPredicate
+from LaSSI.HOnK.TBox.ParaphraseManager import _canon_lookup_paraphrase_concept, _canon_numeric_member
 
 _LIFECYCLE_NS = "https://ofox.co.uk/lifecycle#"
 _LIFECYCLE_TTL_PATH = os.path.normpath(
@@ -53,6 +54,42 @@ def _get_lifecycle_phrases() -> dict:
         _lifecycle_phrases_cache = _load_lifecycle_ttl()
     return _lifecycle_phrases_cache
 
+def _iter_values(v):
+    if isinstance(v, (tuple, list, set, frozenset)):
+        yield from v
+    else:
+        yield v
+
+def _phrase_text(v):
+    if isinstance(v, FVariable):
+        return v.name
+    if isinstance(v, str):
+        return v
+    return None
+
+def _paraphrase_context_for_value(v):
+    if not isinstance(v, FVariable):
+        return None
+    candidates = [v.specification]
+    for _, prop_value in v.properties or ():
+        for inner in _iter_values(prop_value):
+            if isinstance(inner, FVariable):
+                candidates.extend([inner.specification, inner.name])
+            elif isinstance(inner, str):
+                candidates.append(inner)
+    candidates.append(v.name)
+    for candidate in candidates:
+        concept = _canon_lookup_paraphrase_concept(candidate)
+        if concept is not None:
+            return concept
+    return None
+
+def _add_numeric_bucket_indicator(v, out: set, parent_concept, negated: bool) -> None:
+    name = _phrase_text(v)
+    canonical = _canon_numeric_member(name, parent_concept)
+    if canonical:
+        out.add((canonical.strip().lower(), not negated))
+
 def _extract_indicators_from_value(v, out: set, negated: bool = False) -> None:
     """Recursively extract `(phrase, assertive)` status candidates."""
     if isinstance(v, str):
@@ -64,15 +101,15 @@ def _extract_indicators_from_value(v, out: set, negated: bool = False) -> None:
             out.add((v.name.strip().lower(), not negated))
         if isinstance(v.specification, str):
             out.add((v.specification.strip().lower(), not negated))
+        parent_concept = _paraphrase_context_for_value(v)
         if v.cop is not None:
+            _add_numeric_bucket_indicator(v.cop, out, parent_concept, negated)
             _extract_indicators_from_value(v.cop, out, negated)
         if v.properties:
             for _, vs in v.properties:
-                if isinstance(vs, tuple):
-                    for inner in vs:
-                        _extract_indicators_from_value(inner, out, negated)
-                else:
-                    _extract_indicators_from_value(vs, out, negated)
+                for inner in _iter_values(vs):
+                    _add_numeric_bucket_indicator(inner, out, parent_concept, negated)
+                    _extract_indicators_from_value(inner, out, negated)
     elif isinstance(v, FNot):
         _extract_indicators_from_value(v.arg, out, not negated)
     elif isinstance(v, (FAnd, FOr)):

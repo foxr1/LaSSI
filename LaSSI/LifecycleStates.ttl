@@ -320,3 +320,62 @@ lifecycle:phrase_absence
     rdfs:label "absence" ;
     lifecycle:memberOf lifecycle:FloodAlertPresence ;
     lifecycle:partition "absent" .
+
+# ---------------------------------------------------------------------------
+# Precipitation-intensity dimension — magnitude of rain asserted by a
+# forecast, distinct from the wet/dry binary above.  "Persistent heavy
+# rain" asserts effectively 100% rain (high partition); "very low /
+# 9% chance of precipitation" asserts effectively no rain (low partition).
+# Both sides still mention rain/precipitation so the weather_precipitation
+# dimension classes them together as 'wet' — the contradiction has to come
+# from intensity, not presence.
+#
+# Why "very low" suffices for the low side: numeric chance percentages in
+# the 1–9% band are canonicalised to the "very low" surface form by
+# Paraphrase.ttl::VeryLowProbability (numericMin 1, numericMax 9,
+# numericDomain ChanceNoun), so a "9% chance of precipitation" predicate
+# carries a cop labelled "very low" by the time the lifecycle phrase
+# matcher inspects it.
+#
+# Source sentences: weather_005 — "persistent heavy rain" (s2) vs
+# "9% chance of precipitation" (s0) / "very low chance of rain" (s1).
+# ---------------------------------------------------------------------------
+
+lifecycle:PrecipitationIntensity
+    a lifecycle:LifecycleDimension ;
+    rdfs:label "precipitation_intensity" ;
+    rdfs:comment "e.g. 'Newcastle is forecast to have persistent heavy rain.' vs 'Newcastle is expected to be cloudy with a very low chance of rain.' / '9% chance of precipitation.'" .
+
+# ---------- High intensity / certain rain ----------
+
+lifecycle:phrase_persistent
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "persistent" ;
+    lifecycle:memberOf lifecycle:PrecipitationIntensity ;
+    lifecycle:partition "high" .
+
+lifecycle:phrase_heavy
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "heavy" ;
+    lifecycle:memberOf lifecycle:PrecipitationIntensity ;
+    lifecycle:partition "high" .
+
+lifecycle:phrase_torrential
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "torrential" ;
+    lifecycle:memberOf lifecycle:PrecipitationIntensity ;
+    lifecycle:partition "high" .
+
+lifecycle:phrase_downpour
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "downpour" ;
+    lifecycle:memberOf lifecycle:PrecipitationIntensity ;
+    lifecycle:partition "high" .
+
+# ---------- Low intensity / unlikely rain ----------
+
+lifecycle:phrase_very_low
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "very low" ;
+    lifecycle:memberOf lifecycle:PrecipitationIntensity ;
+    lifecycle:partition "low" .

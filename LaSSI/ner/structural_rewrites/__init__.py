@@ -39,6 +39,8 @@ from LaSSI.ner.structural_rewrites.time_canonicalisation import TimeCanonicalisa
 from LaSSI.ner.structural_rewrites.lifecycle_subject_promotion import LifecycleSubjectPromotionRule
 from LaSSI.ner.structural_rewrites.flatten_nested_and import FlattenNestedAndRule
 from LaSSI.ner.structural_rewrites.weather_amod_condition import WeatherAmodConditionRule
+from LaSSI.ner.structural_rewrites.quantity_compound_merge import QuantityCompoundMergeRule
+from LaSSI.ner.structural_rewrites.and_nmod_extra import AndNmodExtraRule
 
 
 def default_registry() -> RuleRegistry:
@@ -58,6 +60,8 @@ def default_registry() -> RuleRegistry:
         SpecificationAndToTargetRule(),
         TimeCanonicalisationRule(),
         WeatherAmodConditionRule(),
+        QuantityCompoundMergeRule(),
+        AndNmodExtraRule(),
         LifecycleSubjectPromotionRule(),
         FlattenNestedAndRule(),
     ])
@@ -83,6 +87,8 @@ __all__ = [
     "AuxiliaryPeriphrasisPromotionRule",
     "TimeCanonicalisationRule",
     "WeatherAmodConditionRule",
+    "QuantityCompoundMergeRule",
+    "AndNmodExtraRule",
     "LifecycleSubjectPromotionRule",
     "FlattenNestedAndRule",
     "append_unique_property_value",

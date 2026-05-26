@@ -184,6 +184,13 @@ def _compare_fvar_properties(d, lhs_props, rhs_props, lhs_parent_concept=None, r
             results.append(CasusHappening.INDIFFERENT)
     return simplifyConstituentsAcross(results)
 
+def _cop_parent_concept(v, fallback_concept):
+    if isinstance(v, FVariable) and isinstance(v.specification, str):
+        spec_concept = _paraphrase_concept_of(v.specification)
+        if spec_concept is not None:
+            return spec_concept
+    return fallback_concept
+
 def compare_variable(d, lhs, rhs, lhs_parent_concept=None, rhs_parent_concept=None):
     cp = (lhs, rhs)
     if (cp not in d) and (lhs == rhs):
@@ -250,9 +257,11 @@ def compare_variable(d, lhs, rhs, lhs_parent_concept=None, rhs_parent_concept=No
             specEQ = transformCaseWhenOneArgIsNegated(specEQ)
         _lhs_concept = _paraphrase_concept_of(lhs)
         _rhs_concept = _paraphrase_concept_of(rhs)
+        _lhs_cop_parent_concept = _cop_parent_concept(lhs, _lhs_concept)
+        _rhs_cop_parent_concept = _cop_parent_concept(rhs, _rhs_concept)
         copCompareInv = compare_variable(d, rhs.cop, lhs.cop,
-                                         lhs_parent_concept=_rhs_concept,
-                                         rhs_parent_concept=_lhs_concept)
+                                         lhs_parent_concept=_rhs_cop_parent_concept,
+                                         rhs_parent_concept=_lhs_cop_parent_concept)
         val = CasusHappening.INDIFFERENT
         if (nameEQ == specEQ) and (specEQ == copCompareInv) and (lhs.asAll == rhs.asAll):
             if lhs.properties == rhs.properties:

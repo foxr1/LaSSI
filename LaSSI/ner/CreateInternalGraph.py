@@ -39,7 +39,7 @@ class CreateInternalGraph:
         self.dependency_role_rewriter = DependencyRoleRewriter(honk)
 
         builder = GraphBuilder(self.existentials, self.honk, self.shouldDrawGraphs)
-        sanitiser = GraphSanitiser(self.shouldDrawGraphs)
+        sanitiser = GraphSanitiser(self.shouldDrawGraphs, self.honk)
         type_resolver = TypeResolver(self.meu_db_row, self.honk)
         preprocessor = GraphPreprocessor(self.node_functions, self.existentials, self.honk, self.shouldDrawGraphs)
         merger = NodeMerger(

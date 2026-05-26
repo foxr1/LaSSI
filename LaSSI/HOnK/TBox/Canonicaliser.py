@@ -113,11 +113,13 @@ def _canon_fvar(fvar):
         name = spec
         spec = None
 
+    head_concept = _canon_lookup_paraphrase_concept(name)
+    parent_concept_for_cop = head_concept or original_concept
+
     canonical_name = _canon_paraphrase_member(name)
     if canonical_name is not None:
         name = canonical_name
 
-    parent_concept_for_cop = original_concept
     new_cop = (_canon_fvar_cop(fvar.cop, parent_concept_for_cop)
                if fvar.cop is not None else None)
 

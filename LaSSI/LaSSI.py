@@ -581,6 +581,9 @@ class LaSSI():
 
     def sentence_transform(self, sentences):
         if self.transformation == SentenceRepresentation.FullText:
+            if hasattr(self, 'row_to_sub_indices') and any(len(s) > 1 for s in self.row_to_sub_indices):
+                return [' '.join(sentences[i] for i in sub_indices)
+                        for sub_indices in self.row_to_sub_indices]
             return sentences
 
         from LaSSI.files.FileDumpUtilities import target_file_dump

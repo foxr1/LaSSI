@@ -59,7 +59,7 @@ class LifecycleSubjectPromotionRule(StructuralRewriteRule):
     def _lifecycle_head_lemmas(cls):
         if cls._LIFECYCLE_HEAD_LEMMAS_CACHE is None:
             try:
-                from LaSSI.HOnK.TBox.ExpandConstituents import _get_lifecycle_phrases
+                from LaSSI.HOnK.TBox.LifecycleManager import _get_lifecycle_phrases
                 phrases = _get_lifecycle_phrases()
                 # Exclude the `descriptive` partition — event-facet verbs
                 # like 'involve' / 'mention' aren't head-noun candidates
@@ -196,15 +196,42 @@ class LifecycleSubjectPromotionRule(StructuralRewriteRule):
             return node
 
         promoted = extras[target_idx]
+        promoted_props = dict(promoted.properties)
+        relation_props = cls._relation_props(promoted_props)
+
         # The promoted Singleton stays in `extra` but takes the
         # original head's name (so the original head identity survives
         # as the metric of the new head).
-        extras[target_idx] = promoted.update_name(node.named_entity)
+        metric_props = {
+            key: value for key, value in promoted_props.items()
+            if key not in relation_props
+        }
+        extras[target_idx] = (
+            promoted
+            .update_name(node.named_entity)
+            .update_node_props(metric_props)
+        )
         if is_list:
             props_dict['extra'] = extras
         elif is_tuple:
             props_dict['extra'] = tuple(extras)
         else:
             props_dict['extra'] = extras[0]
-        new_node = node.update_node_props(props_dict)
+        props_dict.update(relation_props)
+        new_node = node.update_node_props(props_dict).update_type(promoted.type)
         return new_node.update_name(promoted.named_entity)
+
+    @staticmethod
+    def _relation_props(props):
+        """Properties like ``21.000000: of`` encode the dependency edge that
+        introduced the lifecycle extra.  After promotion that relation belongs
+        on the promoted semantic head, while the old head becomes the metric
+        in ``extra``."""
+        relation_props = {}
+        for key, value in props.items():
+            try:
+                float(str(key))
+            except (TypeError, ValueError):
+                continue
+            relation_props[key] = value
+        return relation_props

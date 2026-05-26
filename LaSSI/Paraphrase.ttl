@@ -96,6 +96,71 @@ para:phrase_university_metro_station
     para:form "name" .
 
 # ---------------------------------------------------------------------------
+# Forecast/reporting assertion heads.
+#
+# Weather evidence frequently alternates between "is forecast to ..." and
+# "is expected to ...". In these contexts both terms introduce a forecasted
+# proposition rather than changing the weather content itself. Grouping the
+# heads here lets source predicates such as `forecast` and `expect` line up
+# before the real comparison happens on the destination condition.
+# ---------------------------------------------------------------------------
+
+para:ForecastAssertion
+    a para:ParaphraseConcept ;
+    rdfs:label "forecast_assertion" ;
+    rdfs:comment "e.g. 'Newcastle is forecast to have cloudy weather.' vs 'Newcastle is expected to be cloudy.'" .
+
+para:phrase_forecast
+    a para:ParaphrasePhrase ;
+    rdfs:label "forecast" ;
+    para:memberOf para:ForecastAssertion ;
+    para:form "name" .
+
+para:phrase_expected
+    a para:ParaphrasePhrase ;
+    rdfs:label "expected" ;
+    para:memberOf para:ForecastAssertion ;
+    para:form "name" .
+
+para:phrase_expect
+    a para:ParaphrasePhrase ;
+    rdfs:label "expect" ;
+    para:memberOf para:ForecastAssertion ;
+    para:form "name" .
+
+# ---------------------------------------------------------------------------
+# Weather precipitation nouns.
+#
+# Forecast data may describe the same wet-weather phenomenon as "rain",
+# "rainfall", or "precipitation". This concept captures the lexical
+# equivalence; LifecycleStates.ttl still carries wet/dry and intensity
+# partitions for contradictions.
+# ---------------------------------------------------------------------------
+
+para:WeatherPrecipitationNoun
+    a para:ParaphraseConcept ;
+    rdfs:label "weather_precipitation_noun" ;
+    rdfs:comment "e.g. '9% chance of precipitation' vs 'very low chance of rain'." .
+
+para:phrase_rain
+    a para:ParaphrasePhrase ;
+    rdfs:label "rain" ;
+    para:memberOf para:WeatherPrecipitationNoun ;
+    para:form "name" .
+
+para:phrase_precipitation
+    a para:ParaphrasePhrase ;
+    rdfs:label "precipitation" ;
+    para:memberOf para:WeatherPrecipitationNoun ;
+    para:form "name" .
+
+para:phrase_rainfall
+    a para:ParaphrasePhrase ;
+    rdfs:label "rainfall" ;
+    para:memberOf para:WeatherPrecipitationNoun ;
+    para:form "name" .
+
+# ---------------------------------------------------------------------------
 # Chance / probability head-nouns.
 #
 # The Stanza+gsm pipeline parses "<N>% chance" as a single head FVariable named
