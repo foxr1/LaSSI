@@ -169,7 +169,13 @@ class ParticipialCollapseRule(StructuralRewriteRule):
             return node
         props = dict(node.properties)
         if "actioned" in props and node.type != "verb" and node.named_entity:
-            props["amod"] = props.pop("actioned")
+            actioned_val = props.pop("actioned")
+            if "amod" in props:
+                existing = props["amod"]
+                existing_list = list(existing) if isinstance(existing, (list, tuple)) else [existing]
+                props["amod"] = tuple(existing_list + [actioned_val])
+            else:
+                props["amod"] = tuple([actioned_val])
             return node.update_node_props(props)
         return node
 

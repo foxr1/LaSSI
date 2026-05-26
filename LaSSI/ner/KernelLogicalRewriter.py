@@ -360,15 +360,21 @@ class KernelLogicalRewriter:
         if not isinstance(node, Singleton):
             return node
         node_props = dict(node.properties)
-        amod_val = node_props.get('amod')
+        amod_vals = node_props.get('amod', [])
+        if isinstance(amod_vals, str): amod_vals = [amod_vals]
 
-        # Check: preposition + amod + entity → known fixed phrase (e.g. "until further notice")
-        if amod_val and isinstance(amod_val, str):
+        for amod_val in amod_vals:
+            if not isinstance(amod_val, str):
+                continue
+            # Check: preposition + amod + entity → known fixed phrase (e.g. "until further notice")
             prepositions = get_prepositions(node)
             for prep in sorted(prepositions):
                 candidate = f"{prep} {amod_val} {node.named_entity}"
                 if len(honk.typeOf(candidate)) > 0:
                     updated_props = {k: v for k, v in node_props.items() if k != 'amod'}
+                    remaining_amods = [a for a in amod_vals if a != amod_val]
+                    if remaining_amods:
+                        updated_props['amod'] = tuple(remaining_amods)
                     return node.update_name(candidate).update_node_props(updated_props)
 
         # Multi-preposition fixed phrase: e.g. "out of use", "out of service"
@@ -376,15 +382,19 @@ class KernelLogicalRewriter:
         if normalized is not None:
             return normalized
 
-        if not amod_val or not isinstance(amod_val, str):
-            return node
-        words = node.named_entity.split(' ')
-        if len(words) < 2:
-            return node
-        candidate = ' '.join(words[:-1] + [amod_val, words[-1]])
-        if len(honk.typeOf(candidate)) > 0:
-            updated_props = {k: v for k, v in node_props.items() if k != 'amod'}
-            return node.update_name(candidate).update_node_props(updated_props)
+        for amod_val in amod_vals:
+            if not isinstance(amod_val, str):
+                continue
+            words = node.named_entity.split(' ')
+            if len(words) < 2:
+                continue
+            candidate = ' '.join(words[:-1] + [amod_val, words[-1]])
+            if len(honk.typeOf(candidate)) > 0:
+                updated_props = {k: v for k, v in node_props.items() if k != 'amod'}
+                remaining_amods = [a for a in amod_vals if a != amod_val]
+                if remaining_amods:
+                    updated_props['amod'] = tuple(remaining_amods)
+                return node.update_name(candidate).update_node_props(updated_props)
         return node
 
     def _normalize_multi_preposition_phrase(self, node, node_props, honk):

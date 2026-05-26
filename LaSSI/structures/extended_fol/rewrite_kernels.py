@@ -251,7 +251,10 @@ class RewriteKernels:
                 cop = self.make_cop(props.pop("JJ"))
             for k in props:
                 if k.endswith("mod"):
-                    coplist.append(props[k])
+                    if isinstance(props[k], (list, tuple)):
+                        coplist.extend(props[k])
+                    else:
+                        coplist.append(props[k])
         if len(coplist) == 1:
             cop = self.make_cop(coplist[0])
         elif len(coplist) > 1:

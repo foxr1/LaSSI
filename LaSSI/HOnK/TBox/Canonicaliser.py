@@ -89,16 +89,21 @@ def _canon_fvar_properties(props, parent_concept):
 
     lifted = None
     if magnitude is not None:
-        if isinstance(magnitude, FVariable):
-            lifted = _canon_fvar_cop(magnitude, parent_concept)
-        elif isinstance(magnitude, str):
-            canonical = (_canon_numeric_member(magnitude, parent_concept)
-                         or _canon_paraphrase_member(magnitude)
-                         or _canon_str(magnitude))
-            lifted = FVariable(
-                name=canonical, type="JJ", specification=None, cop=None, id=None,
-                properties=frozenset(), spec_negation=False, meta="FVariable", asAll=False,
-            )
+        magnitudes = magnitude if isinstance(magnitude, (list, tuple)) else [magnitude]
+        for mag in magnitudes:
+            if isinstance(mag, FVariable):
+                lifted = _canon_fvar_cop(mag, parent_concept)
+                if lifted is not None:
+                    break
+            elif isinstance(mag, str):
+                canonical = (_canon_numeric_member(mag, parent_concept)
+                             or _canon_paraphrase_member(mag)
+                             or _canon_str(mag))
+                lifted = FVariable(
+                    name=canonical, type="JJ", specification=None, cop=None, id=None,
+                    properties=frozenset(), spec_negation=False, meta="FVariable", asAll=False,
+                )
+                break
     return frozenset(out.items()), lifted
 
 def _canon_fvar(fvar):

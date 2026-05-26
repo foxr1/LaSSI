@@ -11,6 +11,38 @@ class GraphBuilder:
         self.shouldDrawGraphs = shouldDrawGraphs
 
     def build(self, gsm_json, node_functions):
+        for gsm_item in gsm_json:
+            amods = []
+            puncts = []
+            keys_to_remove = []
+            if 'properties' not in gsm_item:
+                continue
+            for k, v in gsm_item['properties'].items():
+                if str(k).startswith('amod_'):
+                    val = v[0] if isinstance(v, list) and v else v
+                    amods.append(val)
+                    keys_to_remove.append(k)
+                elif str(k).startswith('punct_'):
+                    val = v[0] if isinstance(v, list) and v else v
+                    puncts.append(val)
+                    keys_to_remove.append(k)
+            for k in keys_to_remove:
+                del gsm_item['properties'][k]
+            if amods:
+                if 'amod' in gsm_item['properties']:
+                    existing = gsm_item['properties']['amod']
+                    existing_list = list(existing) if isinstance(existing, (list, tuple)) else [existing]
+                    gsm_item['properties']['amod'] = tuple(existing_list + amods)
+                else:
+                    gsm_item['properties']['amod'] = tuple(amods)
+            if puncts:
+                if 'punct' in gsm_item['properties']:
+                    existing = gsm_item['properties']['punct']
+                    existing_list = list(existing) if isinstance(existing, (list, tuple)) else [existing]
+                    gsm_item['properties']['punct'] = tuple(existing_list + puncts)
+                else:
+                    gsm_item['properties']['punct'] = tuple(puncts)
+
         G = nx.MultiDiGraph()
 
         # Create Singletons and add them as nodes

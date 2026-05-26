@@ -263,7 +263,9 @@ class GraphSanitiser:
             if not isinstance(dst_data, Singleton):
                 continue
             dst_props = dict(dst_data.properties) if dst_data.properties else {}
-            if dst_props.get('punct') != '(':
+            punct_vals = dst_props.get('punct', [])
+            if isinstance(punct_vals, str): punct_vals = [punct_vals]
+            if '(' not in punct_vals:
                 continue
             edges_to_rewrite.append((src, dst, key, data))
 
@@ -460,7 +462,9 @@ class GraphSanitiser:
             if not isinstance(src_data, Singleton):
                 continue
             src_props = dict(src_data.properties) if src_data.properties else {}
-            source_is_pp_head = case_in_props(src_props) or src_props.get('punct') == ','
+            punct_vals = src_props.get('punct', [])
+            if isinstance(punct_vals, str): punct_vals = [punct_vals]
+            source_is_pp_head = case_in_props(src_props) or ',' in punct_vals
             if source_is_pp_head and _has_determiner(dst):
                 edges_to_remove.append((src, dst, key))
         for src, dst, key in edges_to_remove:

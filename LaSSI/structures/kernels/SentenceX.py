@@ -216,7 +216,9 @@ def _is_verbless_nominal_sentence(root_node, edges, root_sentence_id):
     if getattr(root_node, 'type', None) == 'verb':
         return False
     root_props = dict(root_node.properties) if hasattr(root_node, 'properties') else {}
-    if root_props.get('punct') != ':':
+    punct_vals = root_props.get('punct', [])
+    if isinstance(punct_vals, str): punct_vals = [punct_vals]
+    if ':' not in punct_vals:
         return False
     for edge in edges:
         if edge[0] == root_sentence_id and edge[3]['label'].named_entity in _VERBLESS_POST_COLON_LABELS:

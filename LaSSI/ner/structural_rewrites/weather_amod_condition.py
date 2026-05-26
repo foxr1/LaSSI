@@ -79,31 +79,48 @@ class WeatherAmodConditionRule(StructuralRewriteRule):
             return False, node
 
         props = dict(node.properties) if node.properties else {}
-        amod = props.get("amod")
-        if not isinstance(amod, str) or not cls._is_weather_adjective(amod, ctx):
+        amods = props.get("amod", [])
+        if isinstance(amods, str): amods = [amods]
+        valid_amods = [a for a in amods if isinstance(a, str) and cls._is_weather_adjective(a, ctx)]
+        if not valid_amods:
             return False, node
         if not cls._is_weather_noun(node, ctx):
             return False, node
 
         cleaned_props = dict(props)
-        cleaned_props.pop("amod", None)
-        if str(cleaned_props.get("lemma", "")).lower() == amod.lower():
+        remaining_amods = [a for a in amods if a not in valid_amods]
+        if remaining_amods:
+            cleaned_props["amod"] = tuple(remaining_amods)
+        else:
+            cleaned_props.pop("amod", None)
+
+        lemmas = cleaned_props.get("lemma", [])
+        if isinstance(lemmas, str): lemmas = [lemmas]
+        lemmas = [l for l in lemmas if l.lower() not in [va.lower() for va in valid_amods]]
+        if lemmas:
+            cleaned_props["lemma"] = lemmas[0] if len(lemmas) == 1 else lemmas
+        else:
             cleaned_props.pop("lemma", None)
+
         cleaned = node.update_node_props(cleaned_props)
 
-        adjective = Singleton(
-            id=-(abs(node.id) + 100000),
-            named_entity=amod,
-            properties=create_props_for_singleton({}),
-            min=node.min,
-            max=node.max,
-            type="JJ",
-            confidence=node.confidence,
-        )
+        entities = [cleaned]
+        for va in valid_amods:
+            adjective = Singleton(
+                id=-(abs(node.id) + 100000 + len(entities)),
+                named_entity=va,
+                properties=create_props_for_singleton({}),
+                min=node.min,
+                max=node.max,
+                type="JJ",
+                confidence=node.confidence,
+            )
+            entities.append(adjective)
+
         return True, SetOfSingletons(
             id=node.id,
             type=Grouping.AND,
-            entities=(cleaned, adjective),
+            entities=tuple(entities),
             min=node.min,
             max=node.max,
             confidence=node.confidence,

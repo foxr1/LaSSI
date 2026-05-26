@@ -73,6 +73,36 @@ class AssignTypeToSingleton:
 
     # Phase 0
     def preProcessing(self, gsm_json):
+        for gsm_item in gsm_json:
+            amods = []
+            puncts = []
+            keys_to_remove = []
+            for k, v in gsm_item['properties'].items():
+                if str(k).startswith('amod_'):
+                    val = v[0] if isinstance(v, list) and v else v
+                    amods.append(val)
+                    keys_to_remove.append(k)
+                elif str(k).startswith('punct_'):
+                    val = v[0] if isinstance(v, list) and v else v
+                    puncts.append(val)
+                    keys_to_remove.append(k)
+            for k in keys_to_remove:
+                del gsm_item['properties'][k]
+            if amods:
+                if 'amod' in gsm_item['properties']:
+                    existing = gsm_item['properties']['amod']
+                    existing_list = list(existing) if isinstance(existing, (list, tuple)) else [existing]
+                    gsm_item['properties']['amod'] = tuple(existing_list + amods)
+                else:
+                    gsm_item['properties']['amod'] = tuple(amods)
+            if puncts:
+                if 'punct' in gsm_item['properties']:
+                    existing = gsm_item['properties']['punct']
+                    existing_list = list(existing) if isinstance(existing, (list, tuple)) else [existing]
+                    gsm_item['properties']['punct'] = tuple(existing_list + puncts)
+                else:
+                    gsm_item['properties']['punct'] = tuple(puncts)
+
         # Pre-processing not semantically driven
         # Scan for 'inherit' edges and contain them in the node that has that edge
         nodes_by_id = {item['id']: item for item in gsm_json}
@@ -161,7 +191,11 @@ class AssignTypeToSingleton:
                 elif 'mark' in containment and ('IN' in node_to_inherit['ell'] or 'TO' in node_to_inherit['ell']):
                     gsm_item['properties']['mark'] = node_to_inherit.get('xi', [""])[0]
                 elif 'punct' in containment:
-                    gsm_item['properties']['punct'] = node_to_inherit.get('xi', [""])[0]
+                    if 'punct' not in gsm_item['properties']:
+                        gsm_item['properties']['punct'] = []
+                    elif not isinstance(gsm_item['properties']['punct'], list):
+                        gsm_item['properties']['punct'] = [gsm_item['properties']['punct']]
+                    gsm_item['properties']['punct'].append(node_to_inherit.get('xi', [""])[0])
                 else:
                     edges_to_keep.append(edge)
 

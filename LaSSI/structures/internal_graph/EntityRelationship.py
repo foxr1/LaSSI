@@ -181,10 +181,15 @@ class SetOfSingletons(NodeEntryPoint):  # Graph node representing conjunction/di
                         properties_list[key].append(self.get_node_string(properties_key_))
                     else:
                         for node in properties_key_:
+                            while isinstance(node, (list, tuple)) and len(node) == 1:
+                                node = node[0]
+                            
                             if key == 'SENTENCE':  # It is a node with kernel (most likely)
                                 properties_list[key].append(self.to_string(node))
                             else:
-                                if key in {'nmod', 'nmod_poss', 'acl_relcl'}:
+                                if isinstance(node, str):
+                                    properties_list[key].append(node)
+                                elif key in {'nmod', 'nmod_poss', 'acl_relcl'}:
                                     properties_list[key].append(self.get_node_string(node))
                                 else:
                                     properties_list[key].append(self.get_node_string(node))
@@ -197,7 +202,7 @@ class SetOfSingletons(NodeEntryPoint):  # Graph node representing conjunction/di
         if node is None:
             node = self
 
-        node_string = node.named_entity if node is not None and isinstance(node, Singleton) else 'None'
+        node_string = node.named_entity if node is not None and isinstance(node, Singleton) else f'None({type(node).__name__})'
 
         # If node_string is empty, it is a kernel so return that
         if node_string == '':
@@ -540,10 +545,15 @@ class Singleton(NodeEntryPoint):  # Graph node representing just one entity
                         properties_list[key].append(self.get_node_string(properties_key_))
                     elif properties_key_ is not None:
                         for node in properties_key_:
+                            while isinstance(node, (list, tuple)) and len(node) == 1:
+                                node = node[0]
+                            
                             if key == 'SENTENCE':  # It is a node with kernel (most likely)
                                 properties_list[key].append(self.to_string(node))
                             else:
-                                if key in {'nmod', 'nmod_poss', 'acl_relcl'}:
+                                if isinstance(node, str):
+                                    properties_list[key].append(node)
+                                elif key in {'nmod', 'nmod_poss', 'acl_relcl'}:
                                     properties_list[key].append(self.get_node_string(node))
                                 else:
                                     properties_list[key].append(self.get_node_string(node))
