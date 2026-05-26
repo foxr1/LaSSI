@@ -1,4 +1,5 @@
 import csv
+import os
 from typing import Dict, List
 
 class Benchmark:
@@ -47,6 +48,7 @@ class Benchmark:
             return
 
         filename = f"results/sentence_length/{filename}_{len(self.data)}.csv"
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
 
         try:
             with open(filename, 'w', newline='') as csvfile:

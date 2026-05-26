@@ -209,6 +209,8 @@ class LaSSI():
         self.meu_dbs = None
         self.sentences_benchmark = Benchmark()
 
+        if self.transformation == SentenceRepresentation.FullText:
+            return
 
         from LaSSI.HOnK.HOnK import HOnKSingleton
         HOnKSingleton.instance()
@@ -366,10 +368,32 @@ class LaSSI():
     def _calculate_matrix(self, obj_list):
         matrices = None
         if self.transformation == SentenceRepresentation.FullText and self.legacy_conf.HuggingFace.startswith("RAG#"):
+            self.logger(f"Loading/Downloading RAG model: {self.legacy_conf.HuggingFace}...")
             from LaSSI.similarities.RAG import rag
             matrices = rag(self.legacy_conf.HuggingFace, self.catabolites_dir, obj_list)
         elif self.transformation == SentenceRepresentation.FullText and self.legacy_conf.HuggingFace.startswith("Log#"):
+            self.logger(f"Loading/Downloading Log model: {self.legacy_conf.HuggingFace}...")
             f = Classifier(self.legacy_conf.HuggingFace[4:])
+            matrices = []
+            for i, x in enumerate(obj_list):
+                ls = []
+                for j, y in enumerate(obj_list):
+                    ls.append(f(x, y))
+                matrices.append(ls)
+        elif self.transformation == SentenceRepresentation.FullText and self.legacy_conf.HuggingFace.startswith("NLI#"):
+            self.logger(f"Loading/Downloading NLI model: {self.legacy_conf.HuggingFace}...")
+            from LaSSI.similarities.NLI import NLIClassifier
+            f = NLIClassifier(self.legacy_conf.HuggingFace[4:])
+            matrices = []
+            for i, x in enumerate(obj_list):
+                ls = []
+                for j, y in enumerate(obj_list):
+                    ls.append(f(x, y))
+                matrices.append(ls)
+        elif self.transformation == SentenceRepresentation.FullText and self.legacy_conf.HuggingFace.startswith("LLM#"):
+            self.logger(f"Connecting to LLM model: {self.legacy_conf.HuggingFace}...")
+            from LaSSI.similarities.LLM import LLMPrompt
+            f = LLMPrompt(self.legacy_conf.HuggingFace[4:])
             matrices = []
             for i, x in enumerate(obj_list):
                 ls = []
@@ -378,6 +402,9 @@ class LaSSI():
                 matrices.append(ls)
         else:
             if self.transformation == SentenceRepresentation.FullText:
+                self.logger(f"Loading/Downloading Transformer model: {self.legacy_conf.HuggingFace}...")
+                if self.sc is None:
+                    self.sc = SimilarityScore(self.legacy_conf)
                 f = self.fulltext_similarity
             if self.transformation == SentenceRepresentation.Logical:
                 # from LaSSI.HOnK.TBox.CrossMatch import DoExpand  # LogicalGraph
@@ -883,17 +910,17 @@ class LaSSI():
                 expanded.append(sub)
             self.row_to_sub_indices.append(sub_indices)
 
-        honk = self.initServices.getHOnK()
-        if honk is not None:
-            # Build from ontology; supplement with articles and coordinating conjunctions
-            # that aren't modelled as Preposition/Conjunction in HOnK
-            _honk_closed = (
-                {p.lower() for p in honk.getPrepositions()} |
-                {c.lower() for c in honk.getConjunctions()} |
-                {'the', 'an', 'and', 'or', 'nor', 'yet', 'so'}
-            )
-        else:
-            _honk_closed = None
+        _honk_closed = None
+        if self.transformation != SentenceRepresentation.FullText:
+            honk = self.initServices.getHOnK()
+            if honk is not None:
+                # Build from ontology; supplement with articles and coordinating conjunctions
+                # that aren't modelled as Preposition/Conjunction in HOnK
+                _honk_closed = (
+                    {p.lower() for p in honk.getPrepositions()} |
+                    {c.lower() for c in honk.getConjunctions()} |
+                    {'the', 'an', 'and', 'or', 'nor', 'yet', 'so'}
+                )
         sentences = [self.normalise_text(s, _honk_closed) for s in expanded]
 
         end_time = time.time()
