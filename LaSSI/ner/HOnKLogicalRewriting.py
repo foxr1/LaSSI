@@ -33,8 +33,29 @@ def _is_node_in_honk_set(node, honk_list, value):
 def is_nmod(kernel, node, initial_node, has_nmod, value, structural_context=None):
     return has_nmod == value
 
+def _actioned_prepositions(node):
+    props = dict(getattr(node, "properties", {}) or {})
+    prep_terms = {
+        str(p).strip().lower()
+        for p in (set(honk.getPrepositions()) | set(honk.getPrototypicalPrepositions()))
+        if p
+    }
+    found = set()
+    for key in ("action", "actioned"):
+        raw_value = props.get(key)
+        if raw_value is None:
+            continue
+        values = raw_value if isinstance(raw_value, (list, tuple, set, frozenset)) else [raw_value]
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            candidate = value.strip().lower()
+            if candidate in prep_terms:
+                found.add(candidate)
+    return found
+
 def match_prepositions(kernel, node, initial_node, has_nmod, value, structural_context=None):
-    prepositions = get_prepositions(node)
+    prepositions = set(get_prepositions(node)) | _actioned_prepositions(node)
     return value in prepositions
 
 def is_materialised(kernel, node, initial_node, has_nmod, value, structural_context=None):
@@ -146,11 +167,22 @@ def is_a(kernel, node, initial_node, has_nmod, value, structural_context=None):
          node.named_entity == str(x.label) and initial_node.kernel.source.named_entity in str(x.isA)}) > 0) == value
 
 def has_number(kernel, node, initial_node, has_nmod, value, structural_context=None):
-    # TODO: In our examples, this is the case, will it always be?
+    node_has_number = "nummod" in dict(getattr(node, "properties", {}) or {})
+    if node_has_number:
+        return True == value
+
     if has_nmod:
-        return ("nummod" in dict(initial_node.kernel.source.get_props())) == True
-    else:
-        return ("nummod" in dict(node.properties)) == value
+        # A numeric source should only license the nmod target as numeric when
+        # the pair itself is a measurement ("miles per second").  Dates such as
+        # "in January 2026 following an incident" also carry nummod on the
+        # source, but their nmod target is an event context, not a quantity.
+        source = initial_node.kernel.source if getattr(initial_node, "kernel", None) is not None else None
+        source_has_number = "nummod" in dict(getattr(source, "properties", {}) or {})
+        if source_has_number and has_measurement(kernel, node, initial_node, has_nmod, True, structural_context):
+            return True == value
+        return False == value
+
+    return False == value
 
 def has_actioned_status(kernel, node, initial_node, has_nmod, value, structural_context=None):
     return bool({'action', 'actioned'} & set(dict(node.properties))) == value

@@ -56,7 +56,9 @@ class SpecificationAndToTargetRule(StructuralRewriteRule):
     })
 
     @classmethod
-    def _is_promotable_target(cls, node):
+    def _is_promotable_target(cls, node, ctx=None):
+        if cls._is_negated_lifecycle_value(node, ctx):
+            return False
         # AND/OR conjunctions with ≥2 entities are always content; a
         # singleton AND/OR is degenerate so unwrap-and-recheck.
         if isinstance(node, SetOfSingletons):
@@ -64,7 +66,7 @@ class SpecificationAndToTargetRule(StructuralRewriteRule):
                 if len(node.entities) >= 2:
                     return True
                 if len(node.entities) == 1:
-                    return cls._is_promotable_target(node.entities[0])
+                    return cls._is_promotable_target(node.entities[0], ctx)
                 return False
             return True
         if isinstance(node, Singleton):
@@ -73,6 +75,25 @@ class SpecificationAndToTargetRule(StructuralRewriteRule):
                 return False
             return True
         return False
+
+    @classmethod
+    def _is_negated_lifecycle_value(cls, node, ctx):
+        if not (isinstance(node, SetOfSingletons) and node.type == Grouping.NOT and ctx is not None):
+            return False
+        lifecycle_phrases = cls._lifecycle_phrase_labels()
+        for entity in node.entities:
+            candidates = {str(c).strip().lower() for c in ctx.matchers.name_candidates(entity)}
+            if candidates & lifecycle_phrases:
+                return True
+        return False
+
+    @staticmethod
+    def _lifecycle_phrase_labels():
+        try:
+            from LaSSI.HOnK.TBox.LifecycleManager import _get_lifecycle_phrases
+            return set(_get_lifecycle_phrases())
+        except Exception:
+            return set()
 
     @staticmethod
     def _extras_in(node):
@@ -138,7 +159,7 @@ class SpecificationAndToTargetRule(StructuralRewriteRule):
         # they belong in TIME / SPACE / nowhere, not in the target slot.
         if len(collected) == 1:
             only = collected[0]
-            if self._is_promotable_target(only):
+            if self._is_promotable_target(only, ctx):
                 return {"property_keys": consumed_keys, "conjunction": only}
             return None
 
@@ -167,7 +188,7 @@ class SpecificationAndToTargetRule(StructuralRewriteRule):
             # After dedupe a single item remains (typically because its
             # sibling was already nested inside its `extra`). Promote it
             # to the target slot directly — no AND wrap needed.
-            if not self._is_promotable_target(unique[0]):
+            if not self._is_promotable_target(unique[0], ctx):
                 return None
             return {"property_keys": consumed_keys, "conjunction": unique[0]}
         mins = [getattr(c, 'min', 0) for c in unique]

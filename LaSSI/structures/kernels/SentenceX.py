@@ -244,6 +244,46 @@ def _build_implicit_be_kernel(root_node):
     )
 
 
+def _append_unique_syntactic_property(properties, key, value):
+    existing = properties.get(key, [])
+    if not isinstance(existing, list):
+        existing = [existing]
+    value_id = getattr(value, 'id', None)
+    value_name = getattr(value, 'named_entity', None)
+    for item in existing:
+        if value_id is not None and getattr(item, 'id', None) == value_id:
+            properties[key] = existing
+            return
+        if value_name is not None and getattr(item, 'named_entity', None) == value_name:
+            properties[key] = existing
+            return
+        if item == value:
+            properties[key] = existing
+            return
+    existing.append(value)
+    properties[key] = existing
+
+
+def _seed_implicit_nominal_properties(properties, root_node, edges, G, root_sentence_id):
+    """Keep the syntactic evidence of a colon-style nominal clause available
+    for later structural rewrites.
+
+    The interpretation of these properties belongs to the rewrite layer.  This
+    constructor only records the root and its direct dependents under ordinary
+    syntactic keys so post-processing can decide whether they are status,
+    lifecycle, or something else.
+    """
+    _append_unique_syntactic_property(properties, "noun", root_node)
+    for edge in edges:
+        if edge[0] != root_sentence_id:
+            continue
+        edge_label = edge[3].get('label')
+        if edge_label is None:
+            continue
+        edge_target = G.nodes[edge[1]]['data']
+        _append_unique_syntactic_property(properties, edge_label.named_entity, edge_target)
+
+
 def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposition_labels, node_functions,
                     prev_loop_settings, acl_relcl_map):
     edges = list(edges)
@@ -274,13 +314,16 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
     # = "the forecast IS rain, wind, ..."). Pre-commit to be(root, ?) so
     # kernel selection can't grab a spurious downstream verb candidate
     # (e.g. Tyne via the `upon` case marker).
-    if _is_verbless_nominal_sentence(root_node, edges, root_sentence_id):
+    implicit_verbless_nominal = _is_verbless_nominal_sentence(root_node, edges, root_sentence_id)
+    if implicit_verbless_nominal:
         kernel = _build_implicit_be_kernel(root_node)
     else:
         G, kernel = assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_preposition_labels,
                                   node_functions)  # Phase 3.2
     kernel_nodes = set()
     properties = defaultdict(list)
+    if implicit_verbless_nominal:
+        _seed_implicit_nominal_properties(properties, root_node, edges, G, root_sentence_id)
 
     if kernel is not None:
         # Add relevant nodes to kernel_nodes, and check if source or target should be a pronoun

@@ -7,13 +7,13 @@ _LIFECYCLE_TTL_PATH = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "LifecycleStates.ttl")
 )
 
-_lifecycle_phrases_cache = None     # phrase_label_lower -> (dimension, partition)
+_lifecycle_phrases_cache = None     # phrase_label_lower -> {(dimension, partition), ...}
 _DESCRIPTIVE_PARTITION = "descriptive"
 
 def _load_lifecycle_ttl() -> dict:
     """Parse LifecycleStates.ttl with pyoxigraph.
 
-    Returns: {phrase_label_lower: (dimension_label, partition_label)}.
+    Returns: {phrase_label_lower: {(dimension_label, partition_label), ...}}.
     Two phrases contradict iff they share a dimension and have differing partitions.
     """
     import pyoxigraph
@@ -45,7 +45,7 @@ def _load_lifecycle_ttl() -> dict:
         for pq in store.quads_for_pattern(phrase_uri, partition, None, None):
             part = pq.object.value
         if label and dim_uri and part and dim_uri in dim_labels:
-            result[label.strip().lower()] = (dim_labels[dim_uri], part)
+            result.setdefault(label.strip().lower(), set()).add((dim_labels[dim_uri], part))
     return result
 
 def _get_lifecycle_phrases() -> dict:
@@ -151,10 +151,11 @@ def _lifecycle_partition_verdict(lhs, rhs):
         return None
 
     _dim_partitions: dict = {}
-    for (dim, part) in phrases.values():
-        if part == _DESCRIPTIVE_PARTITION:
-            continue
-        _dim_partitions.setdefault(dim, set()).add(part)
+    for dim_parts in phrases.values():
+        for (dim, part) in dim_parts:
+            if part == _DESCRIPTIVE_PARTITION:
+                continue
+            _dim_partitions.setdefault(dim, set()).add(part)
 
     def _invert_partition(dim, part):
         siblings = _dim_partitions.get(dim, set()) - {part}
@@ -175,11 +176,13 @@ def _lifecycle_partition_verdict(lhs, rhs):
 
         for (ind, assertive) in _collect_status_indicators(formula):
             if ind in phrases:
-                _add(phrases[ind], assertive)
+                for dim_part in phrases[ind]:
+                    _add(dim_part, assertive)
                 continue
             for tok in ind.split():
                 if tok in phrases:
-                    _add(phrases[tok], assertive)
+                    for dim_part in phrases[tok]:
+                        _add(dim_part, assertive)
         return out
 
     lhs_marks = _phrase_marks(lhs)

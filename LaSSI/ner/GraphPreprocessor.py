@@ -1,8 +1,16 @@
 import networkx as nx
 import json
 import os
+from LaSSI.structures import DependencyRoles
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton
 from LaSSI.ner.MergeSetOfSingletons import merge_properties
+
+
+_MODIFIER_CONTEXT_EDGES = (
+    DependencyRoles.nominal_modifier_edges()
+    | frozenset({"obj", "dobj", "iobj", "xcomp", "ccomp"})
+)
+
 
 class GraphPreprocessor:
     def __init__(self, node_functions, existentials, honk, shouldDrawGraphs=False):
@@ -76,7 +84,7 @@ class GraphPreprocessor:
                 for node in [n[1]['data'] for n in G.nodes(data=True) if dict(second_word[1]['data'].properties)['pos'] in dict(n[1]['data'].properties)]:
                     nx.set_node_attributes(G, {node.id: node.remove_prop(dict(second_word[1]['data'].properties)['pos'])}, 'data')
 
-        for edge in G.edges(data=True):
+        for edge in list(G.edges(data=True)):
             if any([x for x in nodes_to_remove if x in edge]):
                 continue
 
@@ -106,6 +114,9 @@ class GraphPreprocessor:
                     source_data = source_data.update_node_props(new_properties)
                     source_data = source_data.add_property(edge_label_name, target_data.get_name())
                     nx.set_node_attributes(G, {edge[0]: source_data}, 'data')
+
+                    if edge_label_name == 'amod':
+                        self._reattach_collapsed_modifier_context(G, edge[0], edge[1])
                     
                     if edge[1] not in nodes_to_remove:
                         edges_to_remove.append(edge)
@@ -160,6 +171,37 @@ class GraphPreprocessor:
             self._draw_graph(G)
 
         return G
+
+    @staticmethod
+    def _reattach_collapsed_modifier_context(G, source_id, modifier_id):
+        """Keep contextual complements when an adjectival modifier is folded.
+
+        Reduced relatives often surface as an adjectival modifier whose own
+        dependants carry time/place context, e.g. `goods --amod--> involved
+        --obl--> January 2026`.  Once the modifier is collapsed into the head's
+        `amod` property, those dependants must remain reachable from the head
+        or later kernel construction cannot classify them.
+        """
+        for _src, child_id, _key, data in list(G.out_edges(modifier_id, keys=True, data=True)):
+            if child_id == source_id:
+                continue
+            label = data.get('label')
+            label_name = label.named_entity if hasattr(label, 'named_entity') else str(label)
+            if label_name not in _MODIFIER_CONTEXT_EDGES:
+                continue
+            if any(
+                existing.get('label') is not None
+                and existing['label'].named_entity == label_name
+                for _u, _v, existing in G.out_edges(source_id, data=True)
+                if _v == child_id
+            ):
+                continue
+            G.add_edge(
+                source_id,
+                child_id,
+                label=label,
+                isNegated=data.get('isNegated', False),
+            )
 
     @staticmethod
     def _node_pos(data):

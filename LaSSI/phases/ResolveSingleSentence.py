@@ -15,6 +15,10 @@ stanza_service = None
 _ISO_8601_DATETIME = re.compile(
     r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?\b"
 )
+# Date-only ISO 8601: 2026-04-27 (no time component).
+_ISO_8601_DATE_ONLY = re.compile(
+    r"\b\d{4}-\d{2}-\d{2}(?!T\d)\b"
+)
 
 
 
@@ -41,8 +45,19 @@ def process_sentence_worker(args):
 
     multi_entity_unit = []
 
+    _iso_spans = set()
     for m in _ISO_8601_DATETIME.finditer(sentence):
         text = m.group(0)
+        _iso_spans.add((m.start(), m.end()))
+        multi_entity_unit.append(MeuDBEntry(
+            text, "DATE", m.start(), m.end(),
+            text, 1.0, text, "ISO8601"))
+    for m in _ISO_8601_DATE_ONLY.finditer(sentence):
+        text = m.group(0)
+        span = (m.start(), m.end())
+        # Skip if a longer datetime span starts at the same position
+        if any(s <= m.start() and e >= m.end() for (s, e) in _iso_spans):
+            continue
         multi_entity_unit.append(MeuDBEntry(
             text, "DATE", m.start(), m.end(),
             text, 1.0, text, "ISO8601"))

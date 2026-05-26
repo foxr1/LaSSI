@@ -428,7 +428,7 @@ class LaSSI():
                 TBoxReasoningSingleton.instance().dump()
                 # f.buildReport("rport")
                 pairwise_path = os.path.join(self.catabolites_of_dataset, str(self.full_transformation), "pairwise_truth_tables.json")
-                if not os.path.exists(pairwise_path):
+                if self._is_cache_stale(pairwise_path, self.logical_rewriting):
                     from tqdm import tqdm as _tqdm_pw
                     n_sent = len(obj_list)
                     pairwise_out = []
@@ -579,11 +579,12 @@ class LaSSI():
         from LaSSI.files.FileDumpUtilities import target_file_dump
         self.logger("computing similarities")
         experiment_name = self.full_transformation.name + (f"_{self.legacy_conf.HuggingFace.split('/')[-1]}" if self.transformation == SentenceRepresentation.FullText else "")
+        matrix_cache = self.confusion_matrices + experiment_name + ".json"
         confusion_matrices = target_file_dump(self.confusion_matrices + experiment_name + ".json",
                                               json.load,
                                               lambda: CalculateMatrix(self, lists),
                                               json_dumps,
-                                              self.force)
+                                              self.force or self._is_cache_stale(matrix_cache, self.logical_rewriting))
 
         if self.generate_png_matrix:
             if self.transformation == SentenceRepresentation.FullText:
@@ -670,11 +671,12 @@ class LaSSI():
             self._collapse_per_row_benchmark()
 
         if self.transformation == SentenceRepresentation.Logical:  # LogicalGraph
+            logical_cache_stale = self._is_cache_stale(self.logical_rewriting, self.internals)
             logical_representations, logical_rewriting_execution_time = target_file_dump(
                 self.logical_rewriting,
                 lambda x: formula_from_dict(json.load(x)),
                 lambda: LogicalRewriting(self, intermediate_representations),
-                json_dumps, self.force, self.should_benchmark)
+                json_dumps, logical_cache_stale, self.should_benchmark)
             write_variable_to_file(self.benchmarking_file,f"{logical_rewriting_execution_time[0]}")
             print(f"Generating logical representations time: {logical_rewriting_execution_time} seconds")
         else:
@@ -733,7 +735,29 @@ class LaSSI():
                 except OSError:
                     pass
 
-    _HEADER_TEXT_RE = re.compile(r'^\s*[A-Za-z][A-Za-z\-]*\s*:\s*\S')
+    def _is_cache_stale(self, cache_path, *dependency_paths):
+        if self.force or not os.path.exists(cache_path):
+            return True
+        try:
+            cache_mtime = os.path.getmtime(cache_path)
+        except OSError:
+            return True
+        for dependency_path in dependency_paths:
+            if not dependency_path or not os.path.exists(dependency_path):
+                continue
+            try:
+                if os.path.getmtime(dependency_path) > cache_mtime:
+                    return True
+            except OSError:
+                return True
+        return False
+
+    # Accept up to 4 alpha-words (hyphens allowed) before the colon so that
+    # multi-word labels like "Traffic management:" or "Roadworks on Fern
+    # Drive:" register as headers. Single-word labels like "Outcome:" still
+    # match. Digits and punctuation in the label are disallowed to avoid
+    # tripping on time strings or list bullets.
+    _HEADER_TEXT_RE = re.compile(r'^\s*[A-Za-z][A-Za-z\-]*(?:\s+[A-Za-z][A-Za-z\-]*){0,4}\s*:\s*\S')
 
     def _is_header_text(self, sub_text):
         """Detect a 'Header: body' label-value sub-sentence (e.g. ``Outcome: under
@@ -790,8 +814,14 @@ class LaSSI():
                 if sub_kernel is None:
                     continue
                 sub_text = self.meu_dbs[sub_idx].first_sentence if sub_idx < len(self.meu_dbs) else ''
-                if (self._is_header_text(sub_text) and
-                        isinstance(sub_kernel, Singleton)):
+                sub_is_header = self._is_header_text(sub_text)
+
+                # Promote ontology construct-key properties (SPACE, TIME, …)
+                # of the sub-kernel onto the primary, irrespective of whether
+                # the sub looks like a header. Anything that is *not* a
+                # construct key falls through to the SENTENCE bucket below.
+                promoted_any = False
+                if isinstance(sub_kernel, Singleton):
                     for k, v in dict(sub_kernel.properties).items():
                         if k not in construct_keys:
                             continue
@@ -803,8 +833,14 @@ class LaSSI():
                             new_props[k] = existing + items
                         else:
                             new_props[k] = [existing] + items
-                    # new_props['SENTENCE'].append(sub_kernel)
-                else:
+                        promoted_any = True
+
+                # If the sub is a "Header: body" form we treat the body's
+                # construct keys as fully captured and don't add the kernel
+                # itself under SENTENCE (matches the original behaviour).
+                # Otherwise we still keep the sub-kernel under SENTENCE so
+                # the predication isn't lost.
+                if (not sub_is_header) or not promoted_any:
                     new_props['SENTENCE'].append(sub_kernel)
             merged.append(primary.update_node_props(new_props))
         return merged

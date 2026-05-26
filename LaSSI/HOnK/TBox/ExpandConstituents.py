@@ -60,6 +60,7 @@ class ExpandConstituents:
         explain_eq = os.path.join(cache_folder, "explain_eq.json")
         explain_impl = os.path.join(cache_folder, "explain_impl.json")
 
+        cache_is_complete = False
         if (os.path.exists(explain_impl) and os.path.exists(explain_eq) and os.path.exists(_ied) and os.path.exists(_ic) and os.path.exists(_eed) and os.path.exists(_ec)):
             with open(_ied, "rb") as f:
                 self.impl_expansion_dictionary = pickle.load(f)
@@ -69,8 +70,13 @@ class ExpandConstituents:
                 self.eq_expansion_dictionary = pickle.load(f)
             with open(_ec, "rb") as f:
                 self.eq_constituents = pickle.load(f)
+            cache_is_complete = all(
+                row_sentence in self.impl_expansion_dictionary and
+                row_sentence in self.eq_expansion_dictionary
+                for _, row_sentence in self.constituents
+            )
 
-        else:
+        if not cache_is_complete:
             self.impl_expansion_dictionary = dict()
             self.impl_constituents = set()
             self.eq_expansion_dictionary = dict()

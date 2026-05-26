@@ -38,17 +38,20 @@ class CreateInternalGraph:
         self.honk = honk
         self.dependency_role_rewriter = DependencyRoleRewriter(honk)
 
+        from LaSSI.ner.TypeResolver import _filter_spurious_meus
+        self.meu_db_row = _filter_spurious_meus(self.meu_db_row, honk)
+
         builder = GraphBuilder(self.existentials, self.honk, self.shouldDrawGraphs)
         sanitiser = GraphSanitiser(self.shouldDrawGraphs, self.honk)
         type_resolver = TypeResolver(self.meu_db_row, self.honk)
         preprocessor = GraphPreprocessor(self.node_functions, self.existentials, self.honk, self.shouldDrawGraphs)
         merger = NodeMerger(
-            self.dependency_role_rewriter, 
-            self.honk, 
-            self.existentials, 
-            self.is_simplistic_rewriting, 
-            self.meu_db_row, 
-            self.node_functions, 
+            self.dependency_role_rewriter,
+            self.honk,
+            self.existentials,
+            self.is_simplistic_rewriting,
+            self.meu_db_row,
+            self.node_functions,
             self.shouldDrawGraphs
         )
 

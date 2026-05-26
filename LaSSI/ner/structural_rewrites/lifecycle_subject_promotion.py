@@ -65,8 +65,8 @@ class LifecycleSubjectPromotionRule(StructuralRewriteRule):
                 # like 'involve' / 'mention' aren't head-noun candidates
                 # and shouldn't trigger a structural promotion.
                 cls._LIFECYCLE_HEAD_LEMMAS_CACHE = {
-                    label for label, (_, part) in phrases.items()
-                    if part != 'descriptive'
+                    label for label, dim_parts in phrases.items()
+                    if any(part != 'descriptive' for _, part in dim_parts)
                 }
             except Exception:
                 cls._LIFECYCLE_HEAD_LEMMAS_CACHE = set()

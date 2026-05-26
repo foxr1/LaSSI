@@ -96,6 +96,8 @@ class KernelLogicalRewriter:
                                     kernel.update_node_props(properties_to_add)
                                 else:
                                     properties_to_add[key].append(prop_node)
+                            else:
+                                properties_to_add[key].append(prop_node)
                 else:
                     properties_to_add[key] = properties_key_
 

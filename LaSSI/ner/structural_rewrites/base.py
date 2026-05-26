@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 # `KernelPostProcessor.run()` — the pipeline order is intentionally explicit
 # rather than auto-derived.
 PIPELINE_PHASES = frozenset({
+    "post_hoist_pre_dedupe",   # after empty-kernel hoist, before duplicate removal
     "post_logical_rewrite",   # after rewrite_properties_logically, before nest_of_terms
     "post_nest_dedupe",       # after second dedupe pass, before cleanup_space_property
     "post_cleanup",           # after cleanup_space_property, before filter_invalid_property_keys

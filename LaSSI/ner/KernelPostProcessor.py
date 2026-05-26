@@ -76,6 +76,7 @@ class KernelPostProcessor:
         docstring for the registration recipe."""
         pipeline = [
             ('hoist_empty_kernel',                    self._check_if_empty_kernel),
+            ('rules:post_hoist_pre_dedupe',           lambda k: self._apply_structural_rules(k, "post_hoist_pre_dedupe")),
             ('dedupe_properties',                     self.remove_duplicate_properties),
             ('fold_phrasal_advs',                     self.check_for_adv),
             ('promote_contextual_sentence_kernel',     self.promote_contextual_sentence_kernel),
@@ -1239,7 +1240,12 @@ class KernelPostProcessor:
     # ------------------------------------------------------------------
 
     def remove_duplicate_properties(self, kernel, kernel_nodes=None):
-        if kernel.kernel is None:
+        if isinstance(kernel, SetOfSingletons):
+            return kernel.update_entities([
+                self.remove_duplicate_properties(entity, kernel_nodes)
+                for entity in kernel.entities
+            ])
+        if not isinstance(kernel, Singleton) or kernel.kernel is None:
             return kernel
 
         properties_to_keep = defaultdict(list)
@@ -1257,7 +1263,15 @@ class KernelPostProcessor:
                 for node in properties_key_:
                     if key in DependencyRoles.nominal_modifier_edges():
                         properties_to_keep[key].append(self.remove_duplicate_properties(node, kernel_nodes))
-                        kernel_nodes = self.add_to_kernel_nodes(node if key not in DependencyRoles.nominal_modifier_edges_no_poss() else node.kernel.target, kernel_nodes)
+                        consumed_node = node
+                        if (
+                                key in DependencyRoles.nominal_modifier_edges_no_poss() and
+                                isinstance(node, Singleton) and
+                                node.kernel is not None and
+                                node.kernel.target is not None
+                        ):
+                            consumed_node = node.kernel.target
+                        kernel_nodes = self.add_to_kernel_nodes(consumed_node, kernel_nodes)
 
         # Check if empty kernel is in properties and remove, recursively iterate through kernels to remove duplicate properties
         for key in dict(kernel.properties):
@@ -1266,6 +1280,7 @@ class KernelPostProcessor:
                 continue
             else:
                 for node in properties_key_:
+                    preserve_semantic_property = key in {'TIME_STATUS', 'SPECIFICATION'}
                     if key == 'SENTENCE':
                         emptied_node = self._check_if_empty_kernel(node, True)
                         if emptied_node is not None:
@@ -1296,6 +1311,8 @@ class KernelPostProcessor:
                                     properties_to_keep[key].append(self.remove_duplicate_properties(node, kernel_nodes))
                                 else:
                                     self.remove_duplicate_properties(node, kernel_nodes)
+                    elif preserve_semantic_property:
+                        properties_to_keep[key].append(self.remove_duplicate_properties(node, kernel_nodes))
                     elif not is_node_in_kernel_nodes(node, kernel_nodes):
                         if hasattr(node, 'properties'):
                             inner_properties_to_keep = dict()

@@ -7,10 +7,107 @@ from LaSSI.structures import DependencyRoles
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton, Grouping
 from LaSSI.structures.kernels.Sentence import is_kernel_in_props, case_in_props
 
+def _filter_spurious_meus(meu_db_row, honk):
+    """Drop three classes of false-positive MEU.
+
+    1. SUTime-style DATE MEUs whose original surface text is a HOnK
+       ``TimeNoun`` (e.g. a month name like "March") that is immediately
+       followed by a proper-noun token in the same sentence (e.g. "March
+       Road" → SUTime emits DATE "2026-03"). Almost always a toponym
+       false positive: the time-bearing noun is being used as a name.
+
+       The vocabulary is taken from the ontology (``honk.getTemporalNouns()``)
+       so that adding a new time noun to the TTL automatically widens the
+       filter; nothing is hard-coded here.
+
+    2. Short all-caps GPE / LOC / FAC MEUs (≤ 2 chars, e.g. "SI", "LP",
+       "PE"). HOnK fuzzy-matches these to country codes / GeoNames stubs
+       with confidence 1.0, drowning out the noun-typed MEU. The same span
+       still keeps its noun-typed MEU entry, so dropping the GPE/LOC ones
+       just removes the misclassification.
+
+    3. **Confidence-dominated** GPE / LOC / FAC MEUs: a geo-typed match
+       at span S whose confidence is strictly lower than any noun-typed
+       match at the same span. Fuzzy matches like "Roadworks → Road
+       Forks (LOC, 0.8)" lose to the exact noun match "Roadworks →
+       roadworks (noun, 1.0)"; dropping them prevents the geo type from
+       being picked up later when the node is folded into a Grouping by
+       ``GraphNER_withProperties`` (whose ``most_specific_type`` prefers
+       GPE/LOC over noun once the type is exposed).
+
+    Returns a new MeuDB-like object with the spurious entries removed; the
+    input is not mutated."""
+    if meu_db_row is None or not getattr(meu_db_row, 'multi_entity_unit', None):
+        return meu_db_row
+    sentence = getattr(meu_db_row, 'first_sentence', None) or ''
+    if not sentence:
+        return meu_db_row
+
+    # Pull TimeNoun vocabulary from HOnK once, normalised. Empty set if
+    # HOnK is unavailable — the DATE-versus-toponym filter just becomes
+    # a no-op in that case.
+    try:
+        time_nouns = {str(n).lower() for n in (honk.getTemporalNouns() if honk else set())}
+    except Exception:
+        time_nouns = set()
+
+    # Pre-index the max noun confidence at each (start, end) span so the
+    # confidence-dominance check (rule 3) is O(N) overall instead of N²
+    # per-MEU comparisons.
+    max_noun_conf_at_span = {}
+    for meu in meu_db_row.multi_entity_unit:
+        if str(meu.type).lower() == 'noun':
+            key = (meu.start_char, meu.end_char)
+            if meu.confidence > max_noun_conf_at_span.get(key, -1.0):
+                max_noun_conf_at_span[key] = meu.confidence
+
+    kept = []
+    for meu in meu_db_row.multi_entity_unit:
+        meu_type = str(meu.type).upper()
+        if meu_type == 'DATE' and time_nouns:
+            surface = sentence[meu.start_char:meu.end_char] if 0 <= meu.start_char < meu.end_char <= len(sentence) else ''
+            surface_clean = surface.strip().lower()
+            if surface_clean in time_nouns:
+                # Look ahead in the sentence for a proper-noun follow-up
+                # that isn't itself a time noun ("March April" stays).
+                tail = sentence[meu.end_char:meu.end_char + 40]
+                m = re.match(r"\s+([A-Z][a-zA-Z]+)", tail)
+                if m and m.group(1).lower() not in time_nouns:
+                    # Likely a toponym like "March Road". Drop the MEU.
+                    continue
+        if meu_type in {'GPE', 'LOC', 'FAC'}:
+            text = (meu.text or '').strip()
+            # ≤ 2-char all-caps surface form: nearly always a chemistry /
+            # engineering abbreviation (SI, LP, PE, NaCl-style) that HOnK
+            # has mis-matched to a country code or place stub. The same
+            # token still has a noun-typed MEU; this only drops the
+            # geographic noise.
+            if 0 < len(text) <= 2 and text.isupper():
+                continue
+            # Strictly dominated by a noun match at the same span: the
+            # geo classification is a fuzzy edit-distance candidate that
+            # lost to a clean lexical noun match. Drop so downstream
+            # group-merging can't promote it back to a GPE.
+            best_noun_at_span = max_noun_conf_at_span.get((meu.start_char, meu.end_char), -1.0)
+            if best_noun_at_span > meu.confidence:
+                continue
+        kept.append(meu)
+    if len(kept) == len(meu_db_row.multi_entity_unit):
+        return meu_db_row
+    # Shallow-clone the MeuDB with the filtered list.
+    try:
+        from copy import copy as _copy
+        new_row = _copy(meu_db_row)
+        new_row.multi_entity_unit = kept
+        return new_row
+    except Exception:
+        return meu_db_row
+
+
 class TypeResolver:
     def __init__(self, meu_db_row, honk):
-        self.meu_db_row = meu_db_row
         self.honk = honk
+        self.meu_db_row = _filter_spurious_meus(meu_db_row, honk)
         self._load_type_resolution_rules()
 
     def _load_type_resolution_rules(self):
@@ -327,6 +424,7 @@ class TypeResolver:
                                         best_type = best_types[0]
                                 elif ("VERB" in best_types or "verb" in best_types) and (
                                         'det' not in dict(item.properties) and
+                                        'amod' not in dict(item.properties) and
                                         'subjpass' not in dict(item.properties) and
                                         'nsubj' not in dict(item.properties) and
                                         'obj' not in dict(item.properties) and

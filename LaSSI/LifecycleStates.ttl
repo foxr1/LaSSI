@@ -153,6 +153,74 @@ lifecycle:phrase_mentioned
     lifecycle:partition "descriptive" .
 
 # ---------------------------------------------------------------------------
+# Suspect-resolution dimension — whether a crime/outcome text asserts that a
+# suspect exists or that no suspect was identified.
+# ---------------------------------------------------------------------------
+
+lifecycle:SuspectResolution
+    a lifecycle:LifecycleDimension ;
+    rdfs:label "suspect_resolution" ;
+    rdfs:comment "e.g. 'no suspect identified' vs 'several suspects were arrested'." .
+
+# ---------- Suspect present / actioned ----------
+
+lifecycle:phrase_suspect_present_singular
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "suspect" ;
+    lifecycle:memberOf lifecycle:SuspectResolution ;
+    lifecycle:partition "present" .
+
+lifecycle:phrase_suspect_present_plural
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "suspects" ;
+    lifecycle:memberOf lifecycle:SuspectResolution ;
+    lifecycle:partition "present" .
+
+lifecycle:phrase_arrest
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "arrest" ;
+    lifecycle:memberOf lifecycle:SuspectResolution ;
+    lifecycle:partition "present" .
+
+lifecycle:phrase_arrested
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "arrested" ;
+    lifecycle:memberOf lifecycle:SuspectResolution ;
+    lifecycle:partition "present" .
+
+lifecycle:phrase_charge
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "charge" ;
+    lifecycle:memberOf lifecycle:SuspectResolution ;
+    lifecycle:partition "present" .
+
+lifecycle:phrase_charged_suspect_resolution
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "charged" ;
+    lifecycle:memberOf lifecycle:SuspectResolution ;
+    lifecycle:partition "present" .
+
+# ---------- No suspect identified ----------
+
+lifecycle:phrase_no_suspect
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "no suspect" ;
+    lifecycle:memberOf lifecycle:SuspectResolution ;
+    lifecycle:partition "absent" .
+
+lifecycle:phrase_no_suspect_identified
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "no suspect identified" ;
+    lifecycle:memberOf lifecycle:SuspectResolution ;
+    lifecycle:partition "absent" .
+
+lifecycle:phrase_unidentified
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "unidentified" ;
+    lifecycle:memberOf lifecycle:SuspectResolution ;
+    lifecycle:partition "absent" .
+
+# ---------------------------------------------------------------------------
 # Weather precipitation dimension — wet vs dry forecast assertions.
 # Phrases on opposite partitions contradict, giving us the "neqTo" between
 # e.g. 'rain' and 'dry' that the underlying HOnK ontology does not encode.

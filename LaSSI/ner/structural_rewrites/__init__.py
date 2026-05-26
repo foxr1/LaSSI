@@ -41,6 +41,8 @@ from LaSSI.ner.structural_rewrites.flatten_nested_and import FlattenNestedAndRul
 from LaSSI.ner.structural_rewrites.weather_amod_condition import WeatherAmodConditionRule
 from LaSSI.ner.structural_rewrites.quantity_compound_merge import QuantityCompoundMergeRule
 from LaSSI.ner.structural_rewrites.and_nmod_extra import AndNmodExtraRule
+from LaSSI.ner.structural_rewrites.participial_predicate_promotion import ParticipialPredicatePromotionRule
+from LaSSI.ner.structural_rewrites.lifecycle_property_promotion import LifecyclePropertyPromotionRule
 
 
 def default_registry() -> RuleRegistry:
@@ -55,6 +57,8 @@ def default_registry() -> RuleRegistry:
         StripAuxFromEdgeLabelRule(),
         SingletonAndLocationToSpaceRule(),
         ParticipialCollapseRule(),
+        ParticipialPredicatePromotionRule(),
+        LifecyclePropertyPromotionRule(),
         AfterOccurrenceContextToCausationRule(),
         AuxiliaryPeriphrasisPromotionRule(),
         SpecificationAndToTargetRule(),
@@ -89,6 +93,8 @@ __all__ = [
     "WeatherAmodConditionRule",
     "QuantityCompoundMergeRule",
     "AndNmodExtraRule",
+    "ParticipialPredicatePromotionRule",
+    "LifecyclePropertyPromotionRule",
     "LifecycleSubjectPromotionRule",
     "FlattenNestedAndRule",
     "append_unique_property_value",
