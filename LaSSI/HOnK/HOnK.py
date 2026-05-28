@@ -222,6 +222,7 @@ class HOnK(RDFGraph):
             "StatusNoun":              "status_nouns",
             "WeatherConditionNoun":    "weather_condition_nouns",
             "WeatherConditionAdjective": "weather_condition_adjectives",
+            "FieldLabelNoun":          "field_label_nouns",
             "Conjunction":             "conjunctions",
             "DependantPreposition":    "prepositions",
             "IdiomaticPreposition":    "prepositions",
@@ -280,6 +281,7 @@ class HOnK(RDFGraph):
             (os.path.join("nouns", "service_state_nouns.txt"), ("service_state_nouns", "state_nouns")),
             (os.path.join("nouns", "status_nouns.txt"), ("status_nouns", "state_nouns")),
             (os.path.join("nouns", "weather_condition_nouns.txt"), ("weather_condition_nouns", "state_nouns")),
+            (os.path.join("nouns", "field_label_nouns.txt"), ("field_label_nouns",)),
             (os.path.join("pronouns", "personal_pronouns.txt"), ("pronouns", "personal_pronouns")),
             (os.path.join("pronouns", "demonstrative_pronouns.txt"), ("pronouns",)),
             (os.path.join("pronouns", "relative_pronouns.txt"), ("pronouns",)),
@@ -1356,6 +1358,9 @@ class HOnK(RDFGraph):
 
     def getWeatherConditionAdjectives(self):
         return getattr(self, "weather_condition_adjectives", set())
+
+    def getFieldLabelNouns(self):
+        return getattr(self, "field_label_nouns", set())
 
     def getConjunctions(self):
         return getattr(self, "conjunctions", set())

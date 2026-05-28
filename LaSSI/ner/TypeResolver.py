@@ -110,6 +110,16 @@ class TypeResolver:
         self.meu_db_row = _filter_spurious_meus(meu_db_row, honk)
         self._load_type_resolution_rules()
 
+    def chunk_role(self):
+        """Structural role assigned by :mod:`LaSSI.ner.ChunkProfiler` upstream
+        (``ACTION``, ``STATUS``, ``HEADER``, ``REPORT_HEADER``, ``ATTRIBUTE``,
+        ``TIME_RANGE``, ``PROSE``, ``CONTEXT``), or ``None`` when the row was
+        not chunked (e.g. ``SentenceRepresentation.FullText`` mode). Type
+        resolution can consult this hint to bias resolution away from
+        unsuitable classes — e.g. an offence-style head noun inside a
+        ``STATUS`` chunk should not collapse to ``Location``."""
+        return getattr(self.meu_db_row, 'chunk_role', None)
+
     def _load_type_resolution_rules(self):
         self.type_rules = {}
         path = os.path.join(os.path.dirname(__file__), '..', '..', 'raw_data', 'type_resolution_rules.json')
