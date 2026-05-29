@@ -10,6 +10,92 @@ _TRACE_COMPARE = False  # toggle for debug tracing
 _TRACE_EXCLUSIVES_ONLY = True  # log only paths that return EXCLUSIVES
 
 
+# Property keys whose `attachTo == "Kernel"` in raw_data/logical_analysis.json
+# (the logical-context types). When one predicate carries one of these and the
+# other doesn't — or they carry different ones — the predicates describe
+# semantically distinct events and an expansion-derived implication must not
+# silently override that distinction (e.g. REQUIREMENT vs CAUSATION).
+# SPACE and TIME are deliberately excluded: those are usually compared
+# point-by-point elsewhere, and a missing one is handled by the existing
+# shared-key compatibility loop.
+_KERNEL_LOGICAL_CONTEXT_KEYS = frozenset({
+    "CAUSATION",
+    "REQUIREMENT",
+    "TEMPORAL_CONTEXT",
+    "MODALITY",
+    "AIM_OBJECTIVE",
+    "TOPIC",
+    "MANNER",
+    "REPLACEMENT",
+    "LIMIT",
+    "EXCLUSION",
+    "DISTRIBUTIVE",
+    "INTERJECTION",
+    "VOCATIVE",
+    "FAULT_BLAME",
+    "PUNISHMENT",
+    "INSTRUMENT",
+    "ADVANTAGE",
+    "OFTERM",
+    "OF_TERM",
+    "PASSIVE AGENT_CAUSE",
+})
+
+
+# Paraphrastic kernel-key pairs. Each entry maps one surface key to a
+# canonical form so that asymmetric appearances of the two keys across a
+# pair of predicates are treated as the SAME logical slot when the guard
+# below decides whether RHS asserts something LHS lacks.
+#
+# Concrete cases this covers:
+#   - "until further notice" lands under TIME, while
+#     "no fixed reopening date" lands under TIME_STATUS — both express the
+#     same indefinite-suspension state, just routed to different keys by
+#     the parser.
+#   - "while maintenance work takes place" lands under TEMPORAL_CONTEXT,
+#     while "for maintenance work" lands under AIM_OBJECTIVE — both name
+#     the same circumstantial maintenance work; cause/purpose framing is
+#     paraphrastic in this domain.
+#
+# Keep the mapping minimal: only add a pair when both sides routinely
+# carry the same semantic content under different kernel slots. The value
+# on each side is still compared point-by-point via Paraphrase.ttl, so a
+# mapping here doesn't blanket-equate the values, only the SLOTS.
+_KERNEL_KEY_EQUIVALENCES = {
+    "TIME_STATUS": "TIME",
+    "AIM_OBJECTIVE": "TEMPORAL_CONTEXT",
+}
+
+
+def _canonical_kernel_key(k: str) -> str:
+    return _KERNEL_KEY_EQUIVALENCES.get(k, k)
+
+
+def _kernel_logical_keys_block_implication(lhs_formula, rhs_formula) -> bool:
+    """Return True iff the verdict ``LHS ⇒ RHS`` must be rejected because RHS
+    asserts a kernel-level logical-context property (CAUSATION, REQUIREMENT,
+    ...) that LHS does not.
+
+    Asymmetric on purpose: a more-specific LHS is allowed to imply a
+    less-specific RHS (LHS may carry extra logical-context keys). The
+    implication is only invalid when RHS introduces a logical-context key
+    LHS lacks — that's RHS claiming something LHS did not commit to.
+
+    Keys listed in ``_KERNEL_KEY_EQUIVALENCES`` are canonicalised before
+    the comparison, so e.g. an LHS carrying ``TEMPORAL_CONTEXT`` is
+    treated as already covering an RHS-only ``AIM_OBJECTIVE``.
+    """
+    lhs_props = getattr(lhs_formula, 'properties', None)
+    rhs_props = getattr(rhs_formula, 'properties', None)
+    if rhs_props is None:
+        return False
+    lhs_keys = {str(k).upper() for k, v in (lhs_props or ()) if v}
+    rhs_keys = {str(k).upper() for k, v in (rhs_props or ()) if v}
+    lhs_logical = {_canonical_kernel_key(k) for k in lhs_keys & _KERNEL_LOGICAL_CONTEXT_KEYS}
+    rhs_logical = {_canonical_kernel_key(k) for k in rhs_keys & _KERNEL_LOGICAL_CONTEXT_KEYS}
+    return bool(rhs_logical - lhs_logical)
+
+
 class ModelSearchBasis:
     def __init__(self, original, constituents):
         self.original = original
@@ -114,6 +200,16 @@ class ModelSearch:
         # property-only comparison.  The expansion already established that
         # the predicates are semantically related, so we only need to check
         # whether the properties (CAUSATION, SPACE, etc.) are compatible.
+        # Kernel-level logical-context properties (CAUSATION, REQUIREMENT,
+        # TEMPORAL_CONTEXT, ...) carry meaningful semantic load. The verdict
+        # here is an implication LHS ⇒ RHS derived from an expansion that
+        # strips properties: it only stands if RHS doesn't assert any
+        # logical-context key that LHS lacks. A more-specific LHS implying a
+        # less-specific RHS is still fine (LHS can carry extra keys).
+        if _kernel_logical_keys_block_implication(objLHS.original, objRHS.original):
+            if _TRACE_COMPARE:
+                print(f"[GUARD] RHS has logical-context key LHS lacks — downgrading to INDIFFERENT")
+            return CasusHappening.INDIFFERENT
         if direct != CasusHappening.EQUIVALENT and not isImplication(direct):
             if _TRACE_COMPARE:
                 print(f"[GUARD] direct was not eq/impl, checking properties directly")
@@ -121,8 +217,9 @@ class ModelSearch:
             yorig = objRHS.original
             if (hasattr(xorig, 'properties') and hasattr(yorig, 'properties')
                     and xorig.properties and yorig.properties):
-                xprop = set() if xorig.properties is None else xorig.properties
-                yprop = set() if yorig.properties is None else yorig.properties
+                from LaSSI.HOnK.TBox.ConstituentComparator import _filter_noise_props
+                xprop = _filter_noise_props(xorig.properties)
+                yprop = _filter_noise_props(yorig.properties)
                 dLHS = dict(xprop)
                 dRHS = dict(yprop)
                 keys = set(dLHS.keys()) | set(dRHS.keys())

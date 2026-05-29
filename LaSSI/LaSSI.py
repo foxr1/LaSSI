@@ -630,6 +630,18 @@ class LaSSI():
             )
         self.logger(f"Generating meuDB time: {meu_execution_time} seconds")
 
+        # Attach the chunk role discovered by ChunkProfiler to each
+        # per-sub-sentence MeuDB so TypeResolver / NodeMerger can read the
+        # role via getattr without a wider signature change. MeuDB is a
+        # plain dataclass; setattr is safe and side-effect-free.
+        chunk_roles = getattr(self, 'chunk_roles', None) or []
+        for sub_idx, meu_db_row in enumerate(self.meu_dbs):
+            role = chunk_roles[sub_idx] if sub_idx < len(chunk_roles) else None
+            try:
+                setattr(meu_db_row, 'chunk_role', getattr(role, 'value', role))
+            except Exception:
+                pass
+
         self.logger("generating gsmDB")
         gsm_db, gsm_execution_time = target_file_dump(
             self.gsmDB,
@@ -752,19 +764,6 @@ class LaSSI():
                 return True
         return False
 
-    # Accept up to 4 alpha-words (hyphens allowed) before the colon so that
-    # multi-word labels like "Traffic management:" or "Roadworks on Fern
-    # Drive:" register as headers. Single-word labels like "Outcome:" still
-    # match. Digits and punctuation in the label are disallowed to avoid
-    # tripping on time strings or list bullets.
-    _HEADER_TEXT_RE = re.compile(r'^\s*[A-Za-z][A-Za-z\-]*(?:\s+[A-Za-z][A-Za-z\-]*){0,4}\s*:\s*\S')
-
-    def _is_header_text(self, sub_text):
-        """Detect a 'Header: body' label-value sub-sentence (e.g. ``Outcome: under
-        investigation``). The colon separator is the structural cue: the word
-        before is a category label rather than a real subject."""
-        return isinstance(sub_text, str) and bool(self._HEADER_TEXT_RE.match(sub_text))
-
     def _ontology_construct_keys(self):
         """Set of property keys (uppercased construct names) that the HOnK logical
         rewriting rules emit, e.g. SPACE, TIME, TIME_STATUS, CAUSATION. Used to
@@ -787,19 +786,67 @@ class LaSSI():
         self._ontology_construct_keys_cache = keys
         return keys
 
+    # Role priority for choosing the primary kernel inside a row. ACTION
+    # (imperative roadworks/transport notice verbs) wins over substantive
+    # PROSE; REPORT_HEADER (weather forecast frames) wins over generic
+    # HEADER when no clause body exists. Lower index = higher priority.
+    _CHUNK_PRIMARY_PRIORITY = ("ACTION", "PROSE", "REPORT_HEADER", "HEADER")
+
+    # Roles whose construct-key properties are promoted onto the primary
+    # without also retaining the sub-kernel under SENTENCE. These are
+    # structurally subsidiary (a label, a status fragment, a metric list,
+    # a date range) — their predication is fully captured by the promoted
+    # properties.
+    _CHUNK_SUBSIDIARY_ROLES = frozenset({
+        "HEADER", "REPORT_HEADER", "STATUS", "ATTRIBUTE", "TIME_RANGE",
+        "CONTEXT",
+    })
+
+    # Roles that contribute meaning *only* via their relationship to the
+    # next chunk (the body that the colon introduced). A bare label like
+    # "Traffic management" has no clausal content of its own — once any
+    # construct-key properties have been promoted onto the primary, the
+    # remainder should be dropped, not retained as `be(label, ?)` noise
+    # under SENTENCE.
+    _CHUNK_LABEL_ONLY_ROLES = frozenset({"HEADER", "REPORT_HEADER"})
+
+    def _role_for_sub(self, sub_idx):
+        roles = getattr(self, 'chunk_roles', None)
+        if not roles or sub_idx >= len(roles) or roles[sub_idx] is None:
+            return "PROSE"
+        role = roles[sub_idx]
+        return getattr(role, 'value', role)
+
+    def _select_primary_idx(self, sub_indices, intermediate_representations):
+        """Pick the sub-sentence index whose kernel should anchor the merged
+        row. Walks role priorities first, then falls back to any available
+        Singleton, then to the first sub-index unconditionally."""
+        from LaSSI.structures.internal_graph.EntityRelationship import Singleton
+        for pri in self._CHUNK_PRIMARY_PRIORITY:
+            for idx in sub_indices:
+                if not isinstance(intermediate_representations[idx], Singleton):
+                    continue
+                if self._role_for_sub(idx) == pri:
+                    return idx
+        for idx in sub_indices:
+            if isinstance(intermediate_representations[idx], Singleton):
+                return idx
+        return sub_indices[0]
+
     def _merge_intermediate_per_row(self, intermediate_representations):
         from collections import defaultdict
         from LaSSI.structures.internal_graph.EntityRelationship import Singleton
 
         construct_keys = self._ontology_construct_keys()
         merged = []
-        for row_position, sub_indices in enumerate(self.row_to_sub_indices):
+        for sub_indices in self.row_to_sub_indices:
             if not sub_indices:
                 continue
             if len(sub_indices) == 1:
                 merged.append(intermediate_representations[sub_indices[0]])
                 continue
-            primary = intermediate_representations[sub_indices[0]]
+            primary_idx = self._select_primary_idx(sub_indices, intermediate_representations)
+            primary = intermediate_representations[primary_idx]
             if not isinstance(primary, Singleton):
                 merged.append(primary)
                 continue
@@ -809,17 +856,13 @@ class LaSSI():
                     new_props[k] = list(v)
                 else:
                     new_props[k] = v
-            for sub_idx in sub_indices[1:]:
+            for sub_idx in sub_indices:
+                if sub_idx == primary_idx:
+                    continue
                 sub_kernel = intermediate_representations[sub_idx]
                 if sub_kernel is None:
                     continue
-                sub_text = self.meu_dbs[sub_idx].first_sentence if sub_idx < len(self.meu_dbs) else ''
-                sub_is_header = self._is_header_text(sub_text)
-
-                # Promote ontology construct-key properties (SPACE, TIME, …)
-                # of the sub-kernel onto the primary, irrespective of whether
-                # the sub looks like a header. Anything that is *not* a
-                # construct key falls through to the SENTENCE bucket below.
+                sub_role = self._role_for_sub(sub_idx)
                 promoted_any = False
                 if isinstance(sub_kernel, Singleton):
                     for k, v in dict(sub_kernel.properties).items():
@@ -834,32 +877,101 @@ class LaSSI():
                         else:
                             new_props[k] = [existing] + items
                         promoted_any = True
-
-                # If the sub is a "Header: body" form we treat the body's
-                # construct keys as fully captured and don't add the kernel
-                # itself under SENTENCE (matches the original behaviour).
-                # Otherwise we still keep the sub-kernel under SENTENCE so
-                # the predication isn't lost.
-                if (not sub_is_header) or not promoted_any:
+                sub_is_subsidiary = sub_role in self._CHUNK_SUBSIDIARY_ROLES
+                sub_is_label_only = sub_role in self._CHUNK_LABEL_ONLY_ROLES
+                # Pure label chunks contribute nothing if there are no
+                # construct keys to lift onto the primary — they exist only
+                # to mark the colon-introduced body chunk that follows.
+                if sub_is_label_only and not promoted_any:
+                    continue
+                if (not sub_is_subsidiary) or (not promoted_any):
                     new_props['SENTENCE'].append(sub_kernel)
+            self._project_lifecycle_from_sentence(new_props)
             merged.append(primary.update_node_props(new_props))
         return merged
+
+    def _project_lifecycle_from_sentence(self, new_props):
+        """Lift lifecycle facts out of merged SENTENCE entries.
+
+        Sub-sentences like "Investigation complete" and "no suspect identified"
+        survive `_merge_intermediate_per_row` as top-level kernels attached under
+        SENTENCE on the primary clause.  At that point they are not visible to
+        the structural-rewrite pipeline (which has already run per sub-sentence
+        before the merge).  We re-apply the lifecycle projections here so a
+        copula `be(StatusNoun, ?[cop:adj])` becomes `TIME_STATUS:StatusNoun[type:adj]`
+        and a `verb(?, NOT(lifecycle))` clause becomes `SPECIFICATION:NOT(lifecycle)`.
+        """
+        sentence_items = new_props.get('SENTENCE')
+        if not sentence_items:
+            return
+        try:
+            from LaSSI.ner.structural_rewrites import RewriteContext
+            from LaSSI.ner.structural_rewrites.lifecycle_property_promotion import (
+                LifecyclePropertyPromotionRule,
+            )
+            from LaSSI.ner.KernelOntologyMatchers import KernelOntologyMatchers
+            from LaSSI.external_services.Services import Services
+        except Exception:
+            return
+
+        rule = LifecyclePropertyPromotionRule()
+        ctx = RewriteContext(
+            node_functions=None,
+            services=Services.getInstance(),
+            matchers=KernelOntologyMatchers(G=None),
+        )
+
+        kept = []
+        for item in sentence_items:
+            promoted = False
+            try:
+                status_node = rule._sentence_status_projection(item, ctx)
+            except Exception:
+                status_node = None
+            if status_node is not None:
+                new_props.setdefault('TIME_STATUS', []).append(status_node)
+                promoted = True
+            else:
+                try:
+                    negated = rule._negated_lifecycle_projection(item, ctx)
+                except Exception:
+                    negated = None
+                if negated is not None:
+                    new_props.setdefault('SPECIFICATION', []).append(negated)
+                    promoted = True
+            if not promoted:
+                kept.append(item)
+
+        if kept:
+            new_props['SENTENCE'] = kept
+        else:
+            new_props.pop('SENTENCE', None)
 
     def _merge_meu_dbs_per_row(self, meu_dbs):
         from LaSSI.structures.meuDB.meuDB import MeuDB
 
         merged = []
-        for sub_indices in self.row_to_sub_indices:
+        # Prefer the original yaml row text for display so colons/hyphens
+        # the chunker stripped don't disappear from string_rep.txt and the
+        # confusion matrix labels.
+        originals = getattr(self, 'row_original_text', None) or []
+        for row_idx, sub_indices in enumerate(self.row_to_sub_indices):
             if not sub_indices:
                 continue
+            display_text = (originals[row_idx]
+                            if row_idx < len(originals)
+                            else meu_dbs[sub_indices[0]].first_sentence)
             if len(sub_indices) == 1:
-                merged.append(meu_dbs[sub_indices[0]])
+                row = meu_dbs[sub_indices[0]]
+                if display_text != row.first_sentence:
+                    row = MeuDB(first_sentence=display_text,
+                                multi_entity_unit=row.multi_entity_unit)
+                merged.append(row)
                 continue
-            combined_first = " ".join(meu_dbs[i].first_sentence for i in sub_indices)
             combined_meu = []
             for i in sub_indices:
                 combined_meu.extend(meu_dbs[i].multi_entity_unit)
-            merged.append(MeuDB(first_sentence=combined_first, multi_entity_unit=combined_meu))
+            merged.append(MeuDB(first_sentence=display_text, multi_entity_unit=combined_meu))
         return merged
 
     def _persist_merged_caches(self, intermediate_representations):
@@ -931,19 +1043,185 @@ class LaSSI():
         return None
 
     def run(self):
-        from LaSSI.phases.SentenceLoader import SentenceLoader, split_yaml_row_sentences
+        from LaSSI.phases.SentenceLoader import SentenceLoader
+        from LaSSI.phases.StructuredSentenceLoader import split_structured, StructuredChunk
+        from LaSSI.ner.ChunkProfiler import profile as profile_chunk, ChunkRole
 
         start_time = time.time()
         raw_sentences = SentenceLoader(self.sentences)
 
+        # HOnK provides the lookup sets the profiler queries (status nouns,
+        # field-label nouns, prediction verbs, etc.). FullText mode skips
+        # ontology loading, so the profiler falls back to its safe default
+        # (PROSE) for every chunk.
+        profiler_honk = None
+        if self.transformation != SentenceRepresentation.FullText:
+            profiler_honk = self.initServices.getHOnK()
+
         expanded = []
         self.row_to_sub_indices = []
+        self.chunk_roles = []
+        self.chunk_meta = []
+        # Track the unmodified yaml row text so the merged display
+        # (string_rep.txt, confusion matrix) keeps the user's original
+        # punctuation rather than a chunk-join concatenation that drops
+        # colons, hyphens, and ellipses.
+        self.row_original_text = []
+        # Roles whose body chunks have no clausal verb on their own. When such
+        # a body follows a HEADER/REPORT_HEADER introduced by a colon, splitting
+        # at the colon hurts parsing: CoreNLP can't build a tree for a bare
+        # metric/date list. Rejoin the body onto its label so CoreNLP sees the
+        # full assertion (e.g. "Met Office forecast for X: 12.76°C, 57% ...").
+        _VERBLESS_BODY_ROLES = {ChunkRole.ATTRIBUTE, ChunkRole.TIME_RANGE}
+        _LABEL_ROLES = {ChunkRole.HEADER, ChunkRole.REPORT_HEADER}
+
+        # Splitter for conjunctive ACTION chunks. CoreNLP cannot reliably
+        # produce two kernels for "Abandon X and replace Y" because the
+        # imperative subject is elided — it forms one kernel for "Abandon"
+        # and drops the conjoined "replace" clause. By splitting at
+        # " and <verb>" (or at a verb-noun-verb adjacency for fragmented
+        # notice text like "Demolish FW2 rebuild FW4") into two ACTION
+        # chunks, each verb gets its own parse and the merge step keeps
+        # both as sibling actions.
+        #
+        # The verb set is intentionally narrow: CausativeVerb and
+        # MaterialisationVerb cover the imperative roadworks vocabulary
+        # (abandon, demolish, install, rebuild, replace, excavate, renew).
+        # Pulling in TransitiveVerb here misfires because HOnK fuzzy-loads
+        # many common nouns and particles ("bicycle", "on", "no") under
+        # TransitiveVerb, which would make the splitter slice ordinary
+        # prose like "Bicycle theft recorded on Edward Place".
+        def _verb_classes_for_split(honk):
+            if honk is None:
+                return set()
+            classes = set()
+            for acc in ("getCausativeVerbs", "getMaterialisationVerbs"):
+                fn = getattr(honk, acc, None)
+                if fn is None:
+                    continue
+                try:
+                    classes.update(fn() or set())
+                except Exception:
+                    continue
+            return classes
+
+        _ACTION_VERBS = _verb_classes_for_split(profiler_honk)
+
+        def _split_conjunctive_action(chunks):
+            """Split ACTION chunks that join two verb-led clauses, either
+            via "and" (``Abandon X and replace Y``) or by simple
+            verb-noun-verb adjacency (``Demolish FW2 rebuild FW4``).
+            Each verb gets its own clause so the merger can capture both
+            as sibling actions instead of CoreNLP collapsing the second
+            verb under the first."""
+            if not _ACTION_VERBS:
+                return chunks
+            import re as _re
+            # Match either an explicit conjunction (" and verb") or a bare
+            # verb-after-non-verb-token boundary. Capture the second
+            # verb's start position so we can split there.
+            and_re = _re.compile(r"\s+and\s+([A-Za-z][A-Za-z'\-]*)")
+            # Verb-following-noun boundary: a token that looks like a head
+            # noun (capitalised alpha or alphanumeric like FW2) followed
+            # by a space and a clause-initial verb. The noun token must
+            # NOT itself be a known verb.
+            adj_re = _re.compile(
+                r"(\s+)([A-Za-z][A-Za-z'\-]*)\b"
+            )
+            out = []
+            for chunk in chunks:
+                role = profile_chunk(chunk, profiler_honk)
+                if role != ChunkRole.ACTION:
+                    out.append(chunk)
+                    continue
+                text = chunk.text
+                # First try the conjunction form.
+                m = and_re.search(text)
+                if m and m.group(1).lower() in _ACTION_VERBS:
+                    head = text[:m.start()].rstrip()
+                    tail = text[m.end() - len(m.group(1)):]
+                    out.append(StructuredChunk(
+                        text=head, is_label=False,
+                        delim_before=chunk.delim_before,
+                    ))
+                    out.append(StructuredChunk(
+                        text=tail, is_label=False,
+                        delim_before="CONJUNCTION",
+                    ))
+                    continue
+                # Bare verb-noun-verb adjacency: walk tokens, find a
+                # second verb whose immediate predecessor is a non-verb
+                # word (i.e. the noun argument of the first verb).
+                token_iter = list(_re.finditer(
+                    r"[A-Za-z][A-Za-z0-9'\-]*", text
+                ))
+                split_at = None
+                for i in range(2, len(token_iter)):
+                    cur_tok = token_iter[i].group(0).lower()
+                    prev_tok = token_iter[i - 1].group(0).lower()
+                    if (cur_tok in _ACTION_VERBS
+                            and prev_tok not in _ACTION_VERBS
+                            and token_iter[0].group(0).lower() in _ACTION_VERBS):
+                        split_at = token_iter[i].start()
+                        break
+                if split_at is not None:
+                    head = text[:split_at].rstrip()
+                    tail = text[split_at:].lstrip()
+                    if head and tail:
+                        out.append(StructuredChunk(
+                            text=head, is_label=False,
+                            delim_before=chunk.delim_before,
+                        ))
+                        out.append(StructuredChunk(
+                            text=tail, is_label=False,
+                            delim_before="VERB_ADJACENCY",
+                        ))
+                        continue
+                out.append(chunk)
+            return out
+
+        def _rejoin_label_with_verbless_body(chunks):
+            if len(chunks) < 2 or profiler_honk is None:
+                return chunks
+            roles = [profile_chunk(c, profiler_honk) for c in chunks]
+            out = []
+            i = 0
+            while i < len(chunks):
+                cur = chunks[i]
+                cur_role = roles[i]
+                if (i + 1 < len(chunks)
+                        and cur_role in _LABEL_ROLES
+                        and roles[i + 1] in _VERBLESS_BODY_ROLES
+                        and chunks[i + 1].delim_before == "COLON"):
+                    nxt = chunks[i + 1]
+                    # Re-emit the colon so CoreNLP sees the original surface
+                    # form. Stripping the delimiter changes the dependency
+                    # parse and can produce kernels that downstream graph
+                    # rewriting cannot consume.
+                    out.append(StructuredChunk(
+                        text=f"{cur.text}: {nxt.text}",
+                        is_label=False,
+                        delim_before=cur.delim_before,
+                    ))
+                    i += 2
+                else:
+                    out.append(cur)
+                    i += 1
+            return out
+
         for row_text in raw_sentences:
-            sub_sentences = split_yaml_row_sentences(str(row_text))
+            self.row_original_text.append(str(row_text))
+            chunks = split_structured(str(row_text))
+            if not chunks:
+                chunks = [StructuredChunk(text=str(row_text))]
+            chunks = _rejoin_label_with_verbless_body(chunks)
+            chunks = _split_conjunctive_action(chunks)
             sub_indices = []
-            for sub in sub_sentences:
+            for chunk in chunks:
                 sub_indices.append(len(expanded))
-                expanded.append(sub)
+                expanded.append(chunk.text)
+                self.chunk_meta.append(chunk)
+                self.chunk_roles.append(profile_chunk(chunk, profiler_honk))
             self.row_to_sub_indices.append(sub_indices)
 
         _honk_closed = None

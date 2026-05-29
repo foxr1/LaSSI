@@ -72,26 +72,29 @@ class RequirementClauseSimplifierRule(StructuralRewriteRule):
         for candidate in bindings["candidates"]:
             replacements_by_key.setdefault(candidate["prop_key"], []).append(candidate)
 
+        # Per the rule docstring: force the surviving objects under REQUIREMENT
+        # regardless of the originating key (CAUSATION misclassifications, etc.)
+        promoted = list(props.get("REQUIREMENT", [])) if not isinstance(props.get("REQUIREMENT", []), list) else list(props.get("REQUIREMENT", []))
         for key, candidates in replacements_by_key.items():
             existing = props.get(key, [])
             if not isinstance(existing, list):
                 existing = [existing]
             else:
                 existing = list(existing)
-            replacement_list = []
             consumed = set()
             for candidate in candidates:
                 idx = candidate["value_index"]
                 if idx >= len(existing):
                     continue
                 consumed.add(idx)
-                replacement_list.append(candidate["object"])
+                promoted.append(candidate["object"])
             kept = [v for i, v in enumerate(existing) if i not in consumed]
-            kept.extend(replacement_list)
             if kept:
                 props[key] = kept
             else:
                 props.pop(key, None)
+        if promoted:
+            props["REQUIREMENT"] = promoted
 
         return kernel.update_node_props(props)
 

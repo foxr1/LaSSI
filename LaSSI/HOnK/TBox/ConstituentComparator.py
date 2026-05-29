@@ -1,3 +1,5 @@
+import os
+
 from LaSSI.HOnK.HOnK import CasusHappening, HOnKSingleton
 from LaSSI.structures.extended_fol.Enums import PairwiseCases
 from LaSSI.structures.extended_fol.Formulae import FVariable, FNot, FBinaryPredicate, FUnaryPredicate, FAnd, FOr
@@ -6,6 +8,24 @@ from LaSSI.HOnK.TBox.ParaphraseManager import _paraphrase_concept_of, _paraphras
 from LaSSI.HOnK.TBox.SpatialReasoner import _canonicalize_geo_fvar, _canonicalize_proper_noun_modifier, _strip_geo_generic_suffix, _has_near_place, _space_mismatch_contradiction, _space_city_mismatch_contradiction, _GEO_TYPES
 from LaSSI.HOnK.TBox.LifecycleManager import _lifecycle_partition_verdict
 from LaSSI.utils.datetime_canon import canonicalize_datetime_string as _canonicalize_datetime_string
+
+
+def _load_ex_post_ignored_property_keys():
+    path = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "..", "..",
+        "raw_data", "ex_post_ignored_properties.txt"
+    ))
+    keys = set()
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                keys.add(line)
+    except FileNotFoundError:
+        pass
+    return keys
 
 def simplifyConstituentsAcross(constituentCollection):
     if isinstance(constituentCollection, CasusHappening):
@@ -135,13 +155,27 @@ def _compare_single_prop_val(d, lhs_val, rhs_val, lhs_parent_concept=None, rhs_p
         return HOnKSingleton.get().name_eq(lhs_val.name, rhs_val)
     return CasusHappening.INDIFFERENT
 
+_SYNTACTIC_NOISE_KEYS = _load_ex_post_ignored_property_keys()
+
+
+def _filter_noise_props(props):
+    if not props:
+        return []
+    return [(k, v) for (k, v) in props if not _is_syntactic_fvar_property_key(k)]
+
+
 def _is_syntactic_fvar_property_key(key) -> bool:
     if isinstance(key, int):
         return True
-    if isinstance(key, str) and key.isdigit():
-        return True
-    if key in {"det", "punct"}:
-        return True
+    if isinstance(key, str):
+        if key.isdigit():
+            return True
+        if key and key[0].isdigit():
+            stripped = key.rstrip("0").rstrip(".")
+            if stripped and stripped.replace(".", "", 1).isdigit():
+                return True
+        if key in _SYNTACTIC_NOISE_KEYS:
+            return True
     return False
 
 def _normalize_fvar_prop_key(k):
@@ -149,9 +183,77 @@ def _normalize_fvar_prop_key(k):
         return "MODIFIER"
     return k
 
+def _numbered_case_marker_phrases(props):
+    """Collect property entries keyed by a token position and yield every
+    contiguous (consecutive-position) phrase that can be reconstructed
+    from them, longest first.
+    """
+    pairs = []
+    for k, v in dict(props).items():
+        pos = None
+        if isinstance(k, int):
+            pos = k
+        elif isinstance(k, str):
+            try:
+                pos = int(float(k))
+            except (ValueError, TypeError):
+                pos = None
+        if pos is None:
+            continue
+        vals = v if isinstance(v, tuple) else (v,)
+        for val in vals:
+            if isinstance(val, FVariable):
+                token = val.name
+            elif isinstance(val, str):
+                token = val
+            else:
+                token = None
+            if token:
+                pairs.append((pos, token.strip()))
+    if not pairs:
+        return []
+    pairs.sort(key=lambda x: x[0])
+    runs = [[pairs[0]]]
+    for p in pairs[1:]:
+        if p[0] == runs[-1][-1][0] + 1:
+            runs[-1].append(p)
+        else:
+            runs.append([p])
+    out = []
+    for run in runs:
+        n = len(run)
+        for length in range(n, 0, -1):
+            for start in range(0, n - length + 1):
+                window = run[start:start + length]
+                positions = tuple(p for p, _ in window)
+                phrase = " ".join(t for _, t in window).lower()
+                out.append((positions, phrase))
+    return out
+
+
 def _dict_from_props(props):
     d = {}
+    consumed_positions = set()
+    # Reconstruct numbered case-marker phrases (e.g. "due to" from the
+    # `3.000000:Due`, `4.000000:to`) and look them up against Paraphrase.ttl.
+    for positions, phrase in _numbered_case_marker_phrases(props):
+        if any(p in consumed_positions for p in positions):
+            continue
+        if _paraphrase_concept_of(phrase) is None:
+            continue
+        d.setdefault("actioned", []).append(phrase)
+        consumed_positions.update(positions)
     for k, v in dict(props).items():
+        pos = None
+        if isinstance(k, int):
+            pos = k
+        elif isinstance(k, str):
+            try:
+                pos = int(float(k))
+            except (ValueError, TypeError):
+                pos = None
+        if pos is not None and pos in consumed_positions:
+            continue
         if not _is_syntactic_fvar_property_key(k):
             nk = _normalize_fvar_prop_key(k)
             if nk not in d:
@@ -162,11 +264,34 @@ def _dict_from_props(props):
                 d[nk].append(v)
     return d
 
+_EMPTY_HEDGE_CONCEPT = "semantically_empty_hedge"
+
+
+def _all_values_are_empty_hedges(vals):
+    if not vals:
+        return False
+    for v in vals:
+        if _paraphrase_concept_of(v) != _EMPTY_HEDGE_CONCEPT:
+            return False
+    return True
+
+
 def _compare_fvar_properties(d, lhs_props, rhs_props, lhs_parent_concept=None, rhs_parent_concept=None):
     if lhs_props == rhs_props:
         return CasusHappening.EQUIVALENT
     lhs_dict = _dict_from_props(lhs_props)
     rhs_dict = _dict_from_props(rhs_props)
+    # If both sides reduce to empty after stripping syntactic-only keys
+    # (numbered case markers, `det`, `punct`), they are equivalent on the
+    # comparison-relevant dimensions — the raw dicts only differed by
+    # noise that `_dict_from_props` is explicitly meant to discard.
+    # Without this short-circuit, `simplifyConstituentsAcross([])` below
+    # falls through to its empty-collection fallback and returns
+    # INDIFFERENT, which then poisons the enclosing FVariable comparison
+    # (e.g. `storm[damage]` vs `storm[damage]` where one side carries a
+    # leftover `punct:","`).
+    if not lhs_dict and not rhs_dict:
+        return CasusHappening.EQUIVALENT
     all_keys = set(lhs_dict.keys()) | set(rhs_dict.keys())
     results = []
     for key in all_keys:
@@ -179,9 +304,15 @@ def _compare_fvar_properties(d, lhs_props, rhs_props, lhs_parent_concept=None, r
             ]
             results.append(simplifyConstituentsAcross(pair_results))
         elif key in lhs_dict:
+            if _all_values_are_empty_hedges(lhs_dict[key]):
+                continue
             results.append(CasusHappening.GENERAL_IMPLICATION)
         else:
+            if _all_values_are_empty_hedges(rhs_dict[key]):
+                continue
             results.append(CasusHappening.INDIFFERENT)
+    if not results:
+        return CasusHappening.EQUIVALENT
     return simplifyConstituentsAcross(results)
 
 def _cop_parent_concept(v, fallback_concept):
@@ -363,8 +494,8 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
         else:
             assert isinstance(x, FBinaryPredicate) or isinstance(x, FUnaryPredicate)
             assert isinstance(y, FBinaryPredicate) or isinstance(y, FUnaryPredicate)
-            xprop = set() if x.properties is None else x.properties
-            yprop = set() if y.properties is None else y.properties
+            xprop = _filter_noise_props(x.properties)
+            yprop = _filter_noise_props(y.properties)
             keyCmp, keyCmpInv = {}, {}
             keys = set(map(lambda z: z[0], xprop)).union(map(lambda z: z[0], yprop))
             hasDirectSubset = False

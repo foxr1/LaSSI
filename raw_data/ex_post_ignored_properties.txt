@@ -1,0 +1,18 @@
+# Property keys that LaSSI keeps in the representation (so the printed
+# string_rep still shows them) but ignores during the ex-post explain /
+# similarity phase. These are surface-syntactic artefacts that carry no
+# semantic load when comparing two formulae.
+#
+# One key per line. Lines beginning with '#' and blank lines are ignored.
+# Case-sensitive: keys are matched verbatim against the property keys
+# attached to FVariable / predicate property tuples.
+
+det
+punct
+case
+subjpass
+nsubjpass
+nsubj
+obj
+iobj
+mark

@@ -93,6 +93,9 @@ def generate_honk_graph(p:HOnK, data_path:str, result_path:str=None):
     service_state_noun = p.create_class("ServiceStateNoun", "StateNoun")
     status_noun = p.create_class("StatusNoun", "StateNoun")
     weather_condition_noun = p.create_class("WeatherConditionNoun", ["PhenomenonNoun", "StateNoun"])
+    field_label_noun = p.create_class("FieldLabelNoun", "TypedNoun",
+                                       comment="Category-label nouns that appear before a colon in scraped notice rows (e.g. Outcome:, Traffic management:, Forecast:). Used to distinguish HEADER chunks from prose subjects.")
+    modal_adjective = p.create_class("ModalAdjective", "Adjective")
     to_reject = None
     with open(os.path.join(data_path, "rejected_edge_types.txt"), "r") as dep:
         to_reject = {line.strip().lower() for line in dep}
@@ -118,6 +121,8 @@ def generate_honk_graph(p:HOnK, data_path:str, result_path:str=None):
     load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "service_state_nouns.txt"), ["Noun", "ServiceStateNoun"], to_reject)
     load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "status_nouns.txt"), ["Noun", "StatusNoun"], to_reject)
     load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "weather_condition_nouns.txt"), ["Noun", "WeatherConditionNoun"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "field_label_nouns.txt"), ["Noun", "FieldLabelNoun"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "adjectives", "modal_adjectives.txt"), ["Adjective", "ModalAdjective"], to_reject)
 
 
     for preposition in Prepositions.load_prepositions(os.path.join(data_path, "prepositions.json")):

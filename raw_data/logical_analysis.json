@@ -301,6 +301,12 @@
         "attachTo": "Singleton",
         "argument": "property"
       }
+    ],
+    "modality": [
+      {
+        "attachTo": "Kernel",
+        "argument": "property"
+      }
     ]
   },
   "derivation_rules": [
@@ -459,7 +465,7 @@
         }
       ],
       "__sentence_examples": [
-        "which require scaffolding",
+        "which requires scaffolding",
         "this needs a permit"
       ]
     },
@@ -1147,6 +1153,22 @@
     },
     {
       "premise": {
+        "Preposition": [
+          "following"
+        ]
+      },
+      "classification": [
+        {
+          "type": "temporal_context"
+        }
+      ],
+      "__sentence_examples": [
+        "following a shoplifting incident",
+        "following a period of heavy rainfall"
+      ]
+    },
+    {
+      "premise": {
         "PhrasalVerb": true
       },
       "classification": [
@@ -1156,6 +1178,21 @@
       ],
       "__sentence_examples": [
         "while maintenance work takes place"
+      ]
+    },
+    {
+      "premise": {
+        "ModalAdjective": true
+      },
+      "classification": [
+        {
+          "type": "modality"
+        }
+      ],
+      "__sentence_examples": [
+        "Work expected to end 2026-04-27",
+        "Delays unlikely",
+        "Work scheduled for next week"
       ]
     },
     {
@@ -1252,9 +1289,8 @@
         }
       ],
       "__sentence_examples": [
-        "the Percy Street entrance is currently closed (entrance reattached as an nmod orphan with no preposition; default to a spatial reading)"
-      ],
-      "__doc": "Default spatial classification for an nmod-attached location/facility/GPE entity when no Preposition-specific rule has already fired. 'stay in place' is the safe default; motion/from/near readings are caught by earlier prepositional rules with higher specificity. Must precede the unconstrained hasNMod fallback below — they tie on _rule_preposition_specificity (both zero), so JSON insertion order is the tiebreaker."
+        "the Percy Street entrance is currently closed"
+      ]
     },
     {
       "premise": {

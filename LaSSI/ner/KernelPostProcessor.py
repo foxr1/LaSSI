@@ -796,6 +796,20 @@ class KernelPostProcessor:
             return None
         return selected_rule
 
+    @staticmethod
+    def _is_relative_clause_sentence(node):
+        """A SENTENCE child whose source is a wh-pronoun ("which", "that",
+        "who", "whom") is a relative clause and must remain subordinate to
+        whatever it modifies — it is not a candidate to be promoted as the
+        main clause by `promote_contextual_sentence_kernel`."""
+        if not isinstance(node, Singleton) or node.kernel is None:
+            return False
+        src = node.kernel.source
+        if not isinstance(src, Singleton):
+            return False
+        name = (src.named_entity or '').strip().lower()
+        return name in {'which', 'that', 'who', 'whom'}
+
     def _is_kernel_level_logical_context(self, kernel, node):
         selected_rule = self._logical_rule_for_node(kernel, node)
         if selected_rule is None or not getattr(selected_rule, 'logicalConstructName', None):
@@ -863,6 +877,11 @@ class KernelPostProcessor:
                 if isinstance(candidate, Singleton)
                 and candidate.kernel is not None
                 and not self._is_kernel_level_logical_context(kernel, candidate)
+                # A relative clause (source = wh-pronoun) is subordinate to the
+                # outer clause and must never be promoted above it, even when
+                # the outer verb happens to match a kernel-level logical-context
+                # rule (e.g. PhrasalVerb → temporal_context for "carry out").
+                and not self._is_relative_clause_sentence(candidate)
             ),
             None,
         )

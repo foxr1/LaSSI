@@ -35,6 +35,20 @@ def _filter_spurious_meus(meu_db_row, honk):
        ``GraphNER_withProperties`` (whose ``most_specific_type`` prefers
        GPE/LOC over noun once the type is exposed).
 
+    4. **Tie-broken-by-noun-morphology** GPE / LOC / FAC MEUs: when the
+       geo match and the noun match are equally confident at the same
+       span, look at how many *distinct noun monads* HOnK produced for
+       the span. A genuinely ambiguous common English word like
+       "Possession" has rich morphological derivations in the lexicon
+       (possessions, possessive, possessing, possessor, repossession,
+       …) so the span gets many noun-typed entries; in that case the
+       noun reading is the right one and the LOC/GPE is a gazetteer
+       collision on the surface form. A real proper noun like
+       "Newcastle" only attracts a handful of fuzzy case-/spelling-
+       variants ("newcastle", "New Castle", "snowcastle"), nothing
+       like a morphological family, so the GPE/LOC is preserved.
+       Threshold ≥ 5 distinct noun monads gates the tie-break.
+
     Returns a new MeuDB-like object with the spurious entries removed; the
     input is not mutated."""
     if meu_db_row is None or not getattr(meu_db_row, 'multi_entity_unit', None):
@@ -51,15 +65,20 @@ def _filter_spurious_meus(meu_db_row, honk):
     except Exception:
         time_nouns = set()
 
-    # Pre-index the max noun confidence at each (start, end) span so the
-    # confidence-dominance check (rule 3) is O(N) overall instead of N²
-    # per-MEU comparisons.
+    # Pre-index the max noun confidence and the set of distinct noun
+    # monads at each (start, end) span. The confidence-dominance check
+    # (rule 3) uses the max; the morphological-richness tie-break
+    # (rule 4) uses the cardinality of the monad set.
     max_noun_conf_at_span = {}
+    noun_monads_at_span = {}
     for meu in meu_db_row.multi_entity_unit:
         if str(meu.type).lower() == 'noun':
             key = (meu.start_char, meu.end_char)
             if meu.confidence > max_noun_conf_at_span.get(key, -1.0):
                 max_noun_conf_at_span[key] = meu.confidence
+            monad = (meu.monad or '').strip().lower()
+            if monad:
+                noun_monads_at_span.setdefault(key, set()).add(monad)
 
     kept = []
     for meu in meu_db_row.multi_entity_unit:
@@ -77,6 +96,12 @@ def _filter_spurious_meus(meu_db_row, honk):
                     continue
         if meu_type in {'GPE', 'LOC', 'FAC'}:
             text = (meu.text or '').strip()
+            # Gazetteer/fuzzy matches on bare numeric or symbolic spans are
+            # noise for geo typing. Keeping them lets a quantified metric
+            # inherit a place type from one token and later be rewritten as
+            # SPACE.
+            if text and not any(ch.isalpha() for ch in text):
+                continue
             # ≤ 2-char all-caps surface form: nearly always a chemistry /
             # engineering abbreviation (SI, LP, PE, NaCl-style) that HOnK
             # has mis-matched to a country code or place stub. The same
@@ -84,13 +109,19 @@ def _filter_spurious_meus(meu_db_row, honk):
             # geographic noise.
             if 0 < len(text) <= 2 and text.isupper():
                 continue
-            # Strictly dominated by a noun match at the same span: the
-            # geo classification is a fuzzy edit-distance candidate that
-            # lost to a clean lexical noun match. Drop so downstream
-            # group-merging can't promote it back to a GPE.
-            best_noun_at_span = max_noun_conf_at_span.get((meu.start_char, meu.end_char), -1.0)
+            span_key = (meu.start_char, meu.end_char)
+            best_noun_at_span = max_noun_conf_at_span.get(span_key, -1.0)
+            # Rule 3: strictly dominated by a noun match — drop.
             if best_noun_at_span > meu.confidence:
                 continue
+            # Rule 4: tied with a noun match that has morphological
+            # richness (a common English word with many derivations in
+            # the lexicon) — drop. Proper nouns like "Newcastle" only
+            # produce a few fuzzy variants and stay above the threshold.
+            if best_noun_at_span == meu.confidence:
+                monads = noun_monads_at_span.get(span_key, set())
+                if len(monads) >= 5:
+                    continue
         kept.append(meu)
     if len(kept) == len(meu_db_row.multi_entity_unit):
         return meu_db_row
@@ -215,7 +246,7 @@ class TypeResolver:
             meu for meu in self.meu_db_row.multi_entity_unit
             if " " in meu.text or re.search(r"\d[-:T]\d", meu.text)
         ]
-        multi_word_meus.sort(key=lambda x: len(x.text), reverse=True)
+        multi_word_meus.sort(key=lambda x: (-len(x.text), str(x.type) == "None", -x.confidence))
 
         for meu in multi_word_meus:
             # For no-space MEUs the tokenizer may have glued a trailing

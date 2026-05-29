@@ -13,8 +13,8 @@ class DatabaseConfiguration:
     pw: str
     host: str
     port: int
-    fuzzy_dbs: Optional[dict]
-    huggingface: Optional[str]
+    fuzzy_dbs: Optional[dict] = None
+    huggingface: Optional[str] = None
 
 def load_db_configuration(file: str | io.IOBase, data_class=DatabaseConfiguration):
     f = file

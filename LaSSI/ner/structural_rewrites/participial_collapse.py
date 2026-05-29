@@ -48,6 +48,13 @@ class ParticipialCollapseRule(StructuralRewriteRule):
         if not anchor_ids:
             return None
 
+        outer_edge = kernel.kernel.edgeLabel
+        outer_is_verb = (
+            isinstance(outer_edge, Singleton)
+            and (outer_edge.type or "").lower() == "verb"
+        )
+        outer_lemma = self._verb_lemma(outer_edge) if outer_is_verb else None
+
         candidates = []
         for key, value in dict(kernel.properties).items():
             if not isinstance(key, str):
@@ -73,10 +80,23 @@ class ParticipialCollapseRule(StructuralRewriteRule):
                     continue
                 if (edge_label.type or "").lower() != "verb":
                     continue
+                # When the outer kernel has its own matrix verb whose lemma
+                # differs from this sub-kernel's verb, the acl participle
+                # carries the predicate identity we want at the top of the
+                # formula (e.g. "incident recorded near X ... involved Y"
+                # canonicalises to `record(incident)[..., CAUSATION:Y]`).
+                # Dissolve as usual but also flag the candidate to swap the
+                # outer kernel's edge-label verb for the sub-kernel's.
+                swap_edge = False
+                if outer_is_verb and outer_lemma is not None:
+                    sub_lemma = self._verb_lemma(edge_label)
+                    if sub_lemma is not None and sub_lemma != outer_lemma:
+                        swap_edge = True
                 candidates.append({
                     "prop_key": key,
                     "value_index": idx,
                     "sub_singleton": prop_node,
+                    "swap_edge": swap_edge,
                 })
 
         if not candidates:
@@ -99,17 +119,59 @@ class ParticipialCollapseRule(StructuralRewriteRule):
             existing = new_props.get(prop_key, [])
             new_props[prop_key] = [v for i, v in enumerate(existing) if i not in indices]
 
+        new_edge_label = None
         for candidate in bindings["candidates"]:
             self._dissolve_sub_kernel(
                 kernel, candidate["sub_singleton"], candidate["prop_key"],
                 new_props, rewriter,
             )
+            if candidate.get("swap_edge") and new_edge_label is None:
+                new_edge_label = self._merge_edge_label(
+                    kernel.kernel.edgeLabel,
+                    candidate["sub_singleton"].kernel.edgeLabel,
+                )
 
         # Drop now-empty property buckets.
         cleaned = {k: v for k, v in new_props.items() if v not in (None, [], ())}
-        return kernel.update_node_props(cleaned)
+        result = kernel.update_node_props(cleaned)
+        if new_edge_label is not None:
+            result = result.update_kernel(new_edge_label, "edgeLabel")
+        return result
+
+    @staticmethod
+    def _merge_edge_label(outer_edge, sub_edge):
+        """Produce a new edgeLabel that takes its verb identity from
+        ``sub_edge`` (named_entity + ``lemma``) but keeps the outer edge's
+        carrier properties (e.g. trailing ``punct``, position offsets) so
+        sentence-level decoration stays attached to the surviving predicate.
+        """
+        if not isinstance(sub_edge, Singleton):
+            return None
+        if not isinstance(outer_edge, Singleton):
+            return sub_edge
+        merged_props = dict(outer_edge.properties) if outer_edge.properties else {}
+        sub_props = dict(sub_edge.properties) if sub_edge.properties else {}
+        # Replace identifying fields with sub's so position/lemma reflect the
+        # surviving verb, keep outer's carrier properties (e.g. `punct`).
+        for k in ("lemma", "xpos", "pos", "begin", "end"):
+            if k in sub_props:
+                merged_props[k] = sub_props[k]
+            else:
+                merged_props.pop(k, None)
+        # Rebuild via update_node_props so properties become a hashable
+        # frozenset (required by downstream set-membership checks).
+        renamed = outer_edge.update_name(sub_edge.named_entity)
+        return renamed.update_node_props(merged_props)
 
     # ---- helpers ----
+
+    @staticmethod
+    def _verb_lemma(edge_label):
+        if not isinstance(edge_label, Singleton):
+            return None
+        props = dict(edge_label.properties) if edge_label.properties else {}
+        lemma = props.get("lemma") or edge_label.named_entity
+        return lemma.lower() if isinstance(lemma, str) else None
 
     @staticmethod
     def _collect_anchor_ids(kernel):

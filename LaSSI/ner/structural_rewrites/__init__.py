@@ -32,17 +32,25 @@ from LaSSI.ner.structural_rewrites.relcl_target_lift import RelclTargetLiftRule
 from LaSSI.ner.structural_rewrites.strip_aux_from_edge import StripAuxFromEdgeLabelRule
 from LaSSI.ner.structural_rewrites.singleton_and_location_to_space import SingletonAndLocationToSpaceRule
 from LaSSI.ner.structural_rewrites.participial_collapse import ParticipialCollapseRule
+from LaSSI.ner.structural_rewrites.participial_sub_kernel_preserve import ParticipialSubKernelPreserveRule
 from LaSSI.ner.structural_rewrites.after_occurrence_context_to_causation import AfterOccurrenceContextToCausationRule
 from LaSSI.ner.structural_rewrites.specification_and_to_target import SpecificationAndToTargetRule
 from LaSSI.ner.structural_rewrites.auxiliary_periphrasis_promotion import AuxiliaryPeriphrasisPromotionRule
-from LaSSI.ner.structural_rewrites.time_canonicalisation import TimeCanonicalisationRule
+from LaSSI.ner.structural_rewrites.time_canonicalisation import (
+    DropRedundantTimeTargetRule,
+    TimeCanonicalisationRule,
+)
 from LaSSI.ner.structural_rewrites.lifecycle_subject_promotion import LifecycleSubjectPromotionRule
 from LaSSI.ner.structural_rewrites.flatten_nested_and import FlattenNestedAndRule
 from LaSSI.ner.structural_rewrites.weather_amod_condition import WeatherAmodConditionRule
 from LaSSI.ner.structural_rewrites.quantity_compound_merge import QuantityCompoundMergeRule
+from LaSSI.ner.structural_rewrites.quantity_redundant_drop import QuantityRedundantDropRule
 from LaSSI.ner.structural_rewrites.and_nmod_extra import AndNmodExtraRule
 from LaSSI.ner.structural_rewrites.participial_predicate_promotion import ParticipialPredicatePromotionRule
-from LaSSI.ner.structural_rewrites.lifecycle_property_promotion import LifecyclePropertyPromotionRule
+from LaSSI.ner.structural_rewrites.lifecycle_property_promotion import (
+    LifecyclePropertyPromotionRule,
+    LifecyclePropertyPromotionLateRule,
+)
 
 
 def default_registry() -> RuleRegistry:
@@ -57,14 +65,18 @@ def default_registry() -> RuleRegistry:
         StripAuxFromEdgeLabelRule(),
         SingletonAndLocationToSpaceRule(),
         ParticipialCollapseRule(),
+        ParticipialSubKernelPreserveRule(),
         ParticipialPredicatePromotionRule(),
         LifecyclePropertyPromotionRule(),
+        LifecyclePropertyPromotionLateRule(),
         AfterOccurrenceContextToCausationRule(),
         AuxiliaryPeriphrasisPromotionRule(),
         SpecificationAndToTargetRule(),
         TimeCanonicalisationRule(),
+        DropRedundantTimeTargetRule(),
         WeatherAmodConditionRule(),
         QuantityCompoundMergeRule(),
+        QuantityRedundantDropRule(),
         AndNmodExtraRule(),
         LifecycleSubjectPromotionRule(),
         FlattenNestedAndRule(),
@@ -86,12 +98,15 @@ __all__ = [
     "StripAuxFromEdgeLabelRule",
     "SingletonAndLocationToSpaceRule",
     "ParticipialCollapseRule",
+    "ParticipialSubKernelPreserveRule",
     "AfterOccurrenceContextToCausationRule",
     "SpecificationAndToTargetRule",
     "AuxiliaryPeriphrasisPromotionRule",
     "TimeCanonicalisationRule",
+    "DropRedundantTimeTargetRule",
     "WeatherAmodConditionRule",
     "QuantityCompoundMergeRule",
+    "QuantityRedundantDropRule",
     "AndNmodExtraRule",
     "ParticipialPredicatePromotionRule",
     "LifecyclePropertyPromotionRule",

@@ -129,6 +129,32 @@ para:phrase_expect
     para:form "name" .
 
 # ---------------------------------------------------------------------------
+# Semantically-empty hedges.
+#
+# Adverbs (and similar surface tokens) that don't change the truth of the
+# host predicate and are routinely added/dropped between paraphrases.
+# Examples: "currently under investigation" vs "under investigation",
+# "roadworks are currently taking place" vs "roadworks are taking place".
+#
+# Membership marks a phrase as ignorable when it appears on only one side
+# of an ex-post comparison: `_compare_fvar_properties` drops the key
+# rather than penalising the asymmetry. Adverbs that DO change meaning
+# (e.g. "very", "fully", "most", "normally") must NOT be added here —
+# they belong to their own concepts or are left unparaphrased.
+# ---------------------------------------------------------------------------
+
+para:SemanticallyEmptyHedge
+    a para:ParaphraseConcept ;
+    rdfs:label "semantically_empty_hedge" ;
+    rdfs:comment "e.g. 'A burglary is currently under investigation.' vs 'A burglary is under investigation.'" .
+
+para:phrase_currently
+    a para:ParaphrasePhrase ;
+    rdfs:label "currently" ;
+    para:memberOf para:SemanticallyEmptyHedge ;
+    para:form "name" .
+
+# ---------------------------------------------------------------------------
 # Weather precipitation nouns.
 #
 # Forecast data may describe the same wet-weather phenomenon as "rain",
@@ -299,4 +325,96 @@ para:phrase_very_low
     a para:ParaphrasePhrase ;
     rdfs:label "very low" ;
     para:memberOf para:VeryLowProbability ;
+    para:form "name" .
+
+# ---------------------------------------------------------------------------
+# Causal / temporal-causal connectives.
+#
+# Sentences expressing the same cause-effect link surface with different
+# connectives — "closed following storm damage" vs "closed due to storm
+# damage" vs "closed because of storm damage". The Stanza+gsm pipeline
+# sometimes collapses these into a single `actioned:<connective>` property
+# on the cause node (e.g. `actioned:following`); other times the connective
+# is left as raw numbered case markers on the node (e.g. `3:Due`, `4:to`
+# for "Due to"). Reconstructing the surface phrase from those numbered
+# markers (ordering by the integer prefix) and looking it up here lets the
+# ex-post comparator treat the two parses as the same causal link without
+# blanket-ignoring `actioned:` properties (which carry real meaning when
+# the connective differs, e.g. "despite" vs "following").
+# ---------------------------------------------------------------------------
+
+para:CausalConnective
+    a para:ParaphraseConcept ;
+    rdfs:label "causal_connective" ;
+    rdfs:comment "e.g. 'Percy Street entrance is closed due to storm damage.' vs '... closed following storm damage.' vs '... closed because of storm damage.'" .
+
+para:phrase_due_to
+    a para:ParaphrasePhrase ;
+    rdfs:label "due to" ;
+    para:memberOf para:CausalConnective ;
+    para:form "name" .
+
+para:phrase_following
+    a para:ParaphrasePhrase ;
+    rdfs:label "following" ;
+    para:memberOf para:CausalConnective ;
+    para:form "name" .
+
+para:phrase_because_of
+    a para:ParaphrasePhrase ;
+    rdfs:label "because of" ;
+    para:memberOf para:CausalConnective ;
+    para:form "name" .
+
+para:phrase_owing_to
+    a para:ParaphrasePhrase ;
+    rdfs:label "owing to" ;
+    para:memberOf para:CausalConnective ;
+    para:form "name" .
+
+para:phrase_as_a_result_of
+    a para:ParaphrasePhrase ;
+    rdfs:label "as a result of" ;
+    para:memberOf para:CausalConnective ;
+    para:form "name" .
+
+# ---------------------------------------------------------------------------
+# Multi-word imperative notice actions. These collapse phrasal forms that
+# CoreNLP otherwise splits into a verb + adjective/particle (e.g. 'make safe'
+# parsed as make(X[safe])) onto canonical single-verb concepts used by
+# downstream ex-post comparison.
+# ---------------------------------------------------------------------------
+
+para:NoticeActionSecure
+    a para:ParaphraseConcept ;
+    rdfs:label "notice_action_secure" ;
+    rdfs:comment "Imperative notice action for securing infrastructure, e.g. 'make safe' a leak/collapse vs 'secure the site'." .
+
+para:phrase_make_safe
+    a para:ParaphrasePhrase ;
+    rdfs:label "make safe" ;
+    para:memberOf para:NoticeActionSecure ;
+    para:form "name" .
+
+para:phrase_secure
+    a para:ParaphrasePhrase ;
+    rdfs:label "secure" ;
+    para:memberOf para:NoticeActionSecure ;
+    para:form "name" .
+
+para:NoticeActionPerform
+    a para:ParaphraseConcept ;
+    rdfs:label "notice_action_perform" ;
+    rdfs:comment "Imperative notice action for execution, e.g. 'carry out works' vs 'perform works'." .
+
+para:phrase_carry_out
+    a para:ParaphrasePhrase ;
+    rdfs:label "carry out" ;
+    para:memberOf para:NoticeActionPerform ;
+    para:form "name" .
+
+para:phrase_perform
+    a para:ParaphrasePhrase ;
+    rdfs:label "perform" ;
+    para:memberOf para:NoticeActionPerform ;
     para:form "name" .

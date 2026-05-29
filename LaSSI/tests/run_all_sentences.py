@@ -155,7 +155,7 @@ if __name__ == '__main__':
             delete_files(False, False, folders, transformation)
             if transformation == SentenceRepresentation.FullText:
                 transformers = [
-                    "all-MiniLM-L6-v2", "all-MiniLM-L12-v2", "all-mpnet-base-v2"
+                    "all-MiniLM-L6-v2", "all-MiniLM-L12-v2", "all-mpnet-base-v2",
                     "NLI#BAAI/bge-reranker-v2-m3", "NLI#cross-encoder/nli-deberta-v3-base", "NLI#cross-encoder/nli-MiniLM2-L6-H768",
                     "LLM#llama3.1:latest", "LLM#qwen3.5:latest", "LLM#gemma4:e2b"
                 ]

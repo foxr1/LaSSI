@@ -223,6 +223,7 @@ class HOnK(RDFGraph):
             "WeatherConditionNoun":    "weather_condition_nouns",
             "WeatherConditionAdjective": "weather_condition_adjectives",
             "FieldLabelNoun":          "field_label_nouns",
+            "ModalAdjective":          "modal_adjectives",
             "Conjunction":             "conjunctions",
             "DependantPreposition":    "prepositions",
             "IdiomaticPreposition":    "prepositions",
@@ -282,6 +283,7 @@ class HOnK(RDFGraph):
             (os.path.join("nouns", "status_nouns.txt"), ("status_nouns", "state_nouns")),
             (os.path.join("nouns", "weather_condition_nouns.txt"), ("weather_condition_nouns", "state_nouns")),
             (os.path.join("nouns", "field_label_nouns.txt"), ("field_label_nouns",)),
+            (os.path.join("adjectives", "modal_adjectives.txt"), ("modal_adjectives",)),
             (os.path.join("pronouns", "personal_pronouns.txt"), ("pronouns", "personal_pronouns")),
             (os.path.join("pronouns", "demonstrative_pronouns.txt"), ("pronouns",)),
             (os.path.join("pronouns", "relative_pronouns.txt"), ("pronouns",)),
@@ -434,6 +436,7 @@ class HOnK(RDFGraph):
         # PrototypicalPreposition feeds prototypical_prepositions only via the map above;
         # include it in the full prepositions set too.
         self.prepositions = set(self.prepositions) | set(self.prototypical_prepositions)
+        self._load_support_lookup_sets()
         print(f"[HOnK]   type labels loaded ({time.time()-_t0:.1f}s)")
 
         ## get_logical_rewriting_rules
@@ -1362,6 +1365,9 @@ class HOnK(RDFGraph):
     def getFieldLabelNouns(self):
         return getattr(self, "field_label_nouns", set())
 
+    def getModalAdjectives(self):
+        return getattr(self, "modal_adjectives", set())
+
     def getConjunctions(self):
         return getattr(self, "conjunctions", set())
 
@@ -1417,6 +1423,7 @@ class HOnK(RDFGraph):
                 "status_nouns",
                 "weather_condition_nouns",
                 "weather_condition_adjectives",
+                "modal_adjectives",
                 "conjunctions",
                 "prepositions",
                 "copula_surface_forms",

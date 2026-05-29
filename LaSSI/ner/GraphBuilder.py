@@ -11,6 +11,8 @@ class GraphBuilder:
         self.shouldDrawGraphs = shouldDrawGraphs
 
     def build(self, gsm_json, node_functions):
+        self._promote_detached_passive_content_root(gsm_json)
+
         for gsm_item in gsm_json:
             amods = []
             puncts = []
@@ -95,6 +97,123 @@ class GraphBuilder:
             self._draw_graph(G)
 
         return G
+
+    def _promote_detached_passive_content_root(self, gsm_json):
+        """Repair a grammar split where a passive side clause steals subjpass.
+
+        DatagramDB can promote an oblique reduced-clause host as the passive
+        root while leaving the real infinitival content as a detached root.
+        The shape is structural: a `subjpass` node with an `acl` child plus a
+        later root whose child is a nominal `multipleindobj` content group.
+        Move the passive subject edge onto the detached content root so the
+        kernel builder sees the same shape as ordinary passive-content cases.
+        """
+        by_id = {item.get('id'): item for item in gsm_json if item.get('id') is not None}
+
+        def has_xi(item, value):
+            return value in item.get('xi', [])
+
+        def has_ell(item, value):
+            return value in item.get('ell', [])
+
+        def edge_child(edge):
+            return edge.get('score', {}).get('child')
+
+        def edge_parent(edge):
+            return edge.get('score', {}).get('parent')
+
+        def edge_label(edge):
+            return str(edge.get('containment', '')).strip()
+
+        def is_nominal_content_group(item):
+            if item is None or not has_ell(item, 'multipleindobj'):
+                return False
+            orig_children = [
+                by_id.get(edge_child(edge))
+                for edge in item.get('phi', [])
+                if edge_label(edge) == 'orig'
+            ]
+            return any(
+                child is not None and child.get('ell', [None])[0] not in {'verb', 'TO', 'RB', '<dot>'}
+                for child in orig_children
+            )
+
+        def content_group_max_pos(item):
+            if item is None:
+                return float('-inf')
+            positions = []
+            for edge in item.get('phi', []):
+                if edge_label(edge) != 'orig':
+                    continue
+                child = by_id.get(edge_child(edge))
+                if child is None:
+                    continue
+                try:
+                    positions.append(float(child.get('properties', {}).get('pos', 'nan')))
+                except ValueError:
+                    pass
+            return max(positions) if positions else float('-inf')
+
+        passive_holders = []
+        for item in gsm_json:
+            if not has_xi(item, 'subjpass'):
+                continue
+            edges = item.get('phi', [])
+            if not any(edge_label(edge) == 'acl' for edge in edges):
+                continue
+            transferable = [
+                edge for edge in edges
+                if edge_label(edge) not in {'acl', 'inherit_edge'}
+            ]
+            if transferable:
+                passive_holders.append((item, transferable))
+
+        if not passive_holders:
+            return
+
+        for root in gsm_json:
+            if root.get('properties', {}).get('root') != 'root' or has_xi(root, 'subjpass'):
+                continue
+            content_edges = [
+                edge for edge in root.get('phi', [])
+                if is_nominal_content_group(by_id.get(edge_child(edge)))
+            ]
+            if not content_edges:
+                continue
+
+            content_max_pos = max(
+                content_group_max_pos(by_id.get(edge_child(edge)))
+                for edge in content_edges
+            )
+            matching_holders = [
+                (holder, edges)
+                for holder, edges in passive_holders
+                if float(holder.get('properties', {}).get('pos', 'inf')) > content_max_pos
+            ]
+            if not matching_holders:
+                continue
+
+            _, passive_edges = matching_holders[0]
+            if 'subjpass' not in root.setdefault('xi', []):
+                root['xi'].append('subjpass')
+
+            existing = {
+                (edge_label(edge), edge_child(edge))
+                for edge in root.get('phi', [])
+            }
+            for edge in passive_edges:
+                key = (edge_label(edge), edge_child(edge))
+                if key in existing:
+                    continue
+                copied = {
+                    'containment': edge.get('containment', ''),
+                    'content': edge.get('content'),
+                    'properties': edge.get('properties', {}),
+                    'score': dict(edge.get('score', {})),
+                }
+                copied['score']['parent'] = root.get('id')
+                root.setdefault('phi', []).append(copied)
+                existing.add(key)
 
     def create_singleton(self, gsm_item):
         min_value = -1

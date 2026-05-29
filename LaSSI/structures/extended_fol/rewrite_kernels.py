@@ -619,8 +619,7 @@ class RewriteKernels:
             if k in discard_properties or len(k) == 0:
                 continue
             if isinstance(v, str):
-                if k == "type":
-                    d[k] = (v,)
+                d[k] = (v,)
                 continue
             if not isinstance(v, (list, tuple, set, frozenset)):
                 d[k] = (v,)

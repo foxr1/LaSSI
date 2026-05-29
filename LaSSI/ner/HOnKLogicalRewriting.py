@@ -1,4 +1,5 @@
 from LaSSI.structures.kernels.Sentence import get_prepositions
+from LaSSI.structures.internal_graph.EntityRelationship import Singleton
 
 from LaSSI.external_services.Services import Services
 from LaSSI.ner.SemanticRoleRewriting import normalized_node_type, select_best_matching_rule
@@ -86,6 +87,15 @@ def is_causative(kernel, node, initial_node, has_nmod, value, structural_context
         if candidates:
             return any(is_name_in_honk(candidate, honk.getCausativeVerbs(), True) for candidate in candidates) == value
 
+    # When the property being classified is itself a sub-kernel with a verb edge
+    # (e.g. an embedded relative clause `requires(which, scaffolding)`), check
+    # that sub-kernel's verb — not the outer kernel's. Otherwise an embedded
+    # clause never gets classified by its own predicate.
+    if isinstance(node, Singleton) and node.kernel is not None and node.kernel.edgeLabel is not None:
+        sub_edge_label = node.kernel.edgeLabel.named_entity
+        if is_name_in_honk(sub_edge_label, honk.getCausativeVerbs(), True):
+            return True == value
+
     if kernel.kernel is None:
         return False
     edge_label = kernel.kernel.edgeLabel.named_entity if kernel.kernel.edgeLabel is not None else "None"
@@ -98,6 +108,14 @@ def has_movement(kernel, node, initial_node, has_nmod, value, structural_context
     return is_name_in_honk(edge_label, honk.getMovementVerbs(), True) == value
 
 def is_consumption(kernel, node, initial_node, has_nmod, value, structural_context=None):
+    # See `is_causative`; embedded relative clauses (e.g. `requires(which,
+    # scaffolding)`) need to be classified by their own predicate, not the
+    # outer matrix verb.
+    if isinstance(node, Singleton) and node.kernel is not None and node.kernel.edgeLabel is not None:
+        sub_edge_label = node.kernel.edgeLabel.named_entity
+        if is_name_in_honk(sub_edge_label, honk.getConsumptionVerbs(), True):
+            return True == value
+
     if kernel.kernel is None:
         return False
     edge_label = kernel.kernel.edgeLabel.named_entity if kernel.kernel.edgeLabel is not None else "None"
@@ -140,6 +158,9 @@ def is_weather_condition_noun(kernel, node, initial_node, has_nmod, value, struc
 
 def is_weather_condition_adjective(kernel, node, initial_node, has_nmod, value, structural_context=None):
     return _is_node_in_honk_set(node, honk.getWeatherConditionAdjectives(), value)
+
+def is_modal_adjective(kernel, node, initial_node, has_nmod, value, structural_context=None):
+    return _is_node_in_honk_set(node, honk.getModalAdjectives(), value)
 
 def is_prediction_verb(kernel, node, initial_node, has_nmod, value, structural_context=None):
     return _is_node_in_honk_set(node, honk.getPredictionVerbs(), value)
@@ -257,6 +278,7 @@ predicate_interpretation = {
     "StatusNoun": is_status_noun,
     "WeatherConditionNoun": is_weather_condition_noun,
     "WeatherConditionAdjective": is_weather_condition_adjective,
+    "ModalAdjective": is_modal_adjective,
     "PredictionVerb": is_prediction_verb,
     "StateVerb": is_in_state,
     "Actioned": has_actioned_status,

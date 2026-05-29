@@ -347,8 +347,10 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
         kernel, properties, kernel_nodes = add_to_properties(
             kernel, edge_target, 'target', kernel_nodes, properties, negations, node_functions)
 
-        # Lemmatize edge name
-        if edge_label is not None:
+        # Lemmatize edge name (verbs only — structural dependency labels like
+        # `acl_relcl`/`nmod`/`obl` must not be passed through Stanza, which can
+        # capitalize unknown tokens and break the dependency-role lookups below).
+        if edge_label is not None and getattr(edge_label, 'type', None) == 'verb':
             lemmatized_name = lemmatize_verb(edge_label.named_entity)
             updated_edge = edge_label.update_name(lemmatized_name)
             G = update_edge(G, edge, updated_edge)
@@ -377,20 +379,6 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
                     if lbl is not None and getattr(lbl, 'type', None) == 'verb':
                         participial_verb_edges.append((u, v, data, lbl))
 
-                # DEBUG: dump every out-edge of the acl head so we can see why
-                # an obl child (e.g. `entrance[through]`) might be missing.
-                print(f"[acl-debug] edge_target.id={edge_target.id} "
-                      f"named_entity={getattr(edge_target, 'named_entity', None)!r}")
-                for u, v, data in G.out_edges(edge_target.id, data=True):
-                    lbl = data.get('label')
-                    dst = G.nodes[v]['data']
-                    print(f"  out_edge {u}->{v} label_ne={getattr(lbl, 'named_entity', None)!r} "
-                          f"label_type={getattr(lbl, 'type', None)!r} "
-                          f"dst_ne={getattr(dst, 'named_entity', None)!r} "
-                          f"dst_type={getattr(dst, 'type', None)!r} "
-                          f"dst_props={dict(getattr(dst, 'properties', frozenset())) if dst is not None else None}")
-                print(f"[acl-debug] participial_verb_edges count={len(participial_verb_edges)}")
-
                 # Primary target: prefer a child without a case preposition (true obj),
                 # else fall back to the first verb-out edge.
                 for cand in participial_verb_edges:
@@ -400,6 +388,27 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
                         break
                 if participial_verb_edge is None and participial_verb_edges:
                     participial_verb_edge = participial_verb_edges[0]
+
+            # For acl_relcl edges: the target is the relcl verb itself (e.g. "requires"
+            # in "station which requires scaffolding"). Reconstruct its predicate from
+            # its own nsubj/obj children so downstream HOnK rules (e.g.
+            # is_consumption → REQUIREMENT) can classify the sub-kernel by its verb
+            # rather than seeing a bare verb Singleton with no arguments.
+            relcl_sub_source = None
+            relcl_sub_target = None
+            if (
+                    edge_label_name == 'acl_relcl' and
+                    isinstance(edge_target, Singleton) and
+                    getattr(edge_target, 'type', None) == 'verb' and
+                    edge_target.id in G.nodes
+            ):
+                for _, v, data in G.out_edges(edge_target.id, data=True):
+                    lbl = data.get('label')
+                    lbl_name = getattr(lbl, 'named_entity', None) if lbl is not None else None
+                    if lbl_name == 'nsubj' and relcl_sub_source is None:
+                        relcl_sub_source = G.nodes[v]['data']
+                    elif lbl_name in {'obj', 'dobj'} and relcl_sub_target is None:
+                        relcl_sub_target = G.nodes[v]['data']
 
             # Skip the SENTENCE property only when the source already carries a case
             # preposition and the acl has no participial body (e.g. "due to X" alone).
@@ -456,6 +465,29 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
                             isNegated=edge[3]['isNegated']
                         ),
                         properties=create_props_for_singleton(sub_properties),
+                    )
+                    add_props_type_key = 'SENTENCE'
+                elif edge_label_name == 'acl_relcl' and (relcl_sub_source is not None or relcl_sub_target is not None):
+                    # Rebuild "station which requires scaffolding" as a SENTENCE
+                    # property whose edgeLabel is the relcl verb itself, with the
+                    # verb's nsubj/obj resolved against the graph. Downstream HOnK
+                    # classification (e.g. ConsumptionVerb → REQUIREMENT) keys off
+                    # this edgeLabel, and `RequirementClauseSimplifierRule` then
+                    # collapses the wh-pronoun source down to the bare object.
+                    edge_kernel = Singleton(
+                        id=edge_target.id,
+                        named_entity="",
+                        type="SENTENCE",
+                        min=node_functions.get_min_from_nodes(valid_nodes),
+                        max=node_functions.get_max_from_nodes(valid_nodes),
+                        confidence=1,
+                        kernel=Relationship(
+                            source=remove_acl_relcl_relationship(relcl_sub_source) if relcl_sub_source is not None else None,
+                            target=remove_acl_relcl_relationship(relcl_sub_target) if relcl_sub_target is not None else None,
+                            edgeLabel=edge_target,
+                            isNegated=edge[3]['isNegated']
+                        ),
+                        properties=frozenset(dict()),
                     )
                     add_props_type_key = 'SENTENCE'
                 else:
