@@ -4,9 +4,12 @@ __license__ = "GPL"
 __version__ = "2.0"
 __maintainer__ = "Oliver R. Fox"
 
-from LaSSI.external_services.Services import Services
-from LaSSI.ner.string_functions import lemmatize_verb
-from LaSSI.ner.structural_rewrites.base import StructuralRewriteRule
+from LaSSI.ner.structural_rewrites.base import (
+    StructuralRewriteRule,
+    contains_copula_surface,
+    freeze_props,
+    lemmatise_verb_phrase,
+)
 from LaSSI.structures.internal_graph.EntityRelationship import (
     Grouping,
     Relationship,
@@ -47,7 +50,7 @@ class PassiveProgressiveRewrite(StructuralRewriteRule):
         edge_label = rel.edgeLabel
         if not isinstance(edge_label, Singleton):
             return None
-        if not _is_copula_surface_form(edge_label.named_entity):
+        if not contains_copula_surface(edge_label.named_entity):
             return None
         if not (isinstance(rel.source, SetOfSingletons) and rel.source.type == Grouping.AND):
             return None
@@ -79,7 +82,7 @@ class PassiveProgressiveRewrite(StructuralRewriteRule):
         sub_edge_name = sub_edge.named_entity if isinstance(sub_edge, Singleton) else None
         if not sub_edge_name:
             return None
-        if _is_copula_surface_form(sub_edge_name):
+        if contains_copula_surface(sub_edge_name):
             return None
 
         return {
@@ -98,15 +101,9 @@ class PassiveProgressiveRewrite(StructuralRewriteRule):
         sub_edge = bindings["sub_edge"]
         sub_edge_name = bindings["sub_edge_name"]
 
-        parts = [p for p in str(sub_edge_name).split() if p]
-        if len(parts) > 1:
-            new_edge_name = " ".join(
-                [lemmatize_verb(parts[0]).lower()] + [p.lower() for p in parts[1:]]
-            )
-        else:
-            verb_lemma = lemmatize_verb(sub_edge_name).lower()
-            particle = self._extract_particle_from_props(sub_edge)
-            new_edge_name = f"{verb_lemma} {particle}".strip() if particle else verb_lemma
+        new_edge_name = lemmatise_verb_phrase(
+            sub_edge_name, particle=self._extract_particle_from_props(sub_edge)
+        )
 
         new_edge_label = (
             sub_edge.update_name(new_edge_name) if isinstance(sub_edge, Singleton)
@@ -172,7 +169,7 @@ class PassiveProgressiveRewrite(StructuralRewriteRule):
         return Singleton(
             id=kernel.id,
             named_entity=kernel.named_entity,
-            properties=_freeze_props(new_props),
+            properties=freeze_props(new_props),
             min=kernel.min,
             max=kernel.max,
             type=kernel.type,
@@ -192,23 +189,6 @@ class PassiveProgressiveRewrite(StructuralRewriteRule):
         return None
 
 
-def _is_copula_surface_form(name):
-    if not name:
-        return False
-    parts = [p for p in str(name).split() if p]
-    try:
-        copula_forms = Services.getInstance().getHOnK().getCopulaSurfaceForms() or set()
-    except Exception:
-        copula_forms = set()
-    copula_lower = {str(f).lower() for f in copula_forms}
-    if not copula_lower:
-        return lemmatize_verb(str(name)).lower() == "be"
-    for part in parts:
-        if part.lower() in copula_lower:
-            return True
-        if lemmatize_verb(part).lower() in copula_lower:
-            return True
-    return False
 
 
 def _extract_passive_sub_kernel(node):
@@ -247,7 +227,7 @@ def _extract_subkernel_from_kernel_props(kernel, source_set_of_singletons):
                 continue
             sub_edge = cand.kernel.edgeLabel
             sub_edge_name = sub_edge.named_entity if isinstance(sub_edge, Singleton) else None
-            if not sub_edge_name or _is_copula_surface_form(sub_edge_name):
+            if not sub_edge_name or contains_copula_surface(sub_edge_name):
                 continue
             return cand, key
     return None, None
@@ -265,13 +245,3 @@ def _sources_match(a, b):
     if isinstance(a, Singleton) and isinstance(b, Singleton):
         return a.id == b.id
     return False
-
-
-def _freeze_props(props):
-    frozen = {}
-    for k, v in props.items():
-        if isinstance(v, list):
-            frozen[k] = tuple(v)
-        else:
-            frozen[k] = v
-    return frozenset(frozen.items())

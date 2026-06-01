@@ -5,6 +5,7 @@ __version__ = "2.0"
 __maintainer__ = "Oliver R. Fox"
 
 from LaSSI.ner.string_functions import lemmatize_verb
+from LaSSI.ner.structural_rewrites.declarative import structural_lexical_set
 from LaSSI.ner.structural_rewrites.base import StructuralRewriteRule
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton
 
@@ -74,7 +75,7 @@ class ParticipialPredicatePromotionRule(StructuralRewriteRule):
 
     @staticmethod
     def _remove_space_residue(props, ctx):
-        spatial_types = {
+        spatial_types = structural_lexical_set("spatial_relation_types") or {
             "stay in place",
             "near place",
             "motion to place",

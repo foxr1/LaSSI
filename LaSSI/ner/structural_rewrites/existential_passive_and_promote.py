@@ -3,9 +3,12 @@ __copyright__ = "Copyright 2026, Oliver R. Fox"
 __license__ = "GPL"
 __maintainer__ = "Oliver R. Fox"
 
-from LaSSI.external_services.Services import Services
-from LaSSI.ner.string_functions import lemmatize_verb
-from LaSSI.ner.structural_rewrites.base import StructuralRewriteRule
+from LaSSI.ner.structural_rewrites.base import (
+    StructuralRewriteRule,
+    contains_copula_surface,
+    freeze_props,
+    lemmatise_verb_phrase,
+)
 from LaSSI.structures.internal_graph.EntityRelationship import (
     Grouping,
     Relationship,
@@ -46,7 +49,7 @@ class ExistentialPassiveAndPromoteRule(StructuralRewriteRule):
         rel = kernel.kernel
         if not isinstance(rel.edgeLabel, Singleton):
             return None
-        if not _is_copula_surface_form(rel.edgeLabel.named_entity):
+        if not contains_copula_surface(rel.edgeLabel.named_entity):
             return None
         if rel.target is not None:
             if not (isinstance(rel.target, Singleton) and rel.target.type == 'existential'):
@@ -61,7 +64,7 @@ class ExistentialPassiveAndPromoteRule(StructuralRewriteRule):
         verb_entries = [
             (idx, e) for idx, e in enumerate(and_entries)
             if isinstance(e, Singleton) and (e.type or "").lower() == "verb"
-            and not _is_copula_surface_form(e.named_entity)
+            and not contains_copula_surface(e.named_entity)
         ]
         if not verb_entries:
             return None
@@ -82,14 +85,7 @@ class ExistentialPassiveAndPromoteRule(StructuralRewriteRule):
         verb_singleton = bindings["verb_singleton"]
         patients = bindings["patients"]
 
-        verb_name = verb_singleton.named_entity or ""
-        parts = [p for p in verb_name.split() if p]
-        if len(parts) > 1:
-            new_verb_name = " ".join(
-                [lemmatize_verb(parts[0]).lower()] + [p.lower() for p in parts[1:]]
-            )
-        else:
-            new_verb_name = lemmatize_verb(verb_name).lower() if verb_name else verb_name
+        new_verb_name = lemmatise_verb_phrase(verb_singleton.named_entity or "")
         new_edge_label = verb_singleton.update_name(new_verb_name)
 
         and_target = SetOfSingletons(
@@ -119,7 +115,7 @@ class ExistentialPassiveAndPromoteRule(StructuralRewriteRule):
         return Singleton(
             id=kernel.id,
             named_entity=kernel.named_entity,
-            properties=_freeze_props(new_props),
+            properties=freeze_props(new_props),
             min=kernel.min,
             max=kernel.max,
             type=kernel.type,
@@ -128,30 +124,3 @@ class ExistentialPassiveAndPromoteRule(StructuralRewriteRule):
         )
 
 
-def _is_copula_surface_form(name):
-    if not name:
-        return False
-    parts = [p for p in str(name).split() if p]
-    try:
-        copula_forms = Services.getInstance().getHOnK().getCopulaSurfaceForms() or set()
-    except Exception:
-        copula_forms = set()
-    copula_lower = {str(f).lower() for f in copula_forms}
-    if not copula_lower:
-        return lemmatize_verb(str(name)).lower() == "be"
-    for part in parts:
-        if part.lower() in copula_lower:
-            return True
-        if lemmatize_verb(part).lower() in copula_lower:
-            return True
-    return False
-
-
-def _freeze_props(props):
-    frozen = {}
-    for k, v in props.items():
-        if isinstance(v, list):
-            frozen[k] = tuple(v)
-        else:
-            frozen[k] = v
-    return frozenset(frozen.items())

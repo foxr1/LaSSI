@@ -9,7 +9,7 @@ __status__ = "Production"
 from LaSSI.external_services.Services import Services
 from LaSSI.ner.HOnKLogicalRewriting import get_matching_logical_rules
 from LaSSI.ner.string_functions import lemmatize_verb, surface_form_variants
-from LaSSI.structures.internal_graph.EntityRelationship import Singleton, SetOfSingletons
+from LaSSI.structures.internal_graph.EntityRelationship import Grouping, Singleton, SetOfSingletons
 from LaSSI.structures.kernels.SentenceX import case_in_props
 
 
@@ -67,6 +67,125 @@ class KernelOntologyMatchers:
         ontology_terms = {str(term).lower() for term in honk_values if term}
         return bool(candidates & ontology_terms)
 
+    def matches_class(self, value, class_name, *, kernel=None):
+        """Generic HOnK/raw-data class predicate used by declarative rewrites."""
+        if value is None or not class_name:
+            return False
+        name = str(class_name)
+        honk = self.services.getHOnK()
+        class_getters = {
+            "AccessPointNoun": honk.getAccessPointNouns,
+            "CausativeVerb": honk.getCausativeVerbs,
+            "ChangeOfStateVerb": honk.getChangeOfStateVerbs,
+            "FacilityNoun": honk.getFacilityNouns,
+            "LocationNoun": honk.getLocationNouns,
+            "OccurrenceVerb": honk.getOccurrenceVerbs,
+            "PredictionVerb": honk.getPredictionVerbs,
+            "RelativePronoun": honk.getRelativePronouns,
+            "RouteNoun": honk.getRouteNouns,
+            "ServiceStateNoun": honk.getServiceStateNouns,
+            "StateNoun": honk.getStateNouns,
+            "StateVerb": honk.getStateVerbs,
+            "StatusNoun": honk.getStatusNouns,
+            "TransitiveVerb": honk.getTransitiveVerbs,
+            "EventClassifierHeadNoun": honk.getEventClassifierHeadNouns,
+            "WeatherConditionAdjective": honk.getWeatherConditionAdjectives,
+            "WeatherConditionNoun": honk.getWeatherConditionNouns,
+        }
+        if name == "LocationLike":
+            return self.is_location_like(value)
+        if name == "Copula":
+            return self.is_copula_node(value)
+        if name == "AccessPointLike":
+            return self.has_access_point(value)
+        if name == "CausalNode":
+            return kernel is not None and self.is_causal_node(kernel, value)
+        if name == "DateLike":
+            return isinstance(value, Singleton) and str(getattr(value, "type", "")).upper() in {"DATE", "TIME", "SUTIME"}
+        if name == "ContextNode":
+            return self.is_context_node(value)
+        if name == "ContentNode":
+            return self.is_content_node(value)
+        if name == "LifecycleHeadPhrase":
+            return self.matches_lifecycle_head_phrase(value)
+        getter = class_getters.get(name)
+        return self.matches_honk_set(value, getter() if getter is not None else set())
+
+    def is_context_node(self, node):
+        if isinstance(node, SetOfSingletons):
+            return all(self.is_context_node(entity) for entity in node.entities)
+        if not isinstance(node, Singleton):
+            return False
+        try:
+            from LaSSI.ner.structural_rewrites.declarative import structural_lexical_set
+            context_types = structural_lexical_set("context_entity_types")
+        except Exception:
+            context_types = set()
+        if not context_types:
+            context_types = {"DATE", "TIME", "SUTime", "GPE", "LOC", "FAC", "existential"}
+        return str(getattr(node, "type", "") or "") in context_types
+
+    def is_content_node(self, node):
+        if isinstance(node, SetOfSingletons):
+            if node.type in {Grouping.AND, Grouping.OR}:
+                return len(node.entities) > 0 and any(self.is_content_node(entity) for entity in node.entities)
+            return True
+        if not isinstance(node, Singleton):
+            return False
+        return not self.is_context_node(node)
+
+    def matches_lifecycle_head_phrase(self, value):
+        if not isinstance(value, Singleton) or not value.named_entity:
+            return False
+        try:
+            from LaSSI.HOnK.TBox.LifecycleManager import _get_lifecycle_phrases
+            phrases = _get_lifecycle_phrases()
+        except Exception:
+            phrases = {}
+        label = value.named_entity.strip().lower()
+        return any(
+            part != "descriptive"
+            for _, part in phrases.get(label, set())
+        )
+
+    def dependency_children(self, node, labels):
+        graph = self.G
+        if graph is None or not isinstance(node, Singleton) or node.id not in graph:
+            return []
+        label_names = set(labels or [])
+        children = []
+        for _, child_id, data in graph.out_edges(node.id, data=True):
+            label = data.get("label")
+            label_name = getattr(label, "named_entity", None)
+            if label_name not in label_names:
+                continue
+            if child_id in graph:
+                child = graph.nodes[child_id].get("data")
+                if child is not None:
+                    children.append(child)
+        return children
+
+    def reachable_ids(self, node):
+        ids = set()
+        if isinstance(node, Singleton):
+            if node.id is not None:
+                ids.add(node.id)
+            for value in dict(node.properties or {}).values():
+                ids.update(self.reachable_ids(value))
+            if node.kernel is not None:
+                ids.update(self.reachable_ids(node.kernel.source))
+                ids.update(self.reachable_ids(node.kernel.target))
+                ids.update(self.reachable_ids(node.kernel.edgeLabel))
+        elif isinstance(node, SetOfSingletons):
+            if node.id is not None:
+                ids.add(node.id)
+            for entity in node.entities:
+                ids.update(self.reachable_ids(entity))
+        elif isinstance(node, (list, tuple, set)):
+            for item in node:
+                ids.update(self.reachable_ids(item))
+        return ids
+
     # ---- copula / stative classification ----
 
     def is_stative_lemma(self, verb_lemma):
@@ -108,6 +227,24 @@ class KernelOntologyMatchers:
     def is_state_edge(self, edge_label):
         return isinstance(edge_label, Singleton) and self.matches_honk_set(
             edge_label.named_entity, self.services.getHOnK().getStateVerbs())
+
+    def is_copula_node(self, value):
+        """True when *value*'s surface form is a copula ('be' and its inflected
+        / contracted forms). Backed by HOnK.getCopulaSurfaceForms() so the
+        membership stays in the ontology, not a hardcoded list."""
+        name = value.named_entity if isinstance(value, Singleton) else value
+        if not isinstance(name, str) or not name.strip():
+            return False
+        try:
+            copula_forms = self.services.getHOnK().getCopulaSurfaceForms() or set()
+        except Exception:
+            copula_forms = set()
+        copula_lower = {str(form).lower() for form in copula_forms} or {"be"}
+        parts = [part for part in name.split() if part]
+        return all(
+            part.lower() in copula_lower or lemmatize_verb(part).lower() in copula_lower
+            for part in parts
+        )
 
     # ---- entity-class predicates ----
 

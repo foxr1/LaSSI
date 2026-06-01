@@ -53,6 +53,9 @@ class LifecyclePropertyPromotionRule(StructuralRewriteRule):
         "ccomp",
     })
     _STRUCTURAL_CONTAINER_KEYS = frozenset({"SENTENCE"})
+    _STATUS_VERB_TYPE_BY_LEMMA = {
+        "await": "awaiting",
+    }
 
     def matches(self, kernel, ctx):
         return {"_": True} if self._has_promotable(kernel, ctx) else None
@@ -184,18 +187,22 @@ class LifecyclePropertyPromotionRule(StructuralRewriteRule):
 
     @classmethod
     def _sentence_status_projection(cls, value, ctx):
-        """Match a SENTENCE-wrapped copula clause `be(StatusNoun, ?[cop:adj])`
-        and project it to a status node with `type:adj`.
+        """Match a SENTENCE-wrapped status clause and project it to TIME_STATUS.
 
-        Surfaces in shapes like "Investigation complete" where the status noun
-        is the copula subject and the qualifier appears as a `cop` adjective on
-        the existential target.
+        Handles copula shapes like "Investigation complete", where the status
+        noun is the copula subject and the qualifier appears as a `cop`
+        adjective on the existential target, and verbal status shapes like
+        "Awaiting court outcome", where `await` supplies the status type and
+        the target is a status noun.
         """
         if not isinstance(value, Singleton) or value.kernel is None:
             return None
         edge = value.kernel.edgeLabel
-        if edge is None or getattr(edge, "named_entity", None) != "be":
+        if edge is None:
             return None
+        edge_name = str(getattr(edge, "named_entity", "") or "").strip().lower()
+        if edge_name != "be":
+            return cls._verbal_status_projection(value, ctx)
         source = value.kernel.source
         target = value.kernel.target
         if not cls._is_status_node(source, ctx):
@@ -222,7 +229,37 @@ class LifecyclePropertyPromotionRule(StructuralRewriteRule):
         return cls._status_node_with_state_type(candidate)
 
     @classmethod
+    def _verbal_status_projection(cls, value, ctx):
+        if not isinstance(value, Singleton) or value.kernel is None:
+            return None
+        edge = value.kernel.edgeLabel
+        edge_name = str(getattr(edge, "named_entity", "") or "").strip().lower()
+        status_type = cls._STATUS_VERB_TYPE_BY_LEMMA.get(edge_name)
+        if status_type is None:
+            return None
+
+        target = value.kernel.target
+        if cls._is_status_node(target, ctx):
+            return cls._status_node_with_explicit_type(target, status_type)
+
+        status_extra = cls._status_extra(target, ctx)
+        if status_extra is not None:
+            return cls._status_node_with_explicit_type(status_extra, status_type)
+        return None
+
+    @staticmethod
+    def _status_node_with_explicit_type(value, status_type):
+        if not isinstance(value, Singleton):
+            return value
+        props = dict(value.properties)
+        props["type"] = status_type
+        return value.update_node_props(props)
+
+    @classmethod
     def _status_projection(cls, value, ctx):
+        verbal_status = cls._verbal_status_projection(value, ctx)
+        if verbal_status is not None:
+            return verbal_status
         if cls._is_negated_lifecycle_value(value, ctx):
             return None
         if isinstance(value, SetOfSingletons):

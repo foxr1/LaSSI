@@ -164,6 +164,29 @@ def _filter_noise_props(props):
     return [(k, v) for (k, v) in props if not _is_syntactic_fvar_property_key(k)]
 
 
+_PREDICATE_PROPERTY_KEY_EQUIVALENCES = {
+    "TIME_STATUS": "TIME",
+    "AIM_OBJECTIVE": "TEMPORAL_CONTEXT",
+}
+
+
+def _canonical_predicate_property_key(k):
+    if isinstance(k, str):
+        return _PREDICATE_PROPERTY_KEY_EQUIVALENCES.get(k, k)
+    return k
+
+
+def _dict_from_predicate_props(props):
+    d = {}
+    for key, vals in props:
+        nk = _canonical_predicate_property_key(key)
+        if not isinstance(vals, tuple):
+            vals = (vals,)
+        d.setdefault(nk, [])
+        d[nk].extend(vals)
+    return d
+
+
 def _is_syntactic_fvar_property_key(key) -> bool:
     if isinstance(key, int):
         return True
@@ -315,6 +338,43 @@ def _compare_fvar_properties(d, lhs_props, rhs_props, lhs_parent_concept=None, r
         return CasusHappening.EQUIVALENT
     return simplifyConstituentsAcross(results)
 
+
+def _formula_core_values(formula):
+    values = []
+    if isinstance(formula, FBinaryPredicate):
+        values.extend([formula.src, formula.dst])
+    elif isinstance(formula, FUnaryPredicate):
+        values.append(formula.arg)
+    return [v for v in values if v is not None]
+
+
+def _value_matches_formula_core(d, val, formula):
+    for core in _formula_core_values(formula):
+        comparison = compare_variable(d, val, core)
+        reverse_comparison = compare_variable(d, core, val)
+        if (
+                comparison == CasusHappening.EQUIVALENT
+                or isImplication(comparison)
+                or isImplication(reverse_comparison)):
+            return True
+    return False
+
+
+def _value_matches_formula_property(d, val, formula):
+    props = getattr(formula, "properties", None)
+    if not props:
+        return False
+    for vals in _dict_from_predicate_props(_filter_noise_props(props)).values():
+        for prop_val in vals:
+            comparison = compare_variable(d, val, prop_val)
+            reverse_comparison = compare_variable(d, prop_val, val)
+            if (
+                    comparison == CasusHappening.EQUIVALENT
+                    or isImplication(comparison)
+                    or isImplication(reverse_comparison)):
+                return True
+    return False
+
 def _cop_parent_concept(v, fallback_concept):
     if isinstance(v, FVariable) and isinstance(v.specification, str):
         spec_concept = _paraphrase_concept_of(v.specification)
@@ -331,9 +391,15 @@ def compare_variable(d, lhs, rhs, lhs_parent_concept=None, rhs_parent_concept=No
     if (lhs == rhs):
         val = CasusHappening.EQUIVALENT
     elif lhs is None:
-        val = CasusHappening.MISSING_1ST_IMPLICATION if not isExistential(rhs) else CasusHappening.EQUIVALENT
+        if _paraphrase_concept_of(rhs) == _EMPTY_HEDGE_CONCEPT:
+            val = CasusHappening.EQUIVALENT
+        else:
+            val = CasusHappening.MISSING_1ST_IMPLICATION if not isExistential(rhs) else CasusHappening.EQUIVALENT
     elif rhs is None:
-        val = CasusHappening.INDIFFERENT if not isExistential(lhs) else CasusHappening.EQUIVALENT
+        if _paraphrase_concept_of(lhs) == _EMPTY_HEDGE_CONCEPT:
+            val = CasusHappening.EQUIVALENT
+        else:
+            val = CasusHappening.INDIFFERENT if not isExistential(lhs) else CasusHappening.EQUIVALENT
     elif (lhs == FNot(rhs)) or (rhs == FNot(lhs)):
         val = CasusHappening.EXCLUSIVES
     elif _paraphrase_match(lhs, rhs, lhs_parent_concept=lhs_parent_concept,
@@ -497,10 +563,12 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
             xprop = _filter_noise_props(x.properties)
             yprop = _filter_noise_props(y.properties)
             keyCmp, keyCmpInv = {}, {}
-            keys = set(map(lambda z: z[0], xprop)).union(map(lambda z: z[0], yprop))
+            keys = set(map(lambda z: _canonical_predicate_property_key(z[0]), xprop)).union(
+                map(lambda z: _canonical_predicate_property_key(z[0]), yprop)
+            )
             hasDirectSubset = False
-            dLHS = dict(xprop)
-            dRHS = dict(yprop)
+            dLHS = _dict_from_predicate_props(xprop)
+            dRHS = _dict_from_predicate_props(yprop)
             def _value_in_other(val, other_dict):
                 for ok in other_dict:
                     for ov in other_dict[ok]:
@@ -531,13 +599,23 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                         keyCmp[key] = simplifyConstituentsAcross(lhs_bests) if lhs_bests else CasusHappening.EQUIVALENT
                         keyCmpInv[key] = simplifyConstituentsAcross(rhs_bests) if rhs_bests else CasusHappening.EQUIVALENT
                     elif key in dLHS:
-                        soft = any(_value_in_other(xx, dRHS) for xx in dLHS[key])
-                        keyCmp[key] = CasusHappening.GENERAL_IMPLICATION
-                        keyCmpInv[key] = CasusHappening.INSTANTIATION_IMPLICATION if soft else CasusHappening.INDIFFERENT
+                        core_covered = any(_value_matches_formula_core(d, xx, y) for xx in dLHS[key])
+                        soft = core_covered or any(_value_in_other(xx, dRHS) for xx in dLHS[key])
+                        if core_covered:
+                            keyCmp[key] = CasusHappening.EQUIVALENT
+                            keyCmpInv[key] = CasusHappening.EQUIVALENT
+                        else:
+                            keyCmp[key] = CasusHappening.GENERAL_IMPLICATION
+                            keyCmpInv[key] = CasusHappening.INSTANTIATION_IMPLICATION if soft else CasusHappening.INDIFFERENT
                     else:
-                        soft = any(_value_in_other(yy, dLHS) for yy in dRHS[key])
-                        keyCmp[key] = CasusHappening.INSTANTIATION_IMPLICATION if soft else CasusHappening.INDIFFERENT
-                        keyCmpInv[key] = CasusHappening.GENERAL_IMPLICATION
+                        core_covered = any(_value_matches_formula_core(d, yy, x) for yy in dRHS[key])
+                        soft = core_covered or any(_value_in_other(yy, dLHS) for yy in dRHS[key])
+                        if core_covered:
+                            keyCmp[key] = CasusHappening.EQUIVALENT
+                            keyCmpInv[key] = CasusHappening.EQUIVALENT
+                        else:
+                            keyCmp[key] = CasusHappening.INSTANTIATION_IMPLICATION if soft else CasusHappening.INDIFFERENT
+                            keyCmpInv[key] = CasusHappening.GENERAL_IMPLICATION
                 if len(keyCmp) > 0:
                     keyCmpElements = simplifyConstituentsAcross({keyCmp[key] for key in keyCmp})
                     keyCmpElementsInv = simplifyConstituentsAcross({keyCmpInv[key] for key in keyCmpInv})
@@ -567,6 +645,14 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                 else:
                     srcCmp = compare_variable(d, x.src, y.src)
                     dstCmp = compare_variable(d, x.dst, y.dst)
+                    if (srcCmp != CasusHappening.EQUIVALENT
+                            and isExistential(x.src)
+                            and _value_matches_formula_property(d, y.src, x)):
+                        srcCmp = CasusHappening.EQUIVALENT
+                    elif (srcCmp != CasusHappening.EQUIVALENT
+                          and isExistential(y.src)
+                          and _value_matches_formula_property(d, x.src, y)):
+                        srcCmp = CasusHappening.EQUIVALENT
                     if relCmp == CasusHappening.EXCLUSIVES:
                         if dstCmp == CasusHappening.EQUIVALENT and (
                                 srcCmp == CasusHappening.EQUIVALENT
@@ -620,7 +706,8 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                 rhs_obligation_unmet = False
                 for k in dRHS:
                     if k not in dLHS:
-                        if not any(_value_in_other(yy, dLHS) for yy in dRHS[k]):
+                        if not any(_value_in_other(yy, dLHS) or _value_matches_formula_core(d, yy, x)
+                                   for yy in dRHS[k]):
                             rhs_obligation_unmet = True
                             break
                     else:
@@ -633,6 +720,8 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                                         cv_rev not in (CasusHappening.INDIFFERENT, CasusHappening.EXCLUSIVES):
                                     unmet = False
                                     break
+                            if unmet and _value_matches_formula_core(d, yy, x):
+                                unmet = False
                             if unmet:
                                 rhs_obligation_unmet = True
                                 break

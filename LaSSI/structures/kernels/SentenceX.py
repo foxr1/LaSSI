@@ -1131,7 +1131,13 @@ def case_in_props(node_props, return_props=False):
 
     # Ignore "by" as passive sentence: https://www.uc.utoronto.ca/passive-voice
     # Ignore "of" and "'s" as "possessive": https://en.m.wikipedia.org/wiki/English_possessive
-    ignore_cases = ['by', "'s", 'of']
+    try:
+        from LaSSI.ner.structural_rewrites.declarative import structural_lexical_set
+        ignore_cases = structural_lexical_set("case_prepositions_ignored_for_kernel_targets")
+    except Exception:
+        ignore_cases = set()
+    if not ignore_cases:
+        ignore_cases = {'by', "'s", 'of', "’s"}
     found_cases = []
 
     for key in node_props:

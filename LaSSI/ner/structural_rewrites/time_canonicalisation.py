@@ -5,12 +5,7 @@ __version__ = "2.0"
 __maintainer__ = "Oliver R. Fox"
 
 from LaSSI.ner.structural_rewrites.base import StructuralRewriteRule
-from LaSSI.structures.internal_graph.EntityRelationship import (
-    Grouping,
-    Relationship,
-    SetOfSingletons,
-    Singleton,
-)
+from LaSSI.structures.internal_graph.EntityRelationship import Singleton
 from LaSSI.utils.datetime_canon import canonicalize_datetime_string
 
 
@@ -159,77 +154,3 @@ class TimeCanonicalisationRule(StructuralRewriteRule):
         else:
             props['TIME'] = deduped[0]
         return kernel.update_node_props(props)
-
-
-class DropRedundantTimeTargetRule(StructuralRewriteRule):
-    """Remove TIME/DATE conjuncts that duplicate the kernel TIME property.
-
-    Auxiliary forecast rewrites can collect a content group such as
-    ``AND(day, rain, <time>)`` while also preserving the same instant in the
-    semantic ``TIME`` property. The property is the correct home for temporal
-    context; leaving the duplicate in the target makes the sentence assert the
-    timestamp as if it were forecast content.
-    """
-
-    name = "drop_redundant_time_target"
-    phase = "post_logical_rewrite"
-
-    @staticmethod
-    def _as_list(value):
-        if value is None:
-            return []
-        return list(value) if isinstance(value, (list, tuple)) else [value]
-
-    @classmethod
-    def _canonical_time_names(cls, value):
-        names = set()
-        for item in cls._as_list(value):
-            if not _is_date(item):
-                continue
-            canonical = canonicalize_datetime_string(item.named_entity)
-            names.add(canonical or item.named_entity)
-        return names
-
-    @classmethod
-    def _is_duplicate_time(cls, entity, time_names):
-        if not _is_date(entity):
-            return False
-        canonical = canonicalize_datetime_string(entity.named_entity)
-        return (canonical or entity.named_entity) in time_names
-
-    def matches(self, kernel, ctx):
-        if not isinstance(kernel, Singleton) or kernel.kernel is None:
-            return None
-        target = kernel.kernel.target
-        if not (isinstance(target, SetOfSingletons) and target.type == Grouping.AND):
-            return None
-        time_names = self._canonical_time_names(dict(kernel.properties).get("TIME"))
-        if not time_names:
-            return None
-        kept = [entity for entity in target.entities if not self._is_duplicate_time(entity, time_names)]
-        if len(kept) == len(target.entities):
-            return None
-        return {"kept": kept}
-
-    def apply(self, kernel, bindings, ctx):
-        target = kernel.kernel.target
-        kept = bindings["kept"]
-        if len(kept) == 1:
-            new_target = kept[0]
-        else:
-            new_target = target.update_entities(kept)
-        return Singleton(
-            id=kernel.id,
-            named_entity=kernel.named_entity,
-            properties=kernel.properties,
-            min=kernel.min,
-            max=kernel.max,
-            type=kernel.type,
-            confidence=kernel.confidence,
-            kernel=Relationship(
-                source=kernel.kernel.source,
-                target=new_target,
-                edgeLabel=kernel.kernel.edgeLabel,
-                isNegated=kernel.kernel.isNegated,
-            ),
-        )

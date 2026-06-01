@@ -1,0 +1,168 @@
+{
+  "_doc": "Declarative structural-kernel rewrites. This array is the COMPLETE ordered rule registry (load_rules() builds it in this order; within a phase, order = array order). Most entries are declarative: a `premise` mapping reusable predicate names (EdgeMatchedBy / SourceMatchedBy / TargetMatchedBy / SlotIsType / HasProperty / PropertyValueCount / PropertyMatchedBy / NodePropertyMatchedBy / PropertyHasPromotableContent, plus structural escape-hatch predicates) to value lists (ALL premises hold, each ORs over its values) and an ordered `consequence` list (Move / Append / ReplaceSlot / Drop / PromoteToTarget / Flatten, plus structural/graph escape-hatch ops). A few entries are `impl: \"module:ClassName\"` references to a Python StructuralRewriteRule subclass for rewrites too bespoke to express as data (heavy graph traversal / multi-pass surgery). Vocabulary classes (StateVerb, LocationLike, ...) resolve via KernelOntologyMatchers.matches_class against HOnK / raw_data — keep lexical/class membership there, not in this file. See declarative.py for the predicate/consequence vocabulary.",
+  "lexical_sets": {
+    "case_prepositions_ignored_for_kernel_targets": ["by", "'s", "of", "’s"],
+    "context_entity_types": ["DATE", "TIME", "SUTime", "GPE", "LOC", "FAC", "existential"],
+    "spatial_relation_types": [
+      "stay in place",
+      "near place",
+      "motion to place",
+      "motion from place",
+      "motion through place"
+    ]
+  },
+  "rules": [
+    {
+      "name": "state_cause_access_point_swap",
+      "phase": "post_logical_rewrite",
+      "uses_honk_sets": ["StateVerb", "CausalNode", "LocationLike", "AccessPointLike"],
+      "premise": {
+        "EdgeMatchedBy": ["StateVerb"],
+        "SourceMatchedBy": ["CausalNode"],
+        "TargetMatchedBy": ["LocationLike"],
+        "PropertyMatchedBy": ["SPACE:AccessPointLike"]
+      },
+      "consequence": [
+        {"Move": {"property": "SPACE", "select": "matched", "intoSlot": "target"}},
+        {"Append": {"property": "SPACE", "from": "target"}},
+        {"Append": {"property": "CAUSATION", "from": "source"}},
+        {"ReplaceSlot": {"slot": "source", "with": "existential"}}
+      ]
+    },
+    {"impl": "stative_eventive_swap:StativeEventiveSwapRule"},
+    {"impl": "specification_into_space:FoldSpecificationIntoSpaceRule"},
+    {
+      "name": "relcl_target_lift",
+      "phase": "post_logical_rewrite",
+      "premise": {"GraphAclRecoverable": []},
+      "consequence": [{"GraphAclRecoveredTarget": {}}]
+    },
+    {"impl": "requirement_simplifier:RequirementClauseSimplifierRule"},
+    {"impl": "passive_progressive:PassiveProgressiveRewrite"},
+    {"impl": "existential_passive_and_promote:ExistentialPassiveAndPromoteRule"},
+    {
+      "name": "strip_aux_from_edge_label",
+      "phase": "post_logical_rewrite",
+      "premise": {"EdgeHasLeadingCopulaAux": []},
+      "consequence": [{"StripLeadingCopula": {}}]
+    },
+    {
+      "name": "singleton_and_location_to_space",
+      "phase": "post_logical_rewrite",
+      "uses_honk_sets": ["LocationLike"],
+      "premise": {
+        "PropertyValueCount": ["AND:1"],
+        "PropertyMatchedBy": ["AND:LocationLike"]
+      },
+      "consequence": [{"Move": {"property": "AND", "intoProperty": "SPACE"}}]
+    },
+    {
+      "name": "content_source_spatial_target_to_space",
+      "phase": "post_logical_rewrite",
+      "uses_honk_sets": ["ContentNode", "LocationLike"],
+      "premise": {
+        "SourceMatchedBy": ["ContentNode"],
+        "TargetMatchedBy": ["LocationLike"],
+        "SlotHasConstructPreposition": ["target:space"]
+      },
+      "not_premise": {
+        "SlotIsType": ["source=GPE", "source=LOC", "source=FAC"]
+      },
+      "consequence": [
+        {"Append": {"property": "SPACE", "from": "target"}},
+        {"ReplaceSlot": {"slot": "target", "with": "source"}},
+        {"ReplaceSlot": {"slot": "source", "with": "existential"}}
+      ]
+    },
+    {"impl": "participial_collapse:ParticipialCollapseRule"},
+    {"impl": "participial_sub_kernel_preserve:ParticipialSubKernelPreserveRule"},
+    {"impl": "participial_predicate_promotion:ParticipialPredicatePromotionRule"},
+    {"impl": "lifecycle_property_promotion:LifecyclePropertyPromotionRule"},
+    {"impl": "lifecycle_property_promotion:LifecyclePropertyPromotionLateRule"},
+    {
+      "name": "after_occurrence_context_to_causation",
+      "phase": "post_logical_rewrite",
+      "uses_honk_sets": ["ChangeOfStateVerb", "OccurrenceVerb"],
+      "premise": {
+        "EdgeMatchedBy": ["ChangeOfStateVerb"],
+        "NodePropertyMatchedBy": ["TEMPORAL_CONTEXT.type:OccurrenceVerb"]
+      },
+      "consequence": [{"Move": {"property": "TEMPORAL_CONTEXT", "select": "matched", "intoProperty": "CAUSATION"}}]
+    },
+    {"impl": "auxiliary_periphrasis_promotion:AuxiliaryPeriphrasisPromotionRule"},
+    {
+      "name": "specification_and_to_target",
+      "phase": "post_logical_rewrite",
+      "uses_honk_sets": ["ContentNode", "LifecycleHeadPhrase"],
+      "premise": {
+        "SlotIsType": ["target=existential"],
+        "PropertyHasPromotableContent": ["SPECIFICATION", "TOPIC", "TOGETHERNESS"]
+      },
+      "consequence": [{"PromoteToTarget": {}}]
+    },
+    {"impl": "time_canonicalisation:TimeCanonicalisationRule"},
+    {
+      "name": "drop_redundant_time_target",
+      "phase": "post_logical_rewrite",
+      "premise": {"AndTargetRedundantTime": ["TIME"]},
+      "consequence": [{"DropRedundantTime": {}}]
+    },
+    {
+      "name": "weather_amod_condition",
+      "phase": "post_logical_rewrite",
+      "uses_honk_sets": ["Copula", "WeatherConditionNoun", "WeatherConditionAdjective"],
+      "premise": {"EdgeMatchedBy": ["Copula"]},
+      "consequence": [{
+        "SplitModifier": {
+          "head_class": "WeatherConditionNoun",
+          "modifier_property": "amod",
+          "modifier_class": "WeatherConditionAdjective",
+          "sibling_type": "JJ"
+        }
+      }]
+    },
+    {
+      "name": "quantity_compound_merge",
+      "phase": "post_logical_rewrite",
+      "premise": {"AdjacentQuantityMergeable": ["QUANTITY"]},
+      "consequence": [{"MergeAdjacent": {"property": "QUANTITY"}}]
+    },
+    {
+      "name": "quantity_redundant_drop",
+      "phase": "post_logical_rewrite",
+      "premise": {
+        "SlotIsType": ["target=AND"],
+        "HasProperty": ["QUANTITY"]
+      },
+      "consequence": [{"Drop": {"property": "QUANTITY"}}]
+    },
+    {
+      "name": "and_nmod_extra",
+      "phase": "post_logical_rewrite",
+      "premise": {"GraphNmodExtraCandidates": []},
+      "consequence": [{"GraphNmodExtra": {}}]
+    },
+    {
+      "name": "and_compound_classifier_extra",
+      "phase": "post_logical_rewrite",
+      "uses_honk_sets": ["EventClassifierHeadNoun"],
+      "premise": {"GraphCompoundClassifierHeadCandidates": ["EventClassifierHeadNoun"]},
+      "consequence": [{"GraphCompoundClassifierHead": {}}]
+    },
+    {
+      "name": "lifecycle_subject_promotion",
+      "phase": "post_logical_rewrite",
+      "uses_honk_sets": ["LifecycleHeadPhrase"],
+      "premise": {"HasExtraOfClass": ["LifecycleHeadPhrase"]},
+      "consequence": [{
+        "SwapHeadWithExtra": {"extra_property": "extra", "extra_class": "LifecycleHeadPhrase"}
+      }]
+    },
+    {
+      "name": "flatten_nested_and",
+      "phase": "post_logical_rewrite",
+      "premise": {},
+      "consequence": [{"Flatten": {"groups": ["AND", "OR"]}}]
+    }
+  ]
+}

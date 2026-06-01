@@ -121,6 +121,7 @@ def generate_honk_graph(p:HOnK, data_path:str, result_path:str=None):
     load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "service_state_nouns.txt"), ["Noun", "ServiceStateNoun"], to_reject)
     load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "status_nouns.txt"), ["Noun", "StatusNoun"], to_reject)
     load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "weather_condition_nouns.txt"), ["Noun", "WeatherConditionNoun"], to_reject)
+    load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "event_classifier_head_nouns.txt"), ["Noun", "EventClassifierHeadNoun"], to_reject)
     load_optional_from_txt_file(p, os.path.join(data_path, "nouns", "field_label_nouns.txt"), ["Noun", "FieldLabelNoun"], to_reject)
     load_optional_from_txt_file(p, os.path.join(data_path, "adjectives", "modal_adjectives.txt"), ["Adjective", "ModalAdjective"], to_reject)
 
