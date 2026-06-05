@@ -75,6 +75,7 @@ class KernelPostProcessor:
         `LaSSI/ner/structural_rewrites/__init__.py` — see that module's
         docstring for the registration recipe."""
         pipeline = [
+            ('recover_copula_adjective_complement',   self.recover_copula_adjective_complement),
             ('hoist_empty_kernel',                    self._check_if_empty_kernel),
             ('rules:post_hoist_pre_dedupe',           lambda k: self._apply_structural_rules(k, "post_hoist_pre_dedupe")),
             ('dedupe_properties',                     self.remove_duplicate_properties),
@@ -101,6 +102,69 @@ class KernelPostProcessor:
 
     def _apply_structural_rules(self, kernel, phase: str):
         return self.structural_rewrites.apply_phase(kernel, phase, self._rewrite_ctx)
+
+    def recover_copula_adjective_complement(self, kernel):
+        """Repair a copula whose predicate-complement adjective was swept into a
+        coordination by a mis-parse.
+
+        "Roadworks are underway ... and delays are considered unlikely" parses as
+        ``be(Roadworks, ∅)[AND:[underway, delays], ...]`` — the coordinating *and*
+        wrongly conjoins the predicate-complement adjective *underway* (the JJ
+        complement of the copula) with the next clause's subject *delays*, so the
+        copula TARGET is left empty. An empty copula target then makes
+        `_check_if_empty_kernel` hoist the copula onto a subordinate SENTENCE
+        clause, destroying the main-clause root.
+
+        When the copula has a real subject but an empty target, promote the first
+        adjectival complement (JJ/JJS/RB — `copula_complement_pos_tags`) found in
+        an AND/OR-style grouping property to the TARGET, leaving the remaining
+        conjunct(s) in place. No-ops on existential copulas (no real subject),
+        already-targeted copulas, and groupings with no adjectival member."""
+        if not isinstance(kernel, Singleton) or kernel.kernel is None:
+            return kernel
+        edge = kernel.kernel.edgeLabel
+        if not (isinstance(edge, Singleton) and edge.named_entity == 'be'):
+            return kernel
+        src = kernel.kernel.source
+        tgt = kernel.kernel.target
+        source_present = src is not None and getattr(src, 'type', None) != 'existential'
+        target_empty = tgt is None or getattr(tgt, 'type', None) == 'existential'
+        if not (source_present and target_empty):
+            return kernel
+
+        cc_tags = DependencyRoles.copula_complement_pos_tags()
+        props = dict(kernel.properties)
+        for key in list(props.keys()):
+            if key not in _GROUPING_PROPERTY_KEYS:  # only AND/OR-style groupings
+                continue
+            value = props[key]
+            members = list(value) if isinstance(value, (list, tuple)) else [value]
+            # Flatten any SetOfSingletons grouping member into its entities.
+            flat = []
+            for m in members:
+                if isinstance(m, SetOfSingletons):
+                    flat.extend(m.entities)
+                else:
+                    flat.append(m)
+            adj_idx = next(
+                (i for i, m in enumerate(flat)
+                 if isinstance(m, Singleton) and (m.type or '') in cc_tags),
+                None,
+            )
+            if adj_idx is None:
+                continue
+            adjective = flat.pop(adj_idx)
+            new_props = defaultdict(list)
+            for k, v in props.items():
+                if k == key:
+                    continue
+                new_props[k] = v
+            if flat:  # keep remaining conjunct(s) under the same grouping key
+                new_props[key] = flat
+            kernel = kernel.update_node_props(new_props)
+            kernel = kernel.update_kernel(adjective, "target")
+            return kernel
+        return kernel
 
     # Public wrappers around the pipeline-internal logical rewrite. Kept as
     # methods so `kernel_post_processing` in the orchestrator can also fire

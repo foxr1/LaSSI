@@ -307,7 +307,18 @@
         "attachTo": "Kernel",
         "argument": "property"
       }
+    ],
+    "disruption": [
+      {
+        "attachTo": "Singleton",
+        "argument": "property"
+      }
     ]
+  },
+  "similarity_semantics": {
+    "_doc": "Classifies how the constructs in `types` affect ex-post sentence similarity (LaSSI/structures/extended_fol/TabularCWASemantics.py). When a distinguishing content key is asserted by one sentence but not the other, the two describe different events, so a one-directional entailment is capped to a partial similarity instead of 1.0. The distinguishing set is DERIVED: it is the `attachTo: Kernel` constructs (event-level clauses) MINUS `circumstantial`, PLUS `identity_refining`. `circumstantial` = spatial / temporal / status / purpose framing that is compared point-wise or treated as paraphrastic (cf. ModelSearch._KERNEL_KEY_EQUIVALENCES) and never distinguishes. `identity_refining` = Singleton-level facets that refine WHAT an argument is, so they distinguish symmetrically (both directions). To change a construct's similarity behaviour, edit these two lists only — no Python change is needed, and new `attachTo: Kernel` constructs become distinguishing automatically.",
+    "circumstantial": ["space", "time", "temporal_context", "aim_objective", "time_status"],
+    "identity_refining": ["specification", "togetherness", "disruption"]
   },
   "derivation_rules": [
     {
@@ -1118,7 +1129,14 @@
           "on"
         ],
         "MotionVerb": false,
-        "StateVerb": false
+        "StateVerb": false,
+        "not": {
+          "SingletonHasBeenMatchedBy": [
+            "GPE",
+            "LOC",
+            "FAC"
+          ]
+        }
       },
       "classification": [
         {

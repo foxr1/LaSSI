@@ -24,6 +24,18 @@ app.layout = html.Div([
 ])
 from dataclasses import dataclass
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_CATABOLITES_ROOT = _PROJECT_ROOT / "catabolites"
+_HONK_CACHE_ROOT = _PROJECT_ROOT / "cache"
+
+
+def _repo_path(path: str | os.PathLike) -> Path:
+    candidate = Path(path).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    return _PROJECT_ROOT / candidate
+
+
 @dataclass(eq=True, frozen=True)
 class Provenance:
     min: int
@@ -43,23 +55,31 @@ class LaSSIExplainer:
             Services.getInstance(lambda x: print(x))
             HOnKSingleton.instance()
             from LaSSI.external_services.utilities.DatabaseConfiguration import load_db_configuration
-            LaSSIExplainer.fuzzyDBs = load_db_configuration(fuzzyDBs)
-            HOnKSingleton.init("catabolites", LaSSIExplainer.fuzzyDBs.uname, LaSSIExplainer.fuzzyDBs.pw,
-                                     LaSSIExplainer.fuzzyDBs.host, LaSSIExplainer.fuzzyDBs.port, False, "LaSSI/HOnK.ttl",
-                                     rules_path="raw_data/logical_analysis.json")
+            LaSSIExplainer.fuzzyDBs = load_db_configuration(str(_repo_path(fuzzyDBs)))
+            HOnKSingleton.init(str(_HONK_CACHE_ROOT), LaSSIExplainer.fuzzyDBs.uname, LaSSIExplainer.fuzzyDBs.pw,
+                                     LaSSIExplainer.fuzzyDBs.host, LaSSIExplainer.fuzzyDBs.port, False,
+                                     str(_repo_path("LaSSI/HOnK.ttl")),
+                                     rules_path=str(_repo_path("raw_data/logical_analysis.json")))
 
     def __init__(self, dataset_name):
         from pathlib import Path
         from LaSSI.Configuration import SentenceRepresentation
+        self.original_sentences = []
         self.sentences = []
         self.provenance = None
-        with open(dataset_name) as file:
-            self.sentences = yaml.load(file, Loader=yaml.SafeLoader)
+        dataset_path = _repo_path(dataset_name)
+        with open(dataset_path) as file:
+            self.original_sentences = yaml.load(file, Loader=yaml.SafeLoader)
+        self.sentences = list(self.original_sentences)
         self.full_transformation = SentenceRepresentation.Logical
-        self.catabolites_dir = Path(dataset_name).stem
-        self.catabolites_of_dataset = os.path.join("catabolites", self.catabolites_dir)
+        self.catabolites_dir = dataset_path.stem
+        self.catabolites_of_dataset = os.path.join(str(_CATABOLITES_ROOT), self.catabolites_dir)
         self.logical_formulae_of_dataset = os.path.join(self.catabolites_of_dataset, "logical_rewriting.json")
         self.internals = os.path.join(self.catabolites_of_dataset, "internals.json")
+        self.string_rep = os.path.join(self.catabolites_of_dataset, "string_rep.txt")
+        ingested_sentences = self._load_ingested_sentences()
+        if len(ingested_sentences) == len(self.original_sentences):
+            self.sentences = ingested_sentences
         from LaSSI.structures.extended_fol.TBoxReasoning import TBoxReasoningSingleton
         TBoxReasoningSingleton.instance()
         # TODO: move the txt files to the resources
@@ -68,8 +88,8 @@ class LaSSIExplainer:
             Path(os.path.join(self.catabolites_of_dataset, str(self.full_transformation))).mkdir(parents=True,
                                                                                                  exist_ok=True)
         kexp_pickle = os.path.join(self.catabolites_of_dataset, str(self.full_transformation), "_kexp.pickle")
-        TBoxReasoningSingleton.init("query_impl.txt",
-                                    "query_eq.txt",
+        TBoxReasoningSingleton.init(str(_repo_path("query_impl.txt")),
+                                    str(_repo_path("query_eq.txt")),
                                     kexp_pickle)
 
         self.obj_list = []
@@ -145,6 +165,16 @@ class LaSSIExplainer:
         rb.build_implication_report(i, j)
         rb.finalize_document(f"explain_{i}_{j}.html")
 
+    def _load_ingested_sentences(self) -> list[str]:
+        if not os.path.exists(self.string_rep):
+            return []
+        sentences = []
+        with open(self.string_rep) as file:
+            for line in file:
+                text, _, _ = line.rstrip("\n").partition(" ⇒ ")
+                sentences.append(text)
+        return sentences
+
     def explain_textual_sentence(self, idx)->list[str|Provenance]:
         sentence = self.sentences[idx]
         prov = self.invProvenance[idx]
@@ -168,6 +198,4 @@ class LaSSIExplainer:
         return result
 
     def get_explanation(self, i:int, j:int):
-        self.f.get_explained_id_similarity(i,j)
-
-
+        return self.f.get_explained_id_similarity(i,j)

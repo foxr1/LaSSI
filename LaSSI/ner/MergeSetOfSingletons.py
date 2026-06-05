@@ -99,7 +99,42 @@ def _promote_geo_suffixed_type(merged_node, meu_db_row, honk):
     return merged_node.update_type(best_geo_type)
 
 
-def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, existentials):
+def _governor_is_locationish(governor, honk):
+    """True when the compound governor itself denotes a place — its type is
+    already geo (LOC/GPE/FAC) or its surface/lemma is a HOnK location/facility/
+    route/access-point noun (station, area, road, …). Used to decide whether a
+    named-entity geo MODIFIER may keep the head: "University station" (governor
+    `station` is a facility) keeps the geo head, but "Fern Drive roadworks"
+    (governor `roadworks` is an event noun) does not."""
+    if governor is None:
+        return False
+    if str(getattr(governor, 'type', '') or '').upper() in {'LOC', 'GPE', 'FAC'}:
+        return True
+    if honk is None:
+        return False
+    # Word-level membership: a multi-word governor like "Metro station" is a
+    # place when ANY of its tokens is a location/facility noun ("station"), not
+    # only when the whole surface matches. Exact-match would wrongly fire the
+    # demotion for "Haymarket Metro station" (governor "Metro station").
+    names = set()
+    full = str(governor.named_entity or '').lower()
+    if full:
+        names.add(full)
+        names.update(full.split())
+    props = dict(getattr(governor, 'properties', frozenset()) or {})
+    if isinstance(props.get('lemma'), str):
+        names.add(props['lemma'].lower())
+        names.update(props['lemma'].lower().split())
+    loc_sets = set()
+    for getter in ('getLocationNouns', 'getFacilityNouns', 'getRouteNouns', 'getAccessPointNouns'):
+        try:
+            loc_sets |= {str(x).lower() for x in (getattr(honk, getter)() or set())}
+        except Exception:
+            pass
+    return bool(names & loc_sets)
+
+
+def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, existentials, head_hint=None):
     from LaSSI.structures.internal_graph.EntityRelationship import Singleton
     from LaSSI.utils.allChunks import allChunks
     import numpy
@@ -233,7 +268,7 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
     for entity in sorted_entities:
         norm_confidence *= entity.confidence
         fusion_properties = merge_properties(fusion_properties, entity.get_props())
-        
+
         # HEAD SELECTION LOGIC:
         # Pick the best entity from sorted_entities that is present as a head in resolution d.
         # Use hierarchical type comparison to find the most specific/important entity.
@@ -247,6 +282,29 @@ def GraphNER_withProperties(node, is_simplistic_rewriting, meu_db_row, honk, exi
 
             if is_better_type or is_verb_fallback:
                 chosen_entity = entity
+
+    # Refined head correction (compound merges only — `head_hint` is the
+    # dependency governor). The type-specificity choice above lets a named-entity
+    # geo MODIFIER usurp the head: in "Fern Drive roadworks" the LOC "Fern Drive"
+    # outranks the governor "roadworks", inverting the subject. Correct it ONLY
+    # when the chosen head is geo AND the governor is NOT itself a place
+    # (`_governor_is_locationish`) — so genuinely location-headed compounds like
+    # "University station" (governor `station` is a facility noun) are untouched,
+    # which is what kept the type-specificity behaviour load-bearing for the gold
+    # transport/crime cases. The displaced geo falls to the normal `extra` slot.
+    if (head_hint is not None and chosen_entity is not None
+            and str(chosen_entity.type or '').upper() in {'LOC', 'GPE', 'FAC'}):
+        governor = next(
+            (e for e in sorted_entities
+             if e.named_entity in head_names
+             and (e.id == getattr(head_hint, 'id', None)
+                  or e.named_entity == getattr(head_hint, 'named_entity', None))),
+            None,
+        )
+        if (governor is not None and governor is not chosen_entity
+                and str(governor.type or '').lower() != 'verb'
+                and not _governor_is_locationish(governor, honk)):
+            chosen_entity = governor
 
     # Build extra_names_list from everything that wasn't chosen as head
     for entity in sorted_entities:

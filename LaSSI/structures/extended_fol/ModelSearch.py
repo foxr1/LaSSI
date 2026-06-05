@@ -147,6 +147,30 @@ class ModelSearch:
         return False
 
     @staticmethod
+    def _binary_implies_unary_drop(lhs, rhs):
+        """True iff ``lhs`` is a binary predicate ``rel(a, b)`` and ``rhs`` is the
+        unary ``rel(a)`` over the same relation and subject — i.e. ``rhs`` is the
+        object-dropped (existential-generalisation) form of ``lhs``.
+
+        Sound and directional: ``rel(a, b) ⇒ ∃y. rel(a, y)`` (modelled here as the
+        unary ``rel(a)``). The reverse (unary ⇒ binary) does NOT hold, so this only
+        fires for the binary-LHS / unary-RHS direction. Relation match goes through
+        `_same_relation` (string-equal or ontology synonym)."""
+        if not (isinstance(lhs, FBinaryPredicate) and isinstance(rhs, FUnaryPredicate)):
+            return False
+        if not ModelSearch._same_relation(lhs, rhs):
+            return False
+        a = getattr(lhs, 'src', None)
+        u = getattr(rhs, 'arg', None)
+        if a is None or u is None:
+            return False
+        if a == u:
+            return True
+        an = getattr(a, 'name', None)
+        un = getattr(u, 'name', None)
+        return an is not None and an == un
+
+    @staticmethod
     def _has_properties(formula):
         return (
                 isinstance(formula, (FUnaryPredicate, FBinaryPredicate)) and
@@ -194,6 +218,18 @@ class ModelSearch:
                 print(f"[GUARD] NOTE: result was in pairwise_similarity_cache!")
         if direct == CasusHappening.INDIFFERENT:
             return CasusHappening.INDIFFERENT
+        if direct == CasusHappening.EQUIVALENT:
+            return CasusHappening.EQUIVALENT
+        if isImplication(direct):
+            reverse_direct = test_pairwise_sentence_similarity(
+                self.pairwise_similarity_cache,
+                objRHS.original,
+                objLHS.original,
+                store=False,
+                shift=False,
+            )
+            if reverse_direct == CasusHappening.EQUIVALENT or isImplication(reverse_direct):
+                return CasusHappening.EQUIVALENT
         # If the full comparison didn't return INDIFFERENT but also didn't
         # return the expansion-level implication (e.g. because the relation
         # names differ and aren't linked in the ontology), fall back to a
@@ -285,6 +321,19 @@ class ModelSearch:
             if _TRACE_COMPARE:
                 print(f"[COMPARE] path=SPACE_MISMATCH, result=EXCLUSIVES")
             return self.main_cache[cp]
+        # Property-level TIME contradictions: two predicates that each assert a
+        # *defined* calendar date which differ describe mutually exclusive
+        # timings of the same event (e.g. work "ends 2026-04-27" vs "ends on
+        # 30 April"). Like SPACE, this is stripped by the expansion search, so
+        # it must be detected on the originals here. Conservative: fires only
+        # when BOTH sides carry a defined date and the date sets are disjoint —
+        # a defined date vs no date stays indifferent.
+        from LaSSI.HOnK.TBox.TemporalReasoner import _time_mismatch_contradiction
+        if _time_mismatch_contradiction(objLHS.original, objRHS.original):
+            self.main_cache[cp] = CasusHappening.EXCLUSIVES
+            if _TRACE_COMPARE:
+                print(f"[COMPARE] path=TIME_MISMATCH, result=EXCLUSIVES")
+            return self.main_cache[cp]
         if ((objLHS.original == make_not(objRHS.original)) or
               (objLHS.original == make_not(objLHS.original)) or
               (make_not(objLHS.original) in objRHS.unary) or
@@ -303,6 +352,20 @@ class ModelSearch:
                 objLHS, objRHS, CasusHappening.GENERAL_IMPLICATION)
             if _TRACE_COMPARE:
                 print(f"[COMPARE] path=LHS_ORIG_IN_RHS_EXPANSION, result={self.main_cache[cp]}")
+            return self.main_cache[cp]
+        elif self._binary_implies_unary_drop(objLHS.original, objRHS.original):
+            # Object-drop / existential generalisation: rel(a, b) ⇒ rel(a).
+            # This is unconditionally sound: dropping the object of a predicate
+            # cannot make it false. Hard contradictions on SPACE/TIME between the
+            # originals are already returned as EXCLUSIVES earlier in `compare`,
+            # and sentence-level distinguishing content is handled by the
+            # similarity cap — so we do NOT route this through
+            # `_guard_contextual_implication` (which would re-derive the
+            # implication from a structural comparison that can't see the drop and
+            # spuriously return INDIFFERENT).
+            self.main_cache[cp] = CasusHappening.GENERAL_IMPLICATION
+            if _TRACE_COMPARE:
+                print(f"[COMPARE] path=BINARY_IMPLIES_UNARY_DROP, result=GENERAL_IMPLICATION")
             return self.main_cache[cp]
         else:
             # Performing the constituents search:

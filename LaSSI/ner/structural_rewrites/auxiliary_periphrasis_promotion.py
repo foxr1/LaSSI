@@ -10,6 +10,7 @@ from LaSSI.ner.structural_rewrites.base import (
     append_unique_property_value,
 )
 from LaSSI.structures.internal_graph.EntityRelationship import (
+    Grouping,
     Relationship,
     SetOfSingletons,
     Singleton,
@@ -170,6 +171,178 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
             }
         return None
 
+    def _matches_weather_class(self, node, ctx):
+        matcher = getattr(ctx, "matchers", None)
+        if matcher is None or not hasattr(matcher, "matches_class"):
+            return False
+        return any(
+            matcher.matches_class(node, class_name)
+            for class_name in ("WeatherConditionNoun", "WeatherConditionAdjective")
+        )
+
+    def _node_name_in_weather_terms(self, node, ctx):
+        if not isinstance(node, Singleton):
+            return False
+        name = (node.named_entity or "").strip().lower()
+        if not name:
+            return False
+        try:
+            honk = ctx.services.getHOnK()
+            weather_terms = {
+                str(term).strip().lower()
+                for term in honk.getWeatherConditionNouns()
+                if term
+            }
+        except Exception:
+            weather_terms = set()
+        if name in weather_terms:
+            return True
+        tokens = [token for token in name.replace("-", " ").split() if token]
+        return any(token in weather_terms for token in tokens)
+
+    def _is_weather_condition_value(self, value, ctx):
+        if isinstance(value, SetOfSingletons):
+            return any(self._is_weather_condition_value(entity, ctx) for entity in value.entities)
+        if not isinstance(value, Singleton):
+            return False
+        if self._matches_weather_class(value, ctx) or self._node_name_in_weather_terms(value, ctx):
+            return True
+        props = dict(value.properties)
+        for prop in ("amod", "extra", "compound"):
+            for item in _as_list(props.get(prop)):
+                if self._matches_weather_class(item, ctx) or self._node_name_in_weather_terms(item, ctx):
+                    return True
+                if isinstance(item, str) and self._matches_weather_class(item, ctx):
+                    return True
+        return False
+
+    def _is_empty_auxiliary_sibling(self, node):
+        if not isinstance(node, Singleton) or node.kernel is not None:
+            return False
+        if str(getattr(node, "type", "")).lower() != "verb":
+            return False
+        name = (node.named_entity or "").strip().lower()
+        if not name:
+            return False
+        if name != "have" and lemmatize_verb(name).lower() != "have":
+            return False
+        props = dict(node.properties)
+        return not any(
+            key for key in props
+            if key not in {
+                "mark", "pos", "xpos", "begin", "end", "root", "kernel",
+                "subjpass",
+            }
+        )
+
+    def _strip_empty_auxiliary_value(self, value):
+        if self._is_empty_auxiliary_sibling(value):
+            return None
+        if not isinstance(value, SetOfSingletons):
+            return value
+        kept = []
+        changed = False
+        for entity in value.entities:
+            stripped = self._strip_empty_auxiliary_value(entity)
+            if stripped is None:
+                changed = True
+                continue
+            changed = changed or stripped is not entity
+            if isinstance(stripped, SetOfSingletons) and stripped.type == value.type:
+                kept.extend(stripped.entities)
+                changed = True
+            else:
+                kept.append(stripped)
+        if not kept:
+            return None
+        if len(kept) == 1 and value.type in {Grouping.AND, Grouping.OR}:
+            return kept[0]
+        return value.update_entities(kept) if changed else value
+
+    def _drop_empty_auxiliaries_from_properties(self, props, keys):
+        for key in keys:
+            values = _as_list(props.get(key))
+            if not values:
+                continue
+            kept_values = []
+            for item in values:
+                stripped = self._strip_empty_auxiliary_value(item)
+                if stripped is not None:
+                    kept_values.append(stripped)
+            if kept_values:
+                props[key] = kept_values
+            else:
+                props.pop(key, None)
+
+    def _dependency_children(self, node, ctx, labels):
+        matcher = getattr(ctx, "matchers", None)
+        if matcher is None or not hasattr(matcher, "dependency_children"):
+            return []
+        return matcher.dependency_children(node, labels)
+
+    def _weather_graph_candidates(self, node, ctx, seen=None):
+        if seen is None:
+            seen = set()
+        node_id = getattr(node, "id", None)
+        if node_id is not None:
+            if node_id in seen:
+                return []
+            seen.add(node_id)
+        candidates = []
+        if self._is_weather_condition_value(node, ctx):
+            candidates.append(node)
+        for label in ("obj", "orig", "conj"):
+            for child in self._dependency_children(node, ctx, {label}):
+                candidates.extend(self._weather_graph_candidates(child, ctx, seen))
+        return candidates
+
+    def _negated_weather_values_from_auxiliary(self, sibling, ctx):
+        if not self._is_empty_auxiliary_sibling(sibling):
+            return []
+        negated = []
+        for candidate in self._weather_graph_candidates(sibling, ctx):
+            if not isinstance(candidate, Singleton):
+                continue
+            if not self._dependency_children(candidate, ctx, {"neg"}):
+                continue
+            negated.append(SetOfSingletons(
+                id=-(abs(candidate.id) + 1000),
+                type=Grouping.NOT,
+                entities=(candidate,),
+                min=candidate.min,
+                max=candidate.max,
+                confidence=candidate.confidence,
+            ))
+        return negated
+
+    def _negated_weather_values_from_graph(self, ctx):
+        matcher = getattr(ctx, "matchers", None)
+        graph = getattr(matcher, "G", None)
+        if graph is None:
+            return []
+        negated = []
+        seen_ids = set()
+        for _, data in graph.nodes(data=True):
+            candidate = data.get("data") if isinstance(data, dict) else None
+            if not isinstance(candidate, Singleton):
+                continue
+            if getattr(candidate, "id", None) in seen_ids:
+                continue
+            if not self._is_weather_condition_value(candidate, ctx):
+                continue
+            if not self._dependency_children(candidate, ctx, {"neg"}):
+                continue
+            seen_ids.add(candidate.id)
+            negated.append(SetOfSingletons(
+                id=-(abs(candidate.id) + 1000),
+                type=Grouping.NOT,
+                entities=(candidate,),
+                min=candidate.min,
+                max=candidate.max,
+                confidence=candidate.confidence,
+            ))
+        return negated
+
     def apply(self, kernel, bindings, ctx):
         shape = bindings.get("shape", "nested")
         inner_kernel_node = bindings["inner_kernel_node"]
@@ -282,12 +455,45 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
                         cleaned.pop('extra', None)
                         item = item.update_node_props(cleaned) if cleaned != dict(item.properties) else item
                     append_unique_property_value(merged, 'TIME', item)
+                elif self._is_empty_auxiliary_sibling(item):
+                    continue
                 else:
                     kept_spec.append(item)
             if kept_spec:
                 merged['SPECIFICATION'] = kept_spec
             else:
                 merged.pop('SPECIFICATION', None)
+
+        # Weather conjunctions can also arrive as a kernel-level AND property
+        # of the "have" auxiliary.  Route weather content through the same
+        # SPECIFICATION path used above; leave non-weather AND values alone.
+        and_values = _as_list(merged.pop('AND', None))
+        if and_values:
+            kept_and = []
+            for item in and_values:
+                if self._is_weather_condition_value(item, ctx):
+                    append_unique_property_value(merged, 'SPECIFICATION', item)
+                else:
+                    kept_and.append(item)
+            if kept_and:
+                merged['AND'] = kept_and
+
+        # In this periphrasis, GSM can treat the object of "have" as a
+        # cause.  For weather conditions that is just structural noise: the
+        # condition is forecast content, so keep genuine causes untouched
+        # and route only weather values through SPECIFICATION.
+        causation_values = _as_list(merged.get('CAUSATION'))
+        if causation_values:
+            kept_causation = []
+            for item in causation_values:
+                if self._is_weather_condition_value(item, ctx):
+                    append_unique_property_value(merged, 'SPECIFICATION', item)
+                else:
+                    kept_causation.append(item)
+            if kept_causation:
+                merged['CAUSATION'] = kept_causation
+            else:
+                merged.pop('CAUSATION', None)
 
         # TOGETHERNESS that simply duplicates SPECIFICATION (same id) is a
         # GSM artefact — keep only the SPECIFICATION copy which carries the
@@ -315,7 +521,7 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
         # SpecificationAndToTargetRule downstream can lift it.
         if isinstance(sibling, (Singleton, SetOfSingletons)) and not (
             isinstance(sibling, Singleton) and sibling.type == 'existential'
-        ):
+        ) and not self._is_empty_auxiliary_sibling(sibling):
             append_unique_property_value(merged, 'SPECIFICATION', sibling)
 
         # Pattern B (flat predict-verb): the original outer source carries
@@ -326,6 +532,16 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
             isinstance(flat_predicate, Singleton) and flat_predicate.type == 'existential'
         ):
             append_unique_property_value(merged, 'SPECIFICATION', flat_predicate)
+
+        for aux_node in (sibling, kernel.kernel.edgeLabel):
+            for negated_weather in self._negated_weather_values_from_auxiliary(aux_node, ctx):
+                append_unique_property_value(merged, 'SPECIFICATION', negated_weather)
+        for negated_weather in self._negated_weather_values_from_graph(ctx):
+            append_unique_property_value(merged, 'SPECIFICATION', negated_weather)
+
+        self._drop_empty_auxiliaries_from_properties(
+            merged, ('SPECIFICATION', 'TOGETHERNESS')
+        )
 
         # Deduplicate TIME entries by their SUTime-normalised named_entity
         # and strip the redundant `nummod` SUTime artefact. CoreNLP/SUTime

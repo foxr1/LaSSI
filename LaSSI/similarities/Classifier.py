@@ -1,10 +1,19 @@
 # https://aclanthology.org/2024.findings-acl.353/
+def _best_device():
+    import torch
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 class Classifier:
     def __init__(self, model=None):
         if model is None:
             model = "qbao775/AMR-LE-DeBERTa-V2-XXLarge-Contraposition-Double-Negation-Implication-Commutative-Pos-Neg-1-3"
         from transformers import pipeline
-        self.pipe = pipeline("text-classification", model)
+        self.pipe = pipeline("text-classification", model, device=_best_device())
 
     def __call__(self, premise, consequence):
         prompt = f"{premise}. {consequence}."

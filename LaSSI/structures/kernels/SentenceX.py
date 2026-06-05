@@ -900,6 +900,45 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
         lemmas = lemmatize_sentence(node.named_entity)
         return len(rejected_verbs.intersection({lemmatize_verb(x) for x in lemmas})) == 0
 
+    # Priority 0: structure-2 anomaly recovery. Normally the grammar emits the
+    # main verb as an edge *label* (`subject -[verb]-> object`). Occasionally it
+    # leaves the (active, transitive) root verb as a *node* that carries its own
+    # `nsubj`/`obj` dependency edges and emits no verb-labelled edge at all. The
+    # main loop below then promotes the verb node to the edge label, trips the
+    # `source == edge_label` existential branch, and wrongly makes the verb's
+    # SUBJECT the kernel target under an existential source (e.g.
+    # "The roadworks involve replacement" -> involve(?existential, roadworks)
+    # with `replacement` demoted to a property). Recover the intended
+    # `verb(nsubj, obj)` here. The gate is deliberately tight so it cannot
+    # disturb sentences that DO have a verb-labelled edge (they keep their
+    # existing selection, e.g. "...recorded ... involved ...") or passives
+    # (which expose an `nsubj` but no `obj`).
+    root_verb_kernel = None
+    if not any(is_valid_verb(e[3]['label']) for e in edges):
+        root_data = G.nodes[root_sentence_id]['data'] if root_sentence_id in G.nodes else None
+        if root_data is not None and is_valid_verb(root_data):
+            nsubj_tgt = obj_tgt = None
+            root_neg = False
+            for e in edges:
+                if e[0] != root_sentence_id:
+                    continue
+                lbl = e[3]['label'].named_entity
+                if lbl == 'nsubj' and nsubj_tgt is None:
+                    nsubj_tgt = G.nodes[e[1]]['data']
+                    root_neg = root_neg or e[3]['isNegated']
+                elif lbl in ('obj', 'dobj') and obj_tgt is None:
+                    obj_tgt = G.nodes[e[1]]['data']
+                    root_neg = root_neg or e[3]['isNegated']
+            if (nsubj_tgt is not None and obj_tgt is not None
+                    and getattr(nsubj_tgt, 'type', None) != 'existential'
+                    and getattr(obj_tgt, 'type', None) != 'existential'
+                    and nsubj_tgt is not obj_tgt):
+                root_verb_kernel = Relationship(
+                    source=nsubj_tgt, target=obj_tgt,
+                    edgeLabel=root_data, isNegated=root_neg,
+                )
+                kernel = root_verb_kernel
+
     # Priority 1: Find an edge that is explicitly marked as 'kernel' or 'root'
     for edge in edges:
         source_data = G.nodes[edge[0]]['data']
@@ -942,6 +981,8 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
         # If we have found a chosen edge OR we haven't but the source or edge label are verbs AND
         #  root in preposition labels or edge label not in prepositions
         if (
+                root_verb_kernel is None
+                and
                 (
                         (
                                 (is_valid_verb(edge_label) or is_valid_verb(source)) and
@@ -1127,7 +1168,7 @@ def find_existential_in_properties(node):
 
 def case_in_props(node_props, return_props=False):
     if node_props is None:
-        return False
+        return [] if return_props else False
 
     # Ignore "by" as passive sentence: https://www.uc.utoronto.ca/passive-voice
     # Ignore "of" and "'s" as "possessive": https://en.m.wikipedia.org/wiki/English_possessive
@@ -1142,7 +1183,14 @@ def case_in_props(node_props, return_props=False):
 
     for key in node_props:
         if key == 'case':
-            return True
+            case_values = node_props[key]
+            if not isinstance(case_values, (list, tuple, set)):
+                case_values = [case_values]
+            case_values = [case for case in case_values if case not in ignore_cases]
+            if not return_props:
+                return bool(case_values)
+            found_cases.extend(case_values)
+            continue
         try:
             case_position = float(key)
             if node_props[key] not in ignore_cases:

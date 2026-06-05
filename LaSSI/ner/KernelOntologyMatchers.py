@@ -76,6 +76,7 @@ class KernelOntologyMatchers:
         class_getters = {
             "AccessPointNoun": honk.getAccessPointNouns,
             "CausativeVerb": honk.getCausativeVerbs,
+            "MaterialisationVerb": honk.getMaterialisationVerbs,
             "ChangeOfStateVerb": honk.getChangeOfStateVerbs,
             "FacilityNoun": honk.getFacilityNouns,
             "LocationNoun": honk.getLocationNouns,
@@ -89,6 +90,7 @@ class KernelOntologyMatchers:
             "StatusNoun": honk.getStatusNouns,
             "TransitiveVerb": honk.getTransitiveVerbs,
             "EventClassifierHeadNoun": honk.getEventClassifierHeadNouns,
+            "DisruptionNoun": honk.getDisruptionNouns,
             "WeatherConditionAdjective": honk.getWeatherConditionAdjectives,
             "WeatherConditionNoun": honk.getWeatherConditionNouns,
         }

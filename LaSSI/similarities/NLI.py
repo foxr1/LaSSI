@@ -8,30 +8,39 @@ class NLIClassifier:
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name).to(self.device)
         self.model.eval()
 
+    # Strict label → float mapping for 3-class NLI models
+    _LABEL_SCORES = {
+        "entailment": 1.0,
+        "neutral":    0.5,
+        "contradiction": 0.0,
+        # common aliases
+        "positive":   1.0,
+        "negative":   0.0,
+    }
+
+    def _label_to_score(self, label_str: str) -> float:
+        """Map a predicted NLI label string to a crisp float."""
+        key = label_str.lower().strip()
+        for name, val in self._LABEL_SCORES.items():
+            if name in key:
+                return val
+        # Fallback for opaque label names like 'LABEL_2': treat highest index as entailment
+        return 0.5
+
     def __call__(self, premise: str, consequence: str) -> float:
         pairs = [[premise, consequence]]
         with torch.no_grad():
-            inputs = self.tokenizer(pairs, padding=True, truncation=True, return_tensors='pt', max_length=512).to(self.device)
-            scores = self.model(**inputs, return_dict=True).logits.squeeze().float()
-            
-            if scores.numel() == 1:
-                # BGE reranker outputs logits, use sigmoid to normalize to [0, 1]
-                score = torch.sigmoid(scores).item()
+            inputs = self.tokenizer(pairs, padding=True, truncation=True,
+                                    return_tensors='pt', max_length=512).to(self.device)
+            logits = self.model(**inputs, return_dict=True).logits.squeeze().float()
+
+            if logits.numel() == 1:
+                # Binary re-ranker (e.g. BGE): single relevance logit → threshold to 0 / 1
+                score = 1.0 if torch.sigmoid(logits).item() >= 0.5 else 0.0
             else:
-                probs = torch.softmax(scores, dim=-1)
-                labels = self.model.config.id2label
-                
-                target_idx = None
-                for idx, label in labels.items():
-                    label_lower = str(label).lower()
-                    if 'entailment' in label_lower or 'positive' in label_lower or 'label_2' in label_lower:
-                        target_idx = int(idx)
-                        break
-                
-                if target_idx is not None:
-                    score = probs[target_idx].item()
-                else:
-                    # Fallback to last index (often positive/entailment in default configs)
-                    score = probs[-1].item()
-                    
+                # 3-class NLI: take the argmax label and map to a strict value
+                pred_idx = int(logits.argmax().item())
+                pred_label = str(self.model.config.id2label[pred_idx])
+                score = self._label_to_score(pred_label)
+
         return score

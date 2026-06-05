@@ -731,7 +731,7 @@ def find_existential_in_properties(node):
 
 def case_in_props(node_props, return_props=False):
     if node_props is None:
-        return False
+        return [] if return_props else False
 
     # Ignore "by" as passive sentence: https://www.uc.utoronto.ca/passive-voice
     # Ignore "of" and "'s" as "possessive": https://en.m.wikipedia.org/wiki/English_possessive
@@ -740,7 +740,14 @@ def case_in_props(node_props, return_props=False):
 
     for key in node_props:
         if key == 'case':
-            return True
+            case_values = node_props[key]
+            if not isinstance(case_values, (list, tuple, set)):
+                case_values = [case_values]
+            case_values = [case for case in case_values if case not in ignore_cases]
+            if not return_props:
+                return bool(case_values)
+            found_cases.extend(case_values)
+            continue
         try:
             case_position = float(key)
             if node_props[key] not in ignore_cases:

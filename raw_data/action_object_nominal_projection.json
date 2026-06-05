@@ -1,0 +1,6 @@
+{
+  "_doc": "RowChunkPipeline action->nominal projection. Notices describe work imperatively (e.g. 'Abandon ... SI and replace with ... LP PE') while their paraphrases use a nominal ('pipe replacement'). When a row's action verbs (CausativeVerb / MaterialisationVerb) target an object that isA `object_supertype` in HOnK (SI, LP PE, ... isA pipe), surface `SPECIFICATION: projected_nominal` on the row kernel so the action-based description aligns with the nominal paraphrases for the eFOL comparison. This is alignment glue: the noun<->verb relation (the nominal 'pipe replacement' vs the verb 'replace(pipe)') cannot be bridged at eFOL comparison time (a noun variable cannot be related to a verb predicate in the comparator), so the nominal is projected onto the action-based description here. Load-bearing: it is what makes S0 and S1 share SPECIFICATION in roadworks_001 (S0=S1). Add a row to generalise to other action/object families (e.g. cable laying); never hardcode the strings in Python.",
+  "projections": [
+    {"object_supertype": "pipe", "projected_nominal": "pipe replacement"}
+  ]
+}

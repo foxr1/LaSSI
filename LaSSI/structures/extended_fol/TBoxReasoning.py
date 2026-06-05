@@ -52,13 +52,14 @@ class KnowledgeExpansion:
 
     @staticmethod
     def load(filename):
-        import os
+        filename = os.path.abspath(os.fspath(filename))
         obj = None
         if os.path.exists(filename):
             with open(filename, "rb") as p:
                     import pickle
                     obj = pickle.load(p)
                     assert isinstance(obj, KnowledgeExpansion)
+                    obj.filename = filename
                     # obj.constituents = constituent
                     return obj
         if obj is None:
@@ -326,7 +327,11 @@ class TBoxReasoningSingleton(object):
 
     @staticmethod
     def init(impl_file, eq_file, ke_file):
-        if TBoxReasoningSingleton._instance.rules is None:
+        impl_file = os.path.abspath(os.fspath(impl_file))
+        eq_file = os.path.abspath(os.fspath(eq_file))
+        ke_file = os.path.abspath(os.fspath(ke_file))
+        if (TBoxReasoningSingleton._instance.rules is None or
+                os.path.abspath(TBoxReasoningSingleton._instance.rules.ke_file) != ke_file):
             TBoxReasoningSingleton._instance.rules = TBoxReasoning(impl_file, eq_file, ke_file)
 
     def hasPersistedBefore(self):
@@ -409,15 +414,15 @@ class TBoxReasoningSingleton(object):
 
 class TBoxReasoning(object):
     def __init__(self, impl_file, eq_file, ke_file):
-        self.eq_file = eq_file
-        self.impl_file = impl_file
-        self.ke_file = ke_file
-        self.rule_mapping = CountingDictionary.load(ke_file+"rules_")
+        self.eq_file = os.path.abspath(os.fspath(eq_file))
+        self.impl_file = os.path.abspath(os.fspath(impl_file))
+        self.ke_file = os.path.abspath(os.fspath(ke_file))
+        self.rule_mapping = CountingDictionary.load(self.ke_file+"rules_")
         from FunctionalMatch.language.LanguageMainPoint import parse_query
-        self.impl_rules = {self.rule_mapping.add(x): x for x in parse_query(impl_file)}
-        self.eq_rules = {self.rule_mapping.add(x): x for x in parse_query(eq_file)}
+        self.impl_rules = {self.rule_mapping.add(x): x for x in parse_query(self.impl_file)}
+        self.eq_rules = {self.rule_mapping.add(x): x for x in parse_query(self.eq_file)}
         # self.constituents = CountingDictionary.load(ke_file+"const_")
-        self.ke = KnowledgeExpansion.load( ke_file)
+        self.ke = KnowledgeExpansion.load(self.ke_file)
         # self.ke_impl = KnowledgeExpansion.load(self.constituents, ke_file)
         self.eq_already_visited_set = dict()
         self.impl_already_visited_set = dict()

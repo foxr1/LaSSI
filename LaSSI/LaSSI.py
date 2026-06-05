@@ -261,6 +261,9 @@ class LaSSI():
         from pathlib import Path
         self.catabolites_dir = Path(dataset_name).stem
         self.catabolites_of_dataset = os.path.join("catabolites", self.catabolites_dir)
+        Path(self.catabolites_of_dataset).mkdir(parents=True, exist_ok=True)
+        with open(os.path.join(self.catabolites_of_dataset, "dataset_path.txt"), "w") as f:
+            f.write(str(Path(dataset_name).resolve()))
         self.string_rep_dir = os.path.join(self.catabolites_of_dataset, "string_rep.txt")
         self.benchmarking_file = os.path.join("catabolites", "benchmark.csv")
         if os.path.exists(self.string_rep_dir):
@@ -383,23 +386,63 @@ class LaSSI():
         elif self.transformation == SentenceRepresentation.FullText and self.legacy_conf.HuggingFace.startswith("NLI#"):
             self.logger(f"Loading/Downloading NLI model: {self.legacy_conf.HuggingFace}...")
             from LaSSI.similarities.NLI import NLIClassifier
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from tqdm import tqdm
             f = NLIClassifier(self.legacy_conf.HuggingFace[4:])
-            matrices = []
-            for i, x in enumerate(obj_list):
-                ls = []
-                for j, y in enumerate(obj_list):
-                    ls.append(f(x, y))
-                matrices.append(ls)
+            n = len(obj_list)
+            matrices = [None] * n
+            # PyTorch releases the GIL during inference, so threads run concurrently on GPU/CPU
+            max_workers = min(n, os.cpu_count() or 4, 8)
+            def _nli_row(args):
+                row_i, row_x, pbar = args
+                t0 = time.time()
+                row = [1.0 if row_i == col_j else f(row_x, col_y)
+                       for col_j, col_y in enumerate(obj_list)]
+                pbar.update(n)
+                return row_i, row, time.time() - t0
+            with tqdm(total=n * n, desc=f"NLI matrix ({self.legacy_conf.HuggingFace[4:]})", unit="cell") as pbar:
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {executor.submit(_nli_row, (i, x, pbar)): i for i, x in enumerate(obj_list)}
+                    for future in as_completed(futures):
+                        i, row, elapsed = future.result()
+                        matrices[i] = row
+                        self.sentences_benchmark.add_row(i, "Performing ex post explanation", elapsed)
         elif self.transformation == SentenceRepresentation.FullText and self.legacy_conf.HuggingFace.startswith("LLM#"):
             self.logger(f"Connecting to LLM model: {self.legacy_conf.HuggingFace}...")
             from LaSSI.similarities.LLM import LLMPrompt
-            f = LLMPrompt(self.legacy_conf.HuggingFace[4:])
-            matrices = []
-            for i, x in enumerate(obj_list):
-                ls = []
-                for j, y in enumerate(obj_list):
-                    ls.append(f(x, y))
-                matrices.append(ls)
+            from tqdm import tqdm
+            model_name = self.legacy_conf.HuggingFace[4:]
+            f = LLMPrompt(model_name)
+            n = len(obj_list)
+            matrices = [None] * n
+            # reasoning[i][j] records the LLM's justification for cell (i, j)
+            reasoning_grid = [[None] * n for _ in range(n)]
+            # Ollama processes one request at a time by default, so rows are computed
+            # sequentially. Diagonal cells (i==j) are always 1.0 and skipped.
+            with tqdm(total=n * n, desc=f"LLM matrix ({model_name})", unit="cell") as pbar:
+                for i, x in enumerate(obj_list):
+                    t0 = time.time()
+                    row = []
+                    for j, y in enumerate(obj_list):
+                        if i == j:
+                            val, reason = 1.0, "self-comparison"
+                        else:
+                            val, reason = f.call_with_reasoning(x, y)
+                        row.append(val)
+                        reasoning_grid[i][j] = reason
+                        pbar.update(1)
+                    matrices[i] = row
+                    self.sentences_benchmark.add_row(i, "Performing ex post explanation", time.time() - t0)
+            # Save the reasoning alongside the confusion matrix
+            model_suffix = model_name.split("/")[-1]
+            reasoning_path = f"{self.confusion_matrices}FullText_{model_suffix}_reasoning.json"
+            with open(reasoning_path, "w") as _rf:
+                json.dump({
+                    "model": model_name,
+                    "sentences": list(obj_list),
+                    "reasoning": reasoning_grid,
+                }, _rf, indent=2)
+            self.logger(f"LLM reasoning saved to {reasoning_path}")
         else:
             if self.transformation == SentenceRepresentation.FullText:
                 self.logger(f"Loading/Downloading Transformer model: {self.legacy_conf.HuggingFace}...")
@@ -426,52 +469,6 @@ class LaSSI():
                 from LaSSI.structures.extended_fol.TabularCWASemantics import TabularCWASemantics
                 f = TabularCWASemantics(obj_list, os.path.join(self.catabolites_of_dataset, str(self.full_transformation)))
                 TBoxReasoningSingleton.instance().dump()
-                # f.buildReport("rport")
-                pairwise_path = os.path.join(self.catabolites_of_dataset, str(self.full_transformation), "pairwise_truth_tables.json")
-                if self._is_cache_stale(pairwise_path, self.logical_rewriting):
-                    from tqdm import tqdm as _tqdm_pw
-                    n_sent = len(obj_list)
-                    pairwise_out = []
-                    total_pairs = n_sent * (n_sent - 1)
-                    slowest = (-1.0, None, None)
-                    pw_total_elapsed = 0.0
-                    self.logger(f"Building pairwise truth tables ({total_pairs} pairs)...")
-                    with _tqdm_pw(total=total_pairs, desc="Pairwise truth tables", unit="pair") as pw_pbar:
-                        for si in range(n_sent):
-                            for sj in range(n_sent):
-                                if si == sj:
-                                    continue
-                                _t0 = time.time()
-                                expl = f.get_explained_id_similarity(si, sj)
-                                _elapsed = time.time() - _t0
-                                pw_total_elapsed += _elapsed
-                                if _elapsed > slowest[0]:
-                                    slowest = (_elapsed, si, sj)
-                                atoms = {}
-                                atoms.update({str(k): str(v) for k, v in expl.lhs.atoms.items()})
-                                atoms.update({str(k): str(v) for k, v in expl.rhs.atoms.items()})
-                                table_df = expl.explained_joined_table_natural_joined_with_operands
-                                pairwise_out.append({
-                                    "i": si,
-                                    "j": sj,
-                                    "confidence": float(expl.confidence),
-                                    "atoms": atoms,
-                                    "result_col_i": f"R{si}",
-                                    "result_col_j": f"R{sj}",
-                                    "rows": table_df.to_dict(orient="records"),
-                                })
-                                pw_pbar.set_postfix({
-                                    "last": f"({si},{sj})",
-                                    "t": f"{_elapsed:.2f}s",
-                                    "slowest": f"({slowest[1]},{slowest[2]})@{slowest[0]:.1f}s",
-                                })
-                                pw_pbar.update(1)
-                    self.logger(
-                        f"  Pairwise truth tables done: {total_pairs} pairs in {pw_total_elapsed:.1f}s "
-                        f"(slowest ({slowest[1]},{slowest[2]}) @ {slowest[0]:.1f}s)"
-                    )
-                    with open(pairwise_path, "w") as _pw_f:
-                        json.dump(pairwise_out, _pw_f)
             elif (self.transformation == SentenceRepresentation.LogicalGraph or
                   self.transformation == SentenceRepresentation.SimpleGraph):
                 f = self.graph_with_logic_similarity
@@ -684,6 +681,8 @@ class LaSSI():
 
         if self.transformation == SentenceRepresentation.Logical:  # LogicalGraph
             logical_cache_stale = self._is_cache_stale(self.logical_rewriting, self.internals)
+            if self.useId and not self._logical_cache_has_ids():
+                logical_cache_stale = True
             logical_representations, logical_rewriting_execution_time = target_file_dump(
                 self.logical_rewriting,
                 lambda x: formula_from_dict(json.load(x)),
@@ -695,6 +694,36 @@ class LaSSI():
             logical_representations = intermediate_representations
             write_variable_to_file(self.benchmarking_file, f"{None}")
         return logical_representations
+
+    def _persist_row_subsentence_map(self):
+        """Persist YAML-row to sub-sentence graph indices for dashboards.
+
+        Lower-level graph caches remain per expanded sub-sentence, while
+        string/logical/internals caches are collapsed back to one entry per YAML
+        row. The dashboard needs this mapping to route each displayed row to
+        the correct graph, morphism, and per-sub-sentence MeuDB cache entries.
+        """
+        try:
+            payload = {
+                "row_to_sub_indices": self.row_to_sub_indices,
+                "row_original_text": self.row_original_text,
+                "chunk_text": [
+                    getattr(chunk, "text", "")
+                    for chunk in getattr(self, "chunk_meta", [])
+                ],
+                "chunk_delim_before": [
+                    getattr(chunk, "delim_before", "")
+                    for chunk in getattr(self, "chunk_meta", [])
+                ],
+                "chunk_roles": [
+                    getattr(role, "value", role)
+                    for role in getattr(self, "chunk_roles", [])
+                ],
+            }
+            with open(os.path.join(self.catabolites_of_dataset, "row_subsentence_map.json"), "w") as f:
+                json.dump(payload, f, indent=2)
+        except Exception as exc:
+            self.logger(f"Could not persist row/sub-sentence map: {exc}")
 
     def _invalidate_stale_cache(self, expected_count):
         expected_row_count = len(self.row_to_sub_indices) if hasattr(self, 'row_to_sub_indices') else expected_count
@@ -764,276 +793,58 @@ class LaSSI():
                 return True
         return False
 
-    def _ontology_construct_keys(self):
-        """Set of property keys (uppercased construct names) that the HOnK logical
-        rewriting rules emit, e.g. SPACE, TIME, TIME_STATUS, CAUSATION. Used to
-        decide which sub-sentence properties to promote onto the primary kernel."""
-        from LaSSI.external_services.Services import Services
-        cached = getattr(self, '_ontology_construct_keys_cache', None)
-        if cached is not None:
-            return cached
-        keys = set()
+    def _logical_cache_has_ids(self):
+        if not os.path.exists(self.logical_rewriting):
+            return False
         try:
-            rules = Services.getInstance().getHOnK().getLogicalRewritingRules() or {}
+            with open(self.logical_rewriting) as f:
+                data = json.load(f)
         except Exception:
-            rules = {}
-        for rule in rules.values():
-            if getattr(rule, 'logicalConstructName', None):
-                keys.add(rule.logicalConstructName.upper())
-            for name, _ in (getattr(rule, 'additional_classifications', None) or []):
-                if name:
-                    keys.add(name.upper())
-        self._ontology_construct_keys_cache = keys
-        return keys
+            return False
 
-    # Role priority for choosing the primary kernel inside a row. ACTION
-    # (imperative roadworks/transport notice verbs) wins over substantive
-    # PROSE; REPORT_HEADER (weather forecast frames) wins over generic
-    # HEADER when no clause body exists. Lower index = higher priority.
-    _CHUNK_PRIMARY_PRIORITY = ("ACTION", "PROSE", "REPORT_HEADER", "HEADER")
+        def has_id(obj):
+            if isinstance(obj, dict):
+                if obj.get("id") is not None:
+                    return True
+                return any(has_id(value) for value in obj.values())
+            if isinstance(obj, list):
+                return any(has_id(value) for value in obj)
+            return False
 
-    # Roles whose construct-key properties are promoted onto the primary
-    # without also retaining the sub-kernel under SENTENCE. These are
-    # structurally subsidiary (a label, a status fragment, a metric list,
-    # a date range) — their predication is fully captured by the promoted
-    # properties.
-    _CHUNK_SUBSIDIARY_ROLES = frozenset({
-        "HEADER", "REPORT_HEADER", "STATUS", "ATTRIBUTE", "TIME_RANGE",
-        "CONTEXT",
-    })
+        return has_id(data)
 
-    # Roles that contribute meaning *only* via their relationship to the
-    # next chunk (the body that the colon introduced). A bare label like
-    # "Traffic management" has no clausal content of its own — once any
-    # construct-key properties have been promoted onto the primary, the
-    # remainder should be dropped, not retained as `be(label, ?)` noise
-    # under SENTENCE.
-    _CHUNK_LABEL_ONLY_ROLES = frozenset({"HEADER", "REPORT_HEADER"})
-
-    def _role_for_sub(self, sub_idx):
-        roles = getattr(self, 'chunk_roles', None)
-        if not roles or sub_idx >= len(roles) or roles[sub_idx] is None:
-            return "PROSE"
-        role = roles[sub_idx]
-        return getattr(role, 'value', role)
-
-    def _select_primary_idx(self, sub_indices, intermediate_representations):
-        """Pick the sub-sentence index whose kernel should anchor the merged
-        row. Walks role priorities first, then falls back to any available
-        Singleton, then to the first sub-index unconditionally."""
-        from LaSSI.structures.internal_graph.EntityRelationship import Singleton
-        for pri in self._CHUNK_PRIMARY_PRIORITY:
-            for idx in sub_indices:
-                if not isinstance(intermediate_representations[idx], Singleton):
-                    continue
-                if self._role_for_sub(idx) == pri:
-                    return idx
-        for idx in sub_indices:
-            if isinstance(intermediate_representations[idx], Singleton):
-                return idx
-        return sub_indices[0]
+    def _ontology_construct_keys(self):
+        """Proxy to :meth:`RowChunkPipeline._ontology_construct_keys` for
+        any legacy callsite. Prefer ``self.chunking._ontology_construct_keys``
+        in new code."""
+        return self.chunking._ontology_construct_keys()
 
     def _merge_intermediate_per_row(self, intermediate_representations):
-        from collections import defaultdict
-        from LaSSI.structures.internal_graph.EntityRelationship import Singleton
-
-        construct_keys = self._ontology_construct_keys()
-        merged = []
-        for sub_indices in self.row_to_sub_indices:
-            if not sub_indices:
-                continue
-            if len(sub_indices) == 1:
-                merged.append(intermediate_representations[sub_indices[0]])
-                continue
-            primary_idx = self._select_primary_idx(sub_indices, intermediate_representations)
-            primary = intermediate_representations[primary_idx]
-            if not isinstance(primary, Singleton):
-                merged.append(primary)
-                continue
-            new_props = defaultdict(list)
-            for k, v in dict(primary.properties).items():
-                if isinstance(v, (list, tuple)):
-                    new_props[k] = list(v)
-                else:
-                    new_props[k] = v
-            for sub_idx in sub_indices:
-                if sub_idx == primary_idx:
-                    continue
-                sub_kernel = intermediate_representations[sub_idx]
-                if sub_kernel is None:
-                    continue
-                sub_role = self._role_for_sub(sub_idx)
-                promoted_any = False
-                if isinstance(sub_kernel, Singleton):
-                    for k, v in dict(sub_kernel.properties).items():
-                        if k not in construct_keys:
-                            continue
-                        items = list(v) if isinstance(v, (list, tuple)) else [v]
-                        existing = new_props.get(k)
-                        if existing is None:
-                            new_props[k] = items
-                        elif isinstance(existing, list):
-                            new_props[k] = existing + items
-                        else:
-                            new_props[k] = [existing] + items
-                        promoted_any = True
-                sub_is_subsidiary = sub_role in self._CHUNK_SUBSIDIARY_ROLES
-                sub_is_label_only = sub_role in self._CHUNK_LABEL_ONLY_ROLES
-                # Pure label chunks contribute nothing if there are no
-                # construct keys to lift onto the primary — they exist only
-                # to mark the colon-introduced body chunk that follows.
-                if sub_is_label_only and not promoted_any:
-                    continue
-                if (not sub_is_subsidiary) or (not promoted_any):
-                    new_props['SENTENCE'].append(sub_kernel)
-            self._project_lifecycle_from_sentence(new_props)
-            merged.append(primary.update_node_props(new_props))
-        return merged
-
-    def _project_lifecycle_from_sentence(self, new_props):
-        """Lift lifecycle facts out of merged SENTENCE entries.
-
-        Sub-sentences like "Investigation complete" and "no suspect identified"
-        survive `_merge_intermediate_per_row` as top-level kernels attached under
-        SENTENCE on the primary clause.  At that point they are not visible to
-        the structural-rewrite pipeline (which has already run per sub-sentence
-        before the merge).  We re-apply the lifecycle projections here so a
-        copula `be(StatusNoun, ?[cop:adj])` becomes `TIME_STATUS:StatusNoun[type:adj]`
-        and a `verb(?, NOT(lifecycle))` clause becomes `SPECIFICATION:NOT(lifecycle)`.
-        """
-        sentence_items = new_props.get('SENTENCE')
-        if not sentence_items:
-            return
-        try:
-            from LaSSI.ner.structural_rewrites import RewriteContext
-            from LaSSI.ner.structural_rewrites.lifecycle_property_promotion import (
-                LifecyclePropertyPromotionRule,
-            )
-            from LaSSI.ner.KernelOntologyMatchers import KernelOntologyMatchers
-            from LaSSI.external_services.Services import Services
-        except Exception:
-            return
-
-        rule = LifecyclePropertyPromotionRule()
-        ctx = RewriteContext(
-            node_functions=None,
-            services=Services.getInstance(),
-            matchers=KernelOntologyMatchers(G=None),
+        return self.chunking.merge_intermediate_representations(
+            intermediate_representations,
         )
 
-        kept = []
-        for item in sentence_items:
-            promoted = False
-            try:
-                status_node = rule._sentence_status_projection(item, ctx)
-            except Exception:
-                status_node = None
-            if status_node is not None:
-                new_props.setdefault('TIME_STATUS', []).append(status_node)
-                promoted = True
-            else:
-                try:
-                    negated = rule._negated_lifecycle_projection(item, ctx)
-                except Exception:
-                    negated = None
-                if negated is not None:
-                    new_props.setdefault('SPECIFICATION', []).append(negated)
-                    promoted = True
-            if not promoted:
-                kept.append(item)
-
-        if kept:
-            new_props['SENTENCE'] = kept
-        else:
-            new_props.pop('SENTENCE', None)
-
     def _merge_meu_dbs_per_row(self, meu_dbs):
-        from LaSSI.structures.meuDB.meuDB import MeuDB
-
-        merged = []
-        # Prefer the original yaml row text for display so colons/hyphens
-        # the chunker stripped don't disappear from string_rep.txt and the
-        # confusion matrix labels.
-        originals = getattr(self, 'row_original_text', None) or []
-        for row_idx, sub_indices in enumerate(self.row_to_sub_indices):
-            if not sub_indices:
-                continue
-            display_text = (originals[row_idx]
-                            if row_idx < len(originals)
-                            else meu_dbs[sub_indices[0]].first_sentence)
-            if len(sub_indices) == 1:
-                row = meu_dbs[sub_indices[0]]
-                if display_text != row.first_sentence:
-                    row = MeuDB(first_sentence=display_text,
-                                multi_entity_unit=row.multi_entity_unit)
-                merged.append(row)
-                continue
-            combined_meu = []
-            for i in sub_indices:
-                combined_meu.extend(meu_dbs[i].multi_entity_unit)
-            merged.append(MeuDB(first_sentence=display_text, multi_entity_unit=combined_meu))
-        return merged
+        return self.chunking.merge_meu_dbs(meu_dbs)
 
     def _persist_merged_caches(self, intermediate_representations):
-        """Overwrite the internals cache with the merged-per-row representation.
-
-        Do not overwrite ``meuDBs.json`` here: graph rewriting caches are
-        per-sub-sentence, and future reruns need a matching per-sub-sentence
-        MeuDB cache while reconstructing internals.
-        """
-        try:
-            with open(self.internals, 'w') as f:
-                f.write(json_dumps(intermediate_representations))
-        except Exception as exc:
-            self.logger(f"Could not persist merged internals.json: {exc}")
+        self.chunking.persist_merged_internals(
+            intermediate_representations, self.internals,
+        )
 
     def _collapse_per_row_benchmark(self):
-        """Aggregate per-sub-sentence rows in the sentences benchmark down to one
-        row per YAML input row (sum the timings, max the sentence length).
-        Otherwise the benchmark CSV reports more sentences than the user wrote."""
-        if not getattr(self, 'sentences_benchmark', None):
-            return
-        data = self.sentences_benchmark.data
-        if not data:
-            return
-        sub_to_row = {}
-        for row_idx, sub_indices in enumerate(self.row_to_sub_indices):
-            for sub_idx in sub_indices:
-                sub_to_row[sub_idx] = row_idx
-        merged_rows = {}
-        for entry in data:
-            sub_idx = entry.get('id')
-            row_idx = sub_to_row.get(sub_idx, sub_idx)
-            target = merged_rows.setdefault(row_idx, {'id': row_idx})
-            for key, value in entry.items():
-                if key == 'id':
-                    continue
-                if not isinstance(value, (int, float)):
-                    target[key] = value
-                    continue
-                if key == 'Sentence length':
-                    target[key] = max(target.get(key, 0), value)
-                else:
-                    target[key] = target.get(key, 0.0) + value
-        data.clear()
-        for row_idx in sorted(merged_rows):
-            data.append(merged_rows[row_idx])
+        self.chunking.collapse_per_row_benchmark(
+            getattr(self, 'sentences_benchmark', None),
+        )
 
     def _rewrite_string_rep_from_intermediate(self, intermediate_representations):
-        if self.string_rep_dir is None:
-            return
-        with open(self.string_rep_dir, 'w') as f:
-            for idx, intermediate in enumerate(intermediate_representations):
-                first_sentence = self.meu_dbs[idx].first_sentence if idx < len(self.meu_dbs) else ""
-                try:
-                    if intermediate is None:
-                        f.write(f"{first_sentence} ⇒ ERROR\n")
-                    elif self.transformation == SentenceRepresentation.Logical:
-                        f.write(f"{first_sentence} ⇒ {intermediate.to_string()}\n")
-                    else:
-                        f.write(f"{first_sentence} ⇒ {intermediate}\n")
-                except Exception:
-                    f.write(f"{first_sentence} ⇒ ERROR\n")
+        self.chunking.rewrite_string_rep(
+            intermediate_representations,
+            self.meu_dbs,
+            self.string_rep_dir,
+            is_logical=(self.transformation == SentenceRepresentation.Logical),
+        )
+
 
     def get_execution_time_string(self, execution_time):
         if 'w' == execution_time[1]:
@@ -1043,9 +854,8 @@ class LaSSI():
         return None
 
     def run(self):
+        from LaSSI.phases.RowChunkPipeline import RowChunkPipeline
         from LaSSI.phases.SentenceLoader import SentenceLoader
-        from LaSSI.phases.StructuredSentenceLoader import split_structured, StructuredChunk
-        from LaSSI.ner.ChunkProfiler import profile as profile_chunk, ChunkRole
 
         start_time = time.time()
         raw_sentences = SentenceLoader(self.sentences)
@@ -1058,171 +868,22 @@ class LaSSI():
         if self.transformation != SentenceRepresentation.FullText:
             profiler_honk = self.initServices.getHOnK()
 
-        expanded = []
-        self.row_to_sub_indices = []
-        self.chunk_roles = []
-        self.chunk_meta = []
-        # Track the unmodified yaml row text so the merged display
-        # (string_rep.txt, confusion matrix) keeps the user's original
-        # punctuation rather than a chunk-join concatenation that drops
-        # colons, hyphens, and ellipses.
-        self.row_original_text = []
-        # Roles whose body chunks have no clausal verb on their own. When such
-        # a body follows a HEADER/REPORT_HEADER introduced by a colon, splitting
-        # at the colon hurts parsing: CoreNLP can't build a tree for a bare
-        # metric/date list. Rejoin the body onto its label so CoreNLP sees the
-        # full assertion (e.g. "Met Office forecast for X: 12.76°C, 57% ...").
-        _VERBLESS_BODY_ROLES = {ChunkRole.ATTRIBUTE, ChunkRole.TIME_RANGE}
-        _LABEL_ROLES = {ChunkRole.HEADER, ChunkRole.REPORT_HEADER}
-
-        # Splitter for conjunctive ACTION chunks. CoreNLP cannot reliably
-        # produce two kernels for "Abandon X and replace Y" because the
-        # imperative subject is elided — it forms one kernel for "Abandon"
-        # and drops the conjoined "replace" clause. By splitting at
-        # " and <verb>" (or at a verb-noun-verb adjacency for fragmented
-        # notice text like "Demolish FW2 rebuild FW4") into two ACTION
-        # chunks, each verb gets its own parse and the merge step keeps
-        # both as sibling actions.
-        #
-        # The verb set is intentionally narrow: CausativeVerb and
-        # MaterialisationVerb cover the imperative roadworks vocabulary
-        # (abandon, demolish, install, rebuild, replace, excavate, renew).
-        # Pulling in TransitiveVerb here misfires because HOnK fuzzy-loads
-        # many common nouns and particles ("bicycle", "on", "no") under
-        # TransitiveVerb, which would make the splitter slice ordinary
-        # prose like "Bicycle theft recorded on Edward Place".
-        def _verb_classes_for_split(honk):
-            if honk is None:
-                return set()
-            classes = set()
-            for acc in ("getCausativeVerbs", "getMaterialisationVerbs"):
-                fn = getattr(honk, acc, None)
-                if fn is None:
-                    continue
-                try:
-                    classes.update(fn() or set())
-                except Exception:
-                    continue
-            return classes
-
-        _ACTION_VERBS = _verb_classes_for_split(profiler_honk)
-
-        def _split_conjunctive_action(chunks):
-            """Split ACTION chunks that join two verb-led clauses, either
-            via "and" (``Abandon X and replace Y``) or by simple
-            verb-noun-verb adjacency (``Demolish FW2 rebuild FW4``).
-            Each verb gets its own clause so the merger can capture both
-            as sibling actions instead of CoreNLP collapsing the second
-            verb under the first."""
-            if not _ACTION_VERBS:
-                return chunks
-            import re as _re
-            # Match either an explicit conjunction (" and verb") or a bare
-            # verb-after-non-verb-token boundary. Capture the second
-            # verb's start position so we can split there.
-            and_re = _re.compile(r"\s+and\s+([A-Za-z][A-Za-z'\-]*)")
-            # Verb-following-noun boundary: a token that looks like a head
-            # noun (capitalised alpha or alphanumeric like FW2) followed
-            # by a space and a clause-initial verb. The noun token must
-            # NOT itself be a known verb.
-            adj_re = _re.compile(
-                r"(\s+)([A-Za-z][A-Za-z'\-]*)\b"
-            )
-            out = []
-            for chunk in chunks:
-                role = profile_chunk(chunk, profiler_honk)
-                if role != ChunkRole.ACTION:
-                    out.append(chunk)
-                    continue
-                text = chunk.text
-                # First try the conjunction form.
-                m = and_re.search(text)
-                if m and m.group(1).lower() in _ACTION_VERBS:
-                    head = text[:m.start()].rstrip()
-                    tail = text[m.end() - len(m.group(1)):]
-                    out.append(StructuredChunk(
-                        text=head, is_label=False,
-                        delim_before=chunk.delim_before,
-                    ))
-                    out.append(StructuredChunk(
-                        text=tail, is_label=False,
-                        delim_before="CONJUNCTION",
-                    ))
-                    continue
-                # Bare verb-noun-verb adjacency: walk tokens, find a
-                # second verb whose immediate predecessor is a non-verb
-                # word (i.e. the noun argument of the first verb).
-                token_iter = list(_re.finditer(
-                    r"[A-Za-z][A-Za-z0-9'\-]*", text
-                ))
-                split_at = None
-                for i in range(2, len(token_iter)):
-                    cur_tok = token_iter[i].group(0).lower()
-                    prev_tok = token_iter[i - 1].group(0).lower()
-                    if (cur_tok in _ACTION_VERBS
-                            and prev_tok not in _ACTION_VERBS
-                            and token_iter[0].group(0).lower() in _ACTION_VERBS):
-                        split_at = token_iter[i].start()
-                        break
-                if split_at is not None:
-                    head = text[:split_at].rstrip()
-                    tail = text[split_at:].lstrip()
-                    if head and tail:
-                        out.append(StructuredChunk(
-                            text=head, is_label=False,
-                            delim_before=chunk.delim_before,
-                        ))
-                        out.append(StructuredChunk(
-                            text=tail, is_label=False,
-                            delim_before="VERB_ADJACENCY",
-                        ))
-                        continue
-                out.append(chunk)
-            return out
-
-        def _rejoin_label_with_verbless_body(chunks):
-            if len(chunks) < 2 or profiler_honk is None:
-                return chunks
-            roles = [profile_chunk(c, profiler_honk) for c in chunks]
-            out = []
-            i = 0
-            while i < len(chunks):
-                cur = chunks[i]
-                cur_role = roles[i]
-                if (i + 1 < len(chunks)
-                        and cur_role in _LABEL_ROLES
-                        and roles[i + 1] in _VERBLESS_BODY_ROLES
-                        and chunks[i + 1].delim_before == "COLON"):
-                    nxt = chunks[i + 1]
-                    # Re-emit the colon so CoreNLP sees the original surface
-                    # form. Stripping the delimiter changes the dependency
-                    # parse and can produce kernels that downstream graph
-                    # rewriting cannot consume.
-                    out.append(StructuredChunk(
-                        text=f"{cur.text}: {nxt.text}",
-                        is_label=False,
-                        delim_before=cur.delim_before,
-                    ))
-                    i += 2
-                else:
-                    out.append(cur)
-                    i += 1
-            return out
-
-        for row_text in raw_sentences:
-            self.row_original_text.append(str(row_text))
-            chunks = split_structured(str(row_text))
-            if not chunks:
-                chunks = [StructuredChunk(text=str(row_text))]
-            chunks = _rejoin_label_with_verbless_body(chunks)
-            chunks = _split_conjunctive_action(chunks)
-            sub_indices = []
-            for chunk in chunks:
-                sub_indices.append(len(expanded))
-                expanded.append(chunk.text)
-                self.chunk_meta.append(chunk)
-                self.chunk_roles.append(profile_chunk(chunk, profiler_honk))
-            self.row_to_sub_indices.append(sub_indices)
+        # All row→chunk→row processing now lives in RowChunkPipeline.
+        # The LaSSI orchestrator keeps backward-compatible references to
+        # ``row_to_sub_indices`` / ``chunk_roles`` / ``row_original_text``
+        # so the cache-invalidation, benchmark, and meu_db-decoration
+        # helpers see the same lists.
+        self.chunking = RowChunkPipeline(
+            honk=profiler_honk,
+            services=self.initServices,
+            logger=self.logger,
+        )
+        expanded = self.chunking.expand_rows(raw_sentences)
+        self.row_to_sub_indices = self.chunking.row_to_sub_indices
+        self.chunk_roles = self.chunking.chunk_roles
+        self.chunk_meta = self.chunking.chunk_meta
+        self.row_original_text = self.chunking.row_original_text
+        self._persist_row_subsentence_map()
 
         _honk_closed = None
         if self.transformation != SentenceRepresentation.FullText:

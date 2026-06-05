@@ -4,6 +4,8 @@ import sys
 import yaml
 import warnings
 
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*weights_only=False.*")
 
 from LaSSI.Configuration import SentenceRepresentation
@@ -31,7 +33,7 @@ if __name__ == '__main__':
     if commonsense_qa:
         dataset_name = get_dataset()
     else:
-        dataset_name = "neet/evidence_cases/crime_001.yaml"
+        dataset_name = "neet/evidence_cases/transport_008.yaml"
 
     fuzzyDBs = "connection.yaml"
 
@@ -44,6 +46,6 @@ if __name__ == '__main__':
     # 1. SentenceRepresentation now have DisabledAdHoc variants (except from the Embedders)
     # 2. New embedding system, RAG#colbert-ir/colbertv2.0. To compare other systems for question answering, which is the thing we are targeting, I provided references to ColBERTv2, which is not only using embedding based, but also with "RAG#colbert-ir/colbertv2.0"
     # 3. For exploiting the implication classifier, I used a very recent paper also avialable through HuggingFace: Log#"Log#qbao775/AMR-LE-DeBERTa-V2-XXLarge-Contraposition-Double-Negation-Implication-Commutative-Pos-Neg-1-3"
-    pipeline = LaSSI(dataset_name, fuzzyDBs, SentenceRepresentation.Logical, use_multiprocessing=True)
+    pipeline = LaSSI(dataset_name, fuzzyDBs, SentenceRepresentation.Logical, useId=True, use_multiprocessing=True, transformer='all-MiniLM-L6-v2')
     pipeline.run()
     pipeline.close()

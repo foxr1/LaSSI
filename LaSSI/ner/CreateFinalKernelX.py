@@ -363,7 +363,6 @@ class CreateFinalKernelX:
                     chosen_nominal.kernel.edgeLabel.named_entity == 'be'):
                     chosen_nominal = chosen_nominal.kernel.target
 
-                print(f"[constructSentence] chosen_nominal branch firing: chosen_nominal.named_entity={getattr(chosen_nominal, 'named_entity', '?')!r}")
                 new_props = defaultdict(list)
                 for k, v in dict(final_kernel.properties).items():
                     if isinstance(v, (list, tuple)):
@@ -382,32 +381,135 @@ class CreateFinalKernelX:
                 final_kernel = final_kernel.update_kernel(create_existential_node(), "source")
                 final_kernel = final_kernel.update_kernel(chosen_nominal, "target")
 
+        # Subordination-aware correction + sibling-clause preservation.
+        #
+        # The last-topological default frequently (a) roots on a *subordinate*
+        # clause (an advcl with a `mark`, or a relative clause whose argument
+        # is a relative pronoun) instead of the main clause, and (b) drops
+        # sibling verb clauses entirely. When multiple roots exist we therefore
+        # choose the main clause and preserve every *other verb-kernel* root as
+        # SENTENCE so its predication is not lost. Only verb-kernel siblings are
+        # hoisted — nominal conj components are left to the legacy
+        # nominal-promotion path below, so existing behaviour is preserved.
+        # Repairs e.g. rooting on "before work ends" / "that had developed a
+        # leak" instead of "Roadworks are underway" / "roadworks involve
+        # replacement", and recovers "delays considered unlikely".
+        def _is_verb_kernel(nd):
+            return (
+                isinstance(nd, Singleton) and nd.kernel is not None
+                and isinstance(nd.kernel.edgeLabel, Singleton)
+                and (nd.kernel.edgeLabel.type or '').strip().lower() == 'verb'
+            )
+
+        if len(filtered_top_node_ids) > 1 and isinstance(final_kernel, Singleton):
+            main_id = None
+            if self._is_subordinate_kernel(final_kernel):
+                main_id = self._earliest_non_subordinate_root(filtered_top_node_ids, sorted_G)
+            main_kernel = self.G.nodes[main_id]['data'] if main_id is not None else final_kernel
+            if isinstance(main_kernel, Singleton) and main_kernel.kernel is not None:
+                main_edge = (
+                    main_kernel.kernel.edgeLabel.named_entity
+                    if isinstance(main_kernel.kernel.edgeLabel, Singleton) else None
+                )
+                sibling_kernels = []
+                for nid in filtered_top_node_ids:
+                    if nid == main_id:
+                        continue
+                    nd = self.G.nodes[nid]['data']
+                    if not _is_verb_kernel(nd):
+                        continue
+                    # Skip the root the kept main kernel itself derives from.
+                    if main_id is None and isinstance(nd.kernel.edgeLabel, Singleton) \
+                            and nd.kernel.edgeLabel.named_entity == main_edge:
+                        continue
+                    sibling_kernels.append(nd)
+                if sibling_kernels:
+                    new_props = defaultdict(list)
+                    for k, v in dict(main_kernel.properties).items():
+                        new_props[k] = list(v) if isinstance(v, (list, tuple)) else v
+                    existing_ids = {
+                        x.id for x in new_props.get('SENTENCE', [])
+                        if isinstance(x, Singleton)
+                    }
+                    for sk in sibling_kernels:
+                        if sk.id not in existing_ids:
+                            new_props['SENTENCE'].append(sk)
+                            existing_ids.add(sk.id)
+                    final_kernel = main_kernel.update_node_props(new_props)
+
         # Phase 4: post-processing pipeline
         # acl_replacement and check_for_action_ed_node run here because they may
         # mutate self.G via create_existential / create_sentence; the rest of the
         # pipeline is pure-functional and lives in KernelPostProcessor.run().
-        try:
-            print(f"[constructSentence] pre-acl   : {final_kernel.to_string()}")
-        except Exception as _e:
-            print(f"[constructSentence] pre-acl   : <to_string err: {_e!r}>")
         final_kernel = self.post.acl_replacement(final_kernel, acl_relcl_map)
-        try:
-            print(f"[constructSentence] post-acl  : {final_kernel.to_string()}")
-        except Exception as _e:
-            print(f"[constructSentence] post-acl  : <to_string err: {_e!r}>")
         final_kernel = self.check_for_action_ed_node(
             acl_relcl_map, final_kernel,
             SimpleNamespace(shouldLoop=True, edgeForKernel=None, previousKernel=None),
             position_pairs,
         )
-        try:
-            print(f"[constructSentence] post-aed  : {final_kernel.to_string()}")
-        except Exception as _e:
-            print(f"[constructSentence] post-aed  : <to_string err: {_e!r}>")
         final_kernel = self.post.run(final_kernel)
 
         print(f"{final_kernel.to_string()}\n")
         return final_kernel
+
+    _REL_PRONOUNS = {"that", "which", "who", "whom", "whose"}
+
+    def _is_subordinate_kernel(self, kernel) -> bool:
+        """True when `kernel` is a subordinate clause: an adverbial clause
+        carrying a `mark` (before/after/while/until/because/…) or a relative
+        clause whose source/target is a relative pronoun (`var` type, or a
+        surface relative pronoun)."""
+        if not isinstance(kernel, Singleton) or kernel.kernel is None:
+            return False
+        # advcl marker — may sit on the kernel itself or on its edge label
+        # (e.g. "before work ends" carries `mark:before` on the `end` edge).
+        if dict(kernel.properties).get('mark'):
+            return True
+        edge = kernel.kernel.edgeLabel
+        if isinstance(edge, Singleton) and dict(edge.properties).get('mark'):
+            return True
+        for side in (kernel.kernel.source, kernel.kernel.target):
+            if isinstance(side, Singleton):
+                if (side.type or '').strip().lower() == 'var':
+                    return True
+                if (side.named_entity or '').strip().lower() in self._REL_PRONOUNS:
+                    return True
+        return False
+
+    def _kernel_min_pos(self, kernel) -> float:
+        """Lowest token position across a kernel's source/edge/target — used to
+        order candidate main clauses by surface order (the main clause usually
+        precedes its subordinates)."""
+        best = float('inf')
+
+        def _scan(node):
+            nonlocal best
+            if isinstance(node, Singleton):
+                p = dict(node.properties).get('pos')
+                try:
+                    best = min(best, float(p))
+                except (TypeError, ValueError):
+                    pass
+                if node.kernel is not None:
+                    for child in (node.kernel.source, node.kernel.edgeLabel, node.kernel.target):
+                        _scan(child)
+
+        _scan(kernel)
+        return best
+
+    def _earliest_non_subordinate_root(self, root_ids, sorted_G):
+        """Among the root nodes, return the id of the earliest (lowest token
+        position) non-subordinate verb kernel, or None when every root is
+        subordinate (defer to the legacy selection)."""
+        candidates = [
+            nid for nid in root_ids
+            if isinstance(self.G.nodes[nid]['data'], Singleton)
+            and self.G.nodes[nid]['data'].kernel is not None
+            and not self._is_subordinate_kernel(self.G.nodes[nid]['data'])
+        ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda nid: self._kernel_min_pos(self.G.nodes[nid]['data']))
 
     def find_prepositions_and_true_targets(self):
         found_preposition_labels = {}

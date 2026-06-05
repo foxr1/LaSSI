@@ -13,6 +13,12 @@
   },
   "rules": [
     {
+      "name": "promote_source_reduced_relative",
+      "phase": "post_logical_rewrite",
+      "premise": {"SourceAndHasReducedRelativeVerb": []},
+      "consequence": [{"PromoteSourceReducedRelative": {}}]
+    },
+    {
       "name": "state_cause_access_point_swap",
       "phase": "post_logical_rewrite",
       "uses_honk_sets": ["StateVerb", "CausalNode", "LocationLike", "AccessPointLike"],
@@ -47,6 +53,18 @@
       "consequence": [{"StripLeadingCopula": {}}]
     },
     {
+      "name": "lift_conjunct_context_to_kernel",
+      "phase": "post_logical_rewrite",
+      "premise": {"AndConjunctHasContextProperty": []},
+      "consequence": [{"LiftConjunctContext": {}}]
+    },
+    {
+      "name": "drop_temporal_from_space",
+      "phase": "post_logical_rewrite",
+      "premise": {"SpaceHasTemporalEntries": []},
+      "consequence": [{"DropTemporalFromSpace": {}}]
+    },
+    {
       "name": "singleton_and_location_to_space",
       "phase": "post_logical_rewrite",
       "uses_honk_sets": ["LocationLike"],
@@ -74,11 +92,13 @@
         {"ReplaceSlot": {"slot": "source", "with": "existential"}}
       ]
     },
+    {"impl": "geo_extra_to_space:GeoExtraToSpaceRule"},
     {"impl": "participial_collapse:ParticipialCollapseRule"},
     {"impl": "participial_sub_kernel_preserve:ParticipialSubKernelPreserveRule"},
     {"impl": "participial_predicate_promotion:ParticipialPredicatePromotionRule"},
     {"impl": "lifecycle_property_promotion:LifecyclePropertyPromotionRule"},
     {"impl": "lifecycle_property_promotion:LifecyclePropertyPromotionLateRule"},
+    {"impl": "status_verb_into_time_status:StatusVerbIntoTimeStatusRule"},
     {
       "name": "after_occurrence_context_to_causation",
       "phase": "post_logical_rewrite",
@@ -90,6 +110,7 @@
       "consequence": [{"Move": {"property": "TEMPORAL_CONTEXT", "select": "matched", "intoProperty": "CAUSATION"}}]
     },
     {"impl": "auxiliary_periphrasis_promotion:AuxiliaryPeriphrasisPromotionRule"},
+    {"impl": "action_object_promotion:ActionObjectPromotionRule"},
     {
       "name": "specification_and_to_target",
       "phase": "post_logical_rewrite",

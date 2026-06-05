@@ -21,6 +21,22 @@ has_incoming_acl_passive = (B)--[l:acl]->(V)
         where (ℓ 0 @ V = verb)
        ↪ (V);
 
+// Identifies a verb that governs a PASSIVE SUBJECT (has an outgoing `nsubjpass`
+// edge). Used as a guard for p4 on the *source* B of p4's incoming edge: if the
+// node feeding into p4's candidate V is such a verb, then V is that verb's
+// nsubjpass patient (a noun argument), not a subject-less predicate, and p4 must
+// not lift it into a kernel.
+//   Pathology: "Roadworks on Fern Drive involving pipe replacement are expected
+//   to end on 30 April ...". Here B = "expected" (nsubjpass → "Roadworks"); the
+//   subject "Roadworks" carries an nmod chain, so p4's `(>> V)` aggregate (and
+//   intermediate node re-creation) makes a V-side `unmatched` guard miss it —
+//   but B = "expected" is a stable node, so guarding on B is reliable. Genuine
+//   subject-less verbs targeted by p4 are not fed by an nsubjpass-governing verb,
+//   so this is a no-op for them.
+has_nsubjpass_child = (B)--[l:nsubjpass]->(C)
+        where (ℓ 0 @ B = verb)
+       ↪ (B);
+
 // RULE: Generalised garden-Path semantic correction
 // If a verb has an active subject (nsubj) but NO active object and NO auxiliary,
 // AND it is explicitly tagged as a past participle (VBN),
@@ -70,7 +86,7 @@ p4 = (>> V)<-[∀ ? w:]--(B)
         --[? compound_prt]->(TB)
         --[? mark]->(M)
      //(Z)--[? case]->(T)
-      where ((V unmatched fix_garden_path . V) ∧ ((V unmatched p3 . V) ∧ ((V unmatched p3pass . V) ∧ ((V unmatched p3expl . V) ∧ ((V unmatched has_incoming_acl_passive . V) ∧ (ℓ 0 @ V = verb))))))
+      where ((V unmatched fix_garden_path . V) ∧ ((V unmatched p3 . V) ∧ ((V unmatched p3pass . V) ∧ ((V unmatched p3expl . V) ∧ ((V unmatched has_incoming_acl_passive . V) ∧ ((B unmatched has_nsubjpass_child . B) ∧ (ℓ 0 @ V = verb)))))))
      ↪  new j
         set (𝜋 kernel @ h) as kernel
         set(φ when , j) as TN
@@ -274,7 +290,12 @@ p3pass = (V)--[∀n:nsubjpass]->(>> S)
         --[? iobj||parataxis]->(IOB)
         --[? advmod||advcl]->(>> ADM)
        // --[? xcomp]->(XC)
-        --[? l:ccomp||nmod||dep||xcomp||obl]->(Z) // Future work: nested join between >>Z and >>Z from the join, when required. This might require to re-do the join semantics
+        // `obj`/`dobj` included so a verb that CoreNLP mis-tagged as passive
+        // (nsubjpass) but that actually carries an active object — e.g. the
+        // reduced relative "pipe that had developed a leak" — keeps that object
+        // as content `Z` instead of orphaning it. True passives have no object,
+        // so this optional edge never matches for them.
+        --[? l:ccomp||nmod||dep||obj||dobj||xcomp||obl]->(Z) // Future work: nested join between >>Z and >>Z from the join, when required. This might require to re-do the join semantics
      //(Z)--[? case]->(T)
      (S)--[? neg]->(NN)
      where ((V unmatched p3expl . V) ∧ (ℓ 0 @ V = verb))

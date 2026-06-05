@@ -35,11 +35,12 @@ class TestLaSSI(unittest.TestCase):
                                     found_assertions.append(self.replace_existential(line.strip()).lower())
 
         for assertion in found_assertions:
-            # print(assertion)
             split_check_assertion = re.split(" ⇒ ", assertion)
+            sentence = split_check_assertion[0].lower()
             try:
-                if assertions[split_check_assertion[0].lower()]:
-                    self.compare_internal_representations(split_check_assertion[1], assertions[split_check_assertion[0]])
+                if assertions[sentence]:
+                    with self.subTest(sentence=sentence):
+                        self.compare_internal_representations(split_check_assertion[1], assertions[sentence])
             except KeyError as e:
                 raise Exception(f"Cannot find assertion for {assertion}")
 
@@ -47,76 +48,123 @@ class TestLaSSI(unittest.TestCase):
         assertion = self.replace_existential(assertion.strip()).lower()
         correct_representation = self.replace_existential(correct_representation.strip()).lower()
 
-        correct_rep = self.remove_properties(correct_representation.lower())
-        check_rep = self.remove_properties(assertion.lower())
+        # Remove superscript type markers (e.g. ⁽ᵛᵉʳᵇ⁾) introduced in the new format
+        assertion = re.sub(r'⁽[^⁾]+⁾', '', assertion)
+        correct_representation = re.sub(r'⁽[^⁾]+⁾', '', correct_representation)
+
+        correct_rep = self.remove_properties(correct_representation)
+        check_rep = self.remove_properties(assertion)
+        
         # Check for groups
         correct_groups, correct_rep = self.get_group_content(correct_rep)
         check_groups, check_rep = self.get_group_content(check_rep)
-        # self.assertEqual(collections.Counter(correct_groups), collections.Counter(check_groups),
-        #                  f"{assertion}")
-        try:
-            self.assertEqual(collections.Counter(correct_groups), collections.Counter(check_groups), f"{assertion}")
-        except AssertionError as e:
-            print(e)
+        
+        self.assertEqual(collections.Counter(correct_groups), collections.Counter(check_groups), f"Groups mismatch for {assertion}")
+            
         # Check reps are equal without props or groups
-        # self.assertEqual(correct_rep.lower(), check_rep.lower(), f"{assertion}")
-        try:
-            self.assertEqual(correct_rep.lower(), check_rep.lower(), f"{assertion}")
-        except AssertionError as e:
-            print(e)
+        self.assertEqual(correct_rep, check_rep, f"Base rep mismatch for {assertion}")
+            
         # Check properties are equal
         args1 = self.get_properties(correct_representation)
         args2 = self.get_properties(assertion)
-        # self.assertEqual(collections.Counter(args1), collections.Counter(args2), f"{assertion}")
-        try:
-            self.assertEqual(collections.Counter(args1), collections.Counter(args2), f"{assertion}")
-            return True
-        except AssertionError as e:
-            print(e)
-            return False
+        self.assertEqual(collections.Counter(args1), collections.Counter(args2), f"Properties mismatch for {assertion}")
+
+    def split_ignoring_nesting(self, s, sep=', '):
+        result = []
+        current = []
+        parens = 0
+        brackets = 0
+        i = 0
+        while i < len(s):
+            if s[i] == '(': parens += 1
+            elif s[i] == ')': parens -= 1
+            elif s[i] == '[': brackets += 1
+            elif s[i] == ']': brackets -= 1
+            
+            if s[i:i+len(sep)] == sep and parens == 0 and brackets == 0:
+                result.append("".join(current))
+                current = []
+                i += len(sep)
+                continue
+                
+            current.append(s[i])
+            i += 1
+        if current:
+            result.append("".join(current))
+        return result
 
     def get_properties(self, rep, new_args=None):
-        # Regex for everything in innermost []
-        if new_args is None:
-            new_args = []
-        for arg in re.findall(r"\[[^\[\]]*]", rep):
-            # inner_arg = re.sub(r'\(nmod:\w+\)', '', arg) # Omit 'x' property
-            # inner_arg = list(filter(None, inner_arg.strip('[]').split(', ')))
-            inner_arg = list(filter(None, arg.strip('[]').split(', ')))
-            if inner_arg is not None:
-                new_args.extend(inner_arg)
+        properties = []
+        
+        def extract(s):
+            stack = 0
+            start = -1
+            for i, char in enumerate(s):
+                if char == '[':
+                    if stack == 0:
+                        start = i
+                    stack += 1
+                elif char == ']':
+                    stack -= 1
+                    if stack == 0 and start != -1:
+                        content = s[start+1:i]
+                        items = self.split_ignoring_nesting(content)
+                        for item in items:
+                            clean_item = self.remove_properties(item)
+                            if clean_item.strip():
+                                properties.append(clean_item.strip())
+                            extract(item)
+        
+        extract(rep)
+        # Normalize punct properties (e.g. punct_<dot>: -> punct: and punct_::: -> punct::)
+        properties = [re.sub(r'^\(punct_[^:]*:', '(punct:', p) for p in properties]
+        return properties
 
-        removed_props_rep = re.sub(r"\[[^\[\]]*]", "", rep) # Check for
-        if re.findall(r"\[[^\[\]]*]", removed_props_rep):
-            self.get_properties(removed_props_rep, new_args)
-
-        return new_args
-
-    # Get groups to evaluate and their group type
     def get_group_content(self, rep):
         groups = []
-        pattern = r"(?:and|or|neither)\(\s*((?:[^()]|\([^()]*\))*)\)"
-        for group in re.findall(pattern, rep):
-            inner_group = group.strip('[]').split(', ')
-            groups.extend(inner_group)
+        group_types = ["and(", "or(", "neither("]
+        
+        def extract(s):
+            i = 0
+            result = []
+            while i < len(s):
+                found = False
+                for g in group_types:
+                    if s[i:i+len(g)] == g:
+                        stack = 1
+                        for j in range(i+len(g), len(s)):
+                            if s[j] == '(': stack += 1
+                            elif s[j] == ')': stack -= 1
+                            if stack == 0:
+                                content = s[i+len(g):j]
+                                groups.append(g.strip('('))
+                                items = self.split_ignoring_nesting(content)
+                                groups.extend([self.remove_properties(item).strip() for item in items if self.remove_properties(item).strip()])
+                                extract(content)
+                                i = j + 1
+                                found = True
+                                break
+                        if found: break
+                if not found:
+                    result.append(s[i])
+                    i += 1
+            return "".join(result)
+            
+        rep = extract(rep)
+        return groups, rep
 
-        group_type_pattern = r"(?:and|or|neither)\("
-        for group in re.findall(group_type_pattern, rep):
-            inner_group = group.strip('(')
-            groups.append(inner_group)
-        return groups, re.sub(pattern, "", rep)
-
-    # Remove everything between []
     def remove_properties(self, rep):
-        pattern = r"\[((?:[^\[\]]|\[[^\[\]]*])*)]"
-        removed = re.sub(pattern, "", rep)
-        if len(re.findall(pattern, removed)) > 0:
-            removed = self.remove_properties(removed)
+        result = []
+        stack = 0
+        for char in rep:
+            if char == '[':
+                stack += 1
+            elif char == ']':
+                stack -= 1
+            elif stack == 0:
+                result.append(char)
+        return "".join(result)
 
-        return removed
-        # return re.sub(r"\[[^\[\]]*]", "", rep)
-
-    # ?1 is replaced with ?
     def replace_existential(self, line):
         return re.sub(r"\?\d+", "?", line.strip())
 

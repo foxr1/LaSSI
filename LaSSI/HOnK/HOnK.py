@@ -1,8 +1,7 @@
-import dataclasses
 import io
 import shutil
 import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from dataclasses import dataclass
 import os.path
 from enum import Enum
@@ -17,86 +16,6 @@ from LaSSI.HOnK import SentenceStructure, Prepositions
 import logging
 
 
-def _equivalence_closure(pairs):
-    """
-    Build a synonym dict from equivalence (eq) pairs using Union-Find.
-
-    This replaces the naive O(n²·d) iterative transitive_closure for the
-    special case of a symmetric+transitive (equivalence) relation.  Union-Find
-    runs in O(n·α(n)) ≈ O(n) and produces the same result.
-
-    Returns a defaultdict(set): term → set of all synonymous terms (excluding
-    itself), matching the shape expected by getSynonymy().
-    """
-    parent: dict = {}
-
-    def find(x):
-        parent.setdefault(x, x)
-        root = x
-        while parent[root] != root:
-            root = parent[root]
-        # Path compression
-        while parent[x] != root:
-            parent[x], x = root, parent[x]
-        return root
-
-    def union(x, y):
-        parent.setdefault(x, x)
-        parent.setdefault(y, y)
-        px, py = find(x), find(y)
-        if px != py:
-            parent[px] = py
-
-    for x, y in pairs:
-        union(x, y)
-
-    # Group all terms by their equivalence-class root
-    groups: dict = defaultdict(set)
-    for x in list(parent):
-        groups[find(x)].add(x)
-
-    # Build the bidirectional lookup dict.
-    # The original transitive_closure produces self-loops (A,A) from symmetric
-    # pairs, so tmp[A] ends up containing A itself.  Replicate that here so
-    # getSynonymy always returns a set that includes the queried term.
-    # Using the shared group set object instead of copying it saves memory.
-    result: defaultdict = defaultdict(set)
-    for group in groups.values():
-        for term in group:
-            result[term] = group
-    return result
-
-
-def _dag_transitive_closure(pairs):
-    """
-    Compute the transitive closure of a directed relation (isA/partOf) using
-    BFS from every source node.
-
-    Replaces the naive O(n²·d) iterative approach.  BFS is O(V·(V+E)) which
-    for sparse hierarchies is much faster in practice.
-
-    Returns a set of (src, dst) pairs, matching the shape expected by
-    getTransitiveClosureHier().
-    """
-    adj: defaultdict = defaultdict(set)
-    nodes: set = set()
-    for x, y in pairs:
-        adj[x].add(y)
-        nodes.add(x)
-        nodes.add(y)
-
-    closure: set = set()
-    for start in nodes:
-        visited = {start}
-        queue = deque([start])
-        while queue:
-            node = queue.popleft()
-            for neighbour in adj[node]:
-                if neighbour not in visited:
-                    visited.add(neighbour)
-                    closure.add((start, neighbour))
-                    queue.append(neighbour)
-    return closure
 
 @dataclass()
 class LogicalRewritingRule:
@@ -176,6 +95,54 @@ class HOnKSingleton(object):
         return HOnKSingleton._instance.honk
 
 
+# Maps attribute name → public getter name for all simple vocabulary-set attributes.
+# All three of _init_lookup_sets(), _clear(), and the auto-generated getter methods
+# are derived from this single registry so that adding a new vocabulary category
+# requires updating only this dict and _load_support_lookup_sets().
+_LOOKUP_SET_REGISTRY: dict = {
+    "semi_modal_verbs":             "getSemiModalVerbs",
+    "pronouns":                     "getPronouns",
+    "personal_pronouns":            "getPersonalPronouns",
+    "prototypical_prepositions":    "getPrototypicalPrepositions",
+    "transitive_verbs":             "getTransitiveVerbs",
+    "causative_verbs":              "getCausativeVerbs",
+    "consumption_verbs":            "getConsumptionVerbs",
+    "movement_verbs":               "getMovementVerbs",
+    "means_verbs":                  "getMeansVerbs",
+    "prediction_verbs":             "getPredictionVerbs",
+    "state_verbs":                  "getStateVerbs",
+    "materialisation_verbs":        "getMaterialisationVerbs",
+    "phrasal_verbs":                "getPhrasalVerbs",
+    "units_of_measure":             "getUnitsOfMeasure",
+    "abstract_entities":            "getAbstractEntities",
+    "rejected_edges":               "getRejectedVerbs",     # attr/getter names differ
+    "non_verbs":                    "getNonVerbs",
+    "temporal_nouns":               "getTemporalNouns",
+    "location_nouns":               "getLocationNouns",
+    "state_nouns":                  "getStateNouns",
+    "facility_nouns":               "getFacilityNouns",
+    "access_point_nouns":           "getAccessPointNouns",
+    "route_nouns":                  "getRouteNouns",
+    "geo_suffix_nouns":             "getGeoSuffixNouns",
+    "service_state_nouns":          "getServiceStateNouns",
+    "status_nouns":                 "getStatusNouns",
+    "weather_condition_nouns":      "getWeatherConditionNouns",
+    "weather_condition_adjectives": "getWeatherConditionAdjectives",
+    "event_classifier_head_nouns":  "getEventClassifierHeadNouns",
+    "field_label_nouns":            "getFieldLabelNouns",
+    "disruption_nouns":             "getDisruptionNouns",
+    "modal_adjectives":             "getModalAdjectives",
+    "progress_hedge_adjectives":    "getProgressHedgeAdjectives",
+    "conjunctions":                 "getConjunctions",
+    "prepositions":                 "getPrepositions",
+    "copula_surface_forms":         "getCopulaSurfaceForms",
+    "nouns_with_properties":        "getNounsWithProperties",
+    "nouns_with_a":                 "getNounsWithA",
+    "relative_pronouns":            "getRelativePronouns",
+    "occurrence_verbs":             "getOccurrenceVerbs",
+}
+
+
 class HOnK(RDFGraph):
 
     def __init__(self, cache_path, user, password, hostame, port, onStorage =True):
@@ -222,24 +189,25 @@ class HOnK(RDFGraph):
             "StatusNoun":              "status_nouns",
             "WeatherConditionNoun":    "weather_condition_nouns",
             "WeatherConditionAdjective": "weather_condition_adjectives",
+            "EventClassifierHeadNoun": "event_classifier_head_nouns",
             "FieldLabelNoun":          "field_label_nouns",
+            "DisruptionNoun":          "disruption_nouns",
             "ModalAdjective":          "modal_adjectives",
+            "ProgressHedgeAdjective":  "progress_hedge_adjectives",
             "Conjunction":             "conjunctions",
             "DependantPreposition":    "prepositions",
             "IdiomaticPreposition":    "prepositions",
             "ComplexPreposition":      "prepositions",
+            "RelativePronoun":         "relative_pronouns",
         }
 
     def _init_lookup_sets(self):
-        for attr in set(self._type_lookup_map().values()) | {
-                "nouns_with_properties",
-                "nouns_with_a",
-                "logical_rewriting_rules",
-                "prepositions",
-                "copula_surface_forms",
-                "change_of_state_verbs",
-                "stative_verbs",
-        }:
+        all_attrs = set(_LOOKUP_SET_REGISTRY.keys()) | {
+            "logical_rewriting_rules",
+            "stative_verbs",
+            "change_of_state_verbs",
+        }
+        for attr in all_attrs:
             if not hasattr(self, attr):
                 setattr(self, attr, defaultdict() if attr == "logical_rewriting_rules" else set())
 
@@ -274,6 +242,7 @@ class HOnK(RDFGraph):
             (os.path.join("verbs", "materialisation_verbs.txt"), ("materialisation_verbs",)),
             (os.path.join("verbs", "phrasal_verbs.txt"), ("phrasal_verbs",)),
             (os.path.join("verbs", "prediction_verbs.txt"), ("prediction_verbs",)),
+            (os.path.join("verbs", "occurrence_verbs.txt"), ("occurrence_verbs",)),
             (os.path.join("verbs", "semi_modal_verbs.txt"), ("semi_modal_verbs",)),
             (os.path.join("nouns", "facility_nouns.txt"), ("facility_nouns", "location_nouns")),
             (os.path.join("nouns", "access_point_nouns.txt"), ("access_point_nouns", "facility_nouns", "location_nouns")),
@@ -282,11 +251,14 @@ class HOnK(RDFGraph):
             (os.path.join("nouns", "service_state_nouns.txt"), ("service_state_nouns", "state_nouns")),
             (os.path.join("nouns", "status_nouns.txt"), ("status_nouns", "state_nouns")),
             (os.path.join("nouns", "weather_condition_nouns.txt"), ("weather_condition_nouns", "state_nouns")),
+            (os.path.join("nouns", "event_classifier_head_nouns.txt"), ("event_classifier_head_nouns",)),
             (os.path.join("nouns", "field_label_nouns.txt"), ("field_label_nouns",)),
+            (os.path.join("nouns", "disruption_nouns.txt"), ("disruption_nouns",)),
             (os.path.join("adjectives", "modal_adjectives.txt"), ("modal_adjectives",)),
+            (os.path.join("adjectives", "progress_hedge_adjectives.txt"), ("progress_hedge_adjectives",)),
             (os.path.join("pronouns", "personal_pronouns.txt"), ("pronouns", "personal_pronouns")),
             (os.path.join("pronouns", "demonstrative_pronouns.txt"), ("pronouns",)),
-            (os.path.join("pronouns", "relative_pronouns.txt"), ("pronouns",)),
+            (os.path.join("pronouns", "relative_pronouns.txt"), ("pronouns", "relative_pronouns")),
             (os.path.join("pronouns", "indefinite_pronouns.txt"), ("pronouns",)),
             (os.path.join("pronouns", "interrogative_pronouns.txt"), ("pronouns",)),
         )
@@ -600,7 +572,8 @@ class HOnK(RDFGraph):
 
 
 
-    def most_specific_type(self, types):
+    @staticmethod
+    def most_specific_type(types):
         types = list(map(lambda x: str(x).lower(), types))
         # Match plain "verb" OR any verb subclass (e.g. ChangeVerb → "changeverb" ends with "verb")
         if any(map(lambda x: x == "verb" or (x.endswith("verb") and not x.endswith("adverb")), types)):
@@ -626,7 +599,8 @@ class HOnK(RDFGraph):
             return "None"
 
         # TODO: MAKE THIS BETTER EVENTUALLY
-    def most_general_type(self, types):
+    @staticmethod
+    def most_general_type(types):
         types = list(map(lambda x: str(x).upper(), types))
         tree = {
             "ENTITY": {
@@ -1083,6 +1057,12 @@ class HOnK(RDFGraph):
         elif (src.startswith("?") and src[1:].isdigit()) or (dst.startswith("?") and dst[1].isdigit()):
             return CasusHappening.EQUIVALENT
         else:
+            # Fallback to lower-case if exact title-case is missing from the ontology
+            if src not in self._eq_adj and src not in self._isA_supers:
+                src = src.lower()
+            if dst not in self._eq_adj and dst not in self._isA_supers:
+                dst = dst.lower()
+
             srcS = self.getSynonymy(src)
             dstS = self.getSynonymy(dst)
             neqTo_src = self._neqTo_adj.get(src, set())
@@ -1204,48 +1184,9 @@ class HOnK(RDFGraph):
         r = self._get_reachable(t)
         return r if r is not None else set()
 
-    def getNounsWithProperties(self):
-        return getattr(self, "nouns_with_properties", set())
-
-    def getNounsWithA(self):
-        return getattr(self, "nouns_with_a", set())
-
-    def getSemiModalVerbs(self):
-        return getattr(self, "semi_modal_verbs", set())
-
-    def getPronouns(self):
-        return getattr(self, "pronouns", set())
-
-    def getPersonalPronouns(self):
-        return getattr(self, "personal_pronouns", set())
-
-    def getConsumptionVerbs(self):
-        return getattr(self, "consumption_verbs", set())
-
-    def getPrototypicalPrepositions(self):
-        return getattr(self, "prototypical_prepositions", set())
-
-    def getPhrasalVerbs(self):
-        return getattr(self, "phrasal_verbs", set())
-
-    def getTransitiveVerbs(self):
-        return getattr(self, "transitive_verbs", set())
-
-    def getRejectedVerbs(self):
-        return getattr(self, "rejected_edges", set())
-
-    def getNonVerbs(self):
-        return getattr(self, "non_verbs", set())
-
     def getLogicalRewritingRules(self):
         self._load_logical_rules_from_json_if_available()
         return self.logical_rewriting_rules
-
-    def getCausativeVerbs(self):
-        return getattr(self, "causative_verbs", set())
-
-    def getPredictionVerbs(self):
-        return getattr(self, "prediction_verbs", set())
 
     def getChangeOfStateVerbs(self):
         """Verbs that license the causative alternation (cause-as-subject)
@@ -1311,76 +1252,6 @@ class HOnK(RDFGraph):
                 return True
         return False
 
-    def getMovementVerbs(self):
-        return getattr(self, "movement_verbs", set())
-
-    def getUnitsOfMeasure(self):
-        return getattr(self, "units_of_measure", set())
-
-    def getMeansVerbs(self):
-        return getattr(self, "means_verbs", set())
-
-    def getAbstractEntities(self):
-        return getattr(self, "abstract_entities", set())
-
-    def getStateVerbs(self):
-        return getattr(self, "state_verbs", set())
-
-    def getMaterialisationVerbs(self):
-        return getattr(self, "materialisation_verbs", set())
-
-    def getTemporalNouns(self):
-        return getattr(self, "temporal_nouns", set())
-
-    def getLocationNouns(self):
-        return getattr(self, "location_nouns", set())
-
-    def getStateNouns(self):
-        return getattr(self, "state_nouns", set())
-
-    def getFacilityNouns(self):
-        return getattr(self, "facility_nouns", set())
-
-    def getAccessPointNouns(self):
-        return getattr(self, "access_point_nouns", set())
-
-    def getRouteNouns(self):
-        return getattr(self, "route_nouns", set())
-
-    def getGeoSuffixNouns(self):
-        return getattr(self, "geo_suffix_nouns", set())
-
-    def getServiceStateNouns(self):
-        return getattr(self, "service_state_nouns", set())
-
-    def getStatusNouns(self):
-        return getattr(self, "status_nouns", set())
-
-    def getWeatherConditionNouns(self):
-        return getattr(self, "weather_condition_nouns", set())
-
-    def getWeatherConditionAdjectives(self):
-        return getattr(self, "weather_condition_adjectives", set())
-
-    def getFieldLabelNouns(self):
-        return getattr(self, "field_label_nouns", set())
-
-    def getModalAdjectives(self):
-        return getattr(self, "modal_adjectives", set())
-
-    def getConjunctions(self):
-        return getattr(self, "conjunctions", set())
-
-    def getCopulaSurfaceForms(self):
-        """Inflected and contracted surface forms of the copula 'be'
-        (am, is, are, was, were, be, been, being, 'm, 're, 's). Sourced
-        from raw_data/verbs/copula_surface_forms.txt."""
-        return getattr(self, "copula_surface_forms", set())
-
-    def getPrepositions(self):
-        """All honk:Preposition instances (union of all subclasses)."""
-        return getattr(self, "prepositions", set())
-
     def collect_prepositions(self):
         return self.getPrepositions()
 
@@ -1392,42 +1263,10 @@ class HOnK(RDFGraph):
         self.loaded = False
         self._syn_cache.clear()
         self._trcl_cache.clear()
-        for attr in (
-                "nouns_with_properties",
-                "nouns_with_a",
-                "semi_modal_verbs",
-                "pronouns",
-                "personal_pronouns",
-                "consumption_verbs",
-                "prototypical_prepositions",
-                "transitive_verbs",
-                "rejected_edges",
-                "non_verbs",
-                "logical_rewriting_rules",
-                "causative_verbs",
-                "change_of_state_verbs",
-                "movement_verbs",
-                "units_of_measure",
-                "means_verbs",
-                "abstract_entities",
-                "state_verbs",
-                "materialisation_verbs",
-                "temporal_nouns",
-                "location_nouns",
-                "state_nouns",
-                "facility_nouns",
-                "access_point_nouns",
-                "route_nouns",
-                "geo_suffix_nouns",
-                "service_state_nouns",
-                "status_nouns",
-                "weather_condition_nouns",
-                "weather_condition_adjectives",
-                "modal_adjectives",
-                "conjunctions",
-                "prepositions",
-                "copula_surface_forms",
-        ):
+        for attr in _LOOKUP_SET_REGISTRY.keys():
+            if hasattr(self, attr):
+                getattr(self, attr).clear()
+        for attr in ("change_of_state_verbs", "logical_rewriting_rules"):
             if hasattr(self, attr):
                 getattr(self, attr).clear()
         self._loaded_rules_json_path = None
@@ -1478,6 +1317,14 @@ class HOnK(RDFGraph):
 
         return logical_functions
 
+# Auto-generate the simple `return getattr(self, attr, set())` getter methods
+# from _LOOKUP_SET_REGISTRY so that adding a new vocabulary category only
+# requires a single registry entry (plus _load_support_lookup_sets).
+for _attr, _getter in _LOOKUP_SET_REGISTRY.items():
+    setattr(HOnK, _getter, (lambda a: lambda self: getattr(self, a, set()))(_attr))
+del _attr, _getter
+
+
 def _load_logical_rules_from_json(json_path: str):
     """Build logical_rewriting_rules directly from logical_analysis.json.
 
@@ -1524,5 +1371,4 @@ def _load_logical_rules_from_json(json_path: str):
             rule_id += 1
 
     return rules
-
 

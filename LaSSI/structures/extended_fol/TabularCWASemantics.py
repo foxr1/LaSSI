@@ -1,11 +1,12 @@
 import os
+import json
 import pickle
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import List
 
 import pandas
-from functools import reduce
+from functools import reduce, lru_cache
 
 from LaSSI.HOnK.TBox.ExpandConstituents import ExpandConstituents, isImplication, transformCaseWhenOneArgIsNegated
 from LaSSI.structures.extended_fol.Formulae import Formula, FNot
@@ -14,12 +15,78 @@ from FunctionalMatch.utils import CountingDictionary
 
 from LaSSI.structures.extended_fol.TBoxReasoning import non_redundant_constituents
 
+
+@lru_cache(maxsize=1)
+def _similarity_key_sets():
+    """``(distinguishing, identity_refining)`` similarity key sets, DERIVED from
+    ``raw_data/logical_analysis.json``.
+
+    - ``distinguishing`` = the ``attachTo: Kernel`` constructs (event-level
+      clauses) MINUS the declared ``circumstantial`` keys, PLUS the declared
+      ``identity_refining`` keys. When one sentence asserts such a key the other
+      lacks, they describe different events.
+    - ``identity_refining`` = Singleton-level facets (e.g. SPECIFICATION) that
+      refine *what* an argument is, so they distinguish symmetrically.
+
+    All names are upper-cased to match eFOL property keys. New ``attachTo:
+    Kernel`` constructs become distinguishing automatically; circumstantial /
+    identity-refining behaviour is edited in the JSON, never here."""
+    path = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "raw_data", "logical_analysis.json"))
+    with open(path) as fh:
+        data = json.load(fh)
+    types = data.get("types", {})
+    sem = data.get("similarity_semantics", {})
+    circumstantial = {str(k).upper() for k in sem.get("circumstantial", [])}
+    identity_refining = {str(k).upper() for k in sem.get("identity_refining", [])}
+    kernel = {
+        name.upper() for name, specs in types.items()
+        if any(s.get("attachTo") == "Kernel" for s in specs)
+    }
+    distinguishing = (kernel - circumstantial) | identity_refining
+    return distinguishing, identity_refining
+
+
+def _formula_logical_context_keys(formula):
+    """Distinguishing similarity-content keys asserted anywhere in a sentence
+    formula (unwrapping FNot / FAnd / FOr), per the data-driven classification
+    in ``raw_data/logical_analysis.json`` (`similarity_semantics`). When two
+    sentences differ on this set, one asserts content the other doesn't — they
+    describe distinct events, so the directional-entailment similarity is capped
+    (see `get_straightforward_id_similarity`)."""
+    distinguishing, _ = _similarity_key_sets()
+    keys = set()
+    props = getattr(formula, 'properties', None)
+    if props:
+        for k, v in props:
+            if v and str(k).upper() in distinguishing:
+                keys.add(str(k).upper())
+    arg = getattr(formula, 'arg', None)
+    if arg is not None and not isinstance(arg, str):
+        keys |= _formula_logical_context_keys(arg)
+    for sub in (getattr(formula, 'args', None) or ()):
+        keys |= _formula_logical_context_keys(sub)
+    return keys
+
+
+def _relation_of(formula):
+    """Surface relation (verb) of a sentence formula, unwrapping FNot."""
+    rel = getattr(formula, 'rel', None)
+    if rel is not None:
+        return rel
+    arg = getattr(formula, 'arg', None)
+    if arg is not None and not isinstance(arg, str):
+        return _relation_of(arg)
+    return None
+
+
 @dataclass
 class ExplainSentence:
-	formula: Formula
-	atoms: dict[int, Formula]
-	table: pandas.DataFrame
-	holding: bool
+    formula: Formula
+    atoms: dict[int, Formula]
+    table: pandas.DataFrame
+    holding: bool
+
 
 @dataclass
 class MutualTruthExplain:
@@ -34,61 +101,67 @@ class MutualTruthExplain:
         from LaSSI.structures.extended_fol.Enums import print_case
         return print_case(self.lhs, self.logical_result, self.rhs)
 
+
 @dataclass
 class ExplainedUniversalTruth:
-	constituent_implication: list[MutualTruthExplain]
-	result: pandas.DataFrame
+    constituent_implication: list[MutualTruthExplain]
+    result: pandas.DataFrame
+
 
 @dataclass
 class FinalExplanation:
-	confidence: float
-	lhs: ExplainSentence
-	rhs: ExplainSentence
-	explained_joined_table: ExplainedUniversalTruth
-	explained_joined_table_natural_joined_with_operands: pandas.DataFrame
+    confidence: float
+    lhs: ExplainSentence
+    rhs: ExplainSentence
+    explained_joined_table: ExplainedUniversalTruth
+    explained_joined_table_natural_joined_with_operands: pandas.DataFrame
 
-def png_node(obj, key, dir, nodes_map,fillColor=None):
+
+def png_node(obj, key, dir, nodes_map, fillColor=None):
     import pydot
     local_file = os.path.join(dir, key + ".svg")
-    local_file_exless = os.path.join(dir, key )
+    local_file_exless = os.path.join(dir, key)
     if not os.path.exists(local_file_exless):
         latex_rendering_to_raster_file(obj, local_file_exless)
     d = {"image": local_file,
-     "label": "",
-     "width": "3cm",
-     "height": "1cm",
-     "shape": "box"}
+         "label": "",
+         "width": "3cm",
+         "height": "1cm",
+         "shape": "box"}
     if fillColor is not None:
         d["fillcolor"] = fillColor
         d["style"] = "filled"
     nodes_map[key] = pydot.Node(key, **d)
     return nodes_map
 
-def with_variables_from(f, l, minimal_constituents: CountingDictionary, fn, selection=False):
-    from LaSSI.HOnK.formula_utils import semantic
-    pdf = reduce(lambda x,y: x.merge(y, how="cross"),[pandas.DataFrame({str(x): [1,0]}) for x in l])
-    L = []
-    for x in pdf.to_dict(orient='records'):
-        d = dict()
-        for k,v in x.items():
-            d[minimal_constituents.fromId(int(k))] = v
-        x[fn] = semantic(f, d)
-        if not selection or x[fn]>0.0:
-            L.append(x)
-    return pandas.DataFrame(L)
 
 def with_variables_from(f, l, minimal_constituents: CountingDictionary, fn, selection=False):
     from LaSSI.HOnK.formula_utils import semantic
-    pdf = reduce(lambda x,y: x.merge(y, how="cross"),[pandas.DataFrame({str(x): [1,0]}) for x in l])
+    pdf = reduce(lambda x, y: x.merge(y, how="cross"), [pandas.DataFrame({str(x): [1, 0]}) for x in l])
     L = []
     for x in pdf.to_dict(orient='records'):
         d = dict()
-        for k,v in x.items():
+        for k, v in x.items():
             d[minimal_constituents.fromId(int(k))] = v
         x[fn] = semantic(f, d)
-        if not selection or x[fn]>0.0:
+        if not selection or x[fn] > 0.0:
             L.append(x)
     return pandas.DataFrame(L)
+
+
+def with_variables_from(f, l, minimal_constituents: CountingDictionary, fn, selection=False):
+    from LaSSI.HOnK.formula_utils import semantic
+    pdf = reduce(lambda x, y: x.merge(y, how="cross"), [pandas.DataFrame({str(x): [1, 0]}) for x in l])
+    L = []
+    for x in pdf.to_dict(orient='records'):
+        d = dict()
+        for k, v in x.items():
+            d[minimal_constituents.fromId(int(k))] = v
+        x[fn] = semantic(f, d)
+        if not selection or x[fn] > 0.0:
+            L.append(x)
+    return pandas.DataFrame(L)
+
 
 def with_true_variables_from(l):
     return pandas.DataFrame({str(x): [1] for x in l})
@@ -102,7 +175,7 @@ def with_bdd_from(f, atom_to_bdd, manager):
 
 
 class TabularCWASemantics:
-    def __init__(self, sentence_list:List[Formula], cache_folder):
+    def __init__(self, sentence_list: List[Formula], cache_folder):
         self.sentence_list = []
         self.sentence_to_id = dict()
         for idx in range(len(sentence_list)):
@@ -118,7 +191,7 @@ class TabularCWASemantics:
         self.negation_resolution = dict()
         self.negations = set()
 
-        #getSentenceAtomsFromId
+        # getSentenceAtomsFromId
         for sentence_id in range(len(self.sentence_list)):
             # collect_sentence_constituents
             from LaSSI.HOnK.formula_utils import getAtomsWithNegations
@@ -135,7 +208,8 @@ class TabularCWASemantics:
         ## --> Considering the constituent expansion without negation, so to avoid the rule deduplication within the constituent phase (i.e., nested match is not supported)
         N = len(self.minimal_constituents)
         # nonNegatedObjects = list(map(self.minimal_constituents.fromId, [x for x in range(N) if x not in self.negations]))
-        nonNegatedObjects = sorted({x: self.minimal_constituents.fromId(x) for x in range(N) if x not in self.negations}.items())
+        nonNegatedObjects = sorted(
+            {x: self.minimal_constituents.fromId(x) for x in range(N) if x not in self.negations}.items())
         self.ec = ExpandConstituents(self.cache_folder, nonNegatedObjects)
 
         self._init_bdd()
@@ -271,12 +345,28 @@ class TabularCWASemantics:
         def _agrees(cmp):
             return cmp == CasusHappening.EQUIVALENT or isImplication(cmp)
 
+        def _name_matches_other_specification(a, b):
+            # "weapons" vs "possession of weapons": one side's head noun is the
+            # other side's object-of specification. They denote the same recorded
+            # thing under different (more/less specific) framing, so for negation
+            # core-matching they refer to the same event.
+            for x, y in ((a, b), (b, a)):
+                x_name = getattr(x, "name", None)
+                y_spec = getattr(y, "specification", None)
+                if (isinstance(x_name, str) and isinstance(y_spec, str)
+                        and x_name.strip() and y_spec.strip()
+                        and x_name.strip().lower() == y_spec.strip().lower()):
+                    return True
+            return False
+
         def _args_match(a, b, cache):
             # Two existential variables refer to the same anonymous entity for
             # core-matching purposes — neither side has committed to a name.
             if isExistential(a) and isExistential(b):
                 return True
-            return _agrees(compare_variable(cache, a, b))
+            if _agrees(compare_variable(cache, a, b)):
+                return True
+            return _name_matches_other_specification(a, b)
 
         if isinstance(p1, FBinaryPredicate) and isinstance(p2, FBinaryPredicate):
             rel_cmp = (CasusHappening.EQUIVALENT if p1.rel == p2.rel
@@ -308,7 +398,8 @@ class TabularCWASemantics:
         if (isinstance(x, FNot) and isinstance(y, FNot)):
             val = self.ec.determine_raw(self.negation_resolution.get(i, i), self.negation_resolution.get(j, j))
             if isImplication(val):
-                if isImplication(self.ec.determine_raw(self.negation_resolution.get(j, j), self.negation_resolution.get(i, i))):
+                if isImplication(
+                        self.ec.determine_raw(self.negation_resolution.get(j, j), self.negation_resolution.get(i, i))):
                     val = CasusHappening.EQUIVALENT
                 else:
                     val = CasusHappening.INDIFFERENT
@@ -351,10 +442,10 @@ class TabularCWASemantics:
             val = transformCaseWhenOneArgIsNegated(val)
             return ExpandConstituents.rectify_implication(val)
         else:
-            return self.ec.determine(i,j)
+            return self.ec.determine(i, j)
 
-    def explained_mutual_truth(self, i:int, j:int)->MutualTruthExplain:
-        test = self.determine(i,j)#self.ec.determine(i, j) #self.get_mutual_truth(i, j)
+    def explained_mutual_truth(self, i: int, j: int) -> MutualTruthExplain:
+        test = self.determine(i, j)  # self.ec.determine(i, j) #self.get_mutual_truth(i, j)
         # relation = Relation()
         # relation.add_attributes([str(i), str(j)])
         from LaSSI.structures.extended_fol.Enums import PairwiseCases
@@ -364,17 +455,17 @@ class TabularCWASemantics:
         #       "lhsF": self.minimal_constituents.fromId(i),
         #       "rhsF": self.minimal_constituents.fromId(j)}
         if (test == PairwiseCases.Indifferent):
-            dataf= pandas.DataFrame({str(i): [0,0,1,1],
-                     str(j): [0,1,0,1]})
+            dataf = pandas.DataFrame({str(i): [0, 0, 1, 1],
+                                      str(j): [0, 1, 0, 1]})
         elif (test == PairwiseCases.Implying):
-            dataf=  pandas.DataFrame({str(i): [0, 0, 1],
-                            str(j): [0, 1, 1]  })
+            dataf = pandas.DataFrame({str(i): [0, 0, 1],
+                                      str(j): [0, 1, 1]})
         elif (test == PairwiseCases.ConflictingImplication):
-            dataf=  pandas.DataFrame({str(i): [0, 1],
-                           str(j): [1,0]})
+            dataf = pandas.DataFrame({str(i): [0, 1],
+                                      str(j): [1, 0]})
         elif (test == PairwiseCases.Equivalent):
-            dataf=  pandas.DataFrame({str(i): [0, 1],
-                           str(j): [0,1]})
+            dataf = pandas.DataFrame({str(i): [0, 1],
+                                      str(j): [0, 1]})
         # df["logical_rsult"] = test
         # df["df"] = dataf
         return MutualTruthExplain(i, j,
@@ -384,24 +475,24 @@ class TabularCWASemantics:
                                   test)
 
     def _mutual_truth(self, i, j):
-        test = self.determine(i,j)#self.ec.determine(i, j) #self.get_mutual_truth(i, j)
+        test = self.determine(i, j)  # self.ec.determine(i, j) #self.get_mutual_truth(i, j)
         # relation = Relation()
         # relation.add_attributes([str(i), str(j)])
         from LaSSI.structures.extended_fol.Enums import PairwiseCases
         if (test == PairwiseCases.Indifferent):
-            return pandas.DataFrame({str(i): [0,0,1,1],
-                     str(j): [0,1,0,1]})
+            return pandas.DataFrame({str(i): [0, 0, 1, 1],
+                                     str(j): [0, 1, 0, 1]})
         elif (test == PairwiseCases.Implying):
             return pandas.DataFrame({str(i): [0, 0, 1],
-                            str(j): [0, 1, 1]  })
+                                     str(j): [0, 1, 1]})
         elif (test == PairwiseCases.ConflictingImplication):
             return pandas.DataFrame({str(i): [0, 1],
-                           str(j): [1,0]})
+                                     str(j): [1, 0]})
         elif (test == PairwiseCases.Equivalent):
             return pandas.DataFrame({str(i): [0, 1],
-                           str(j): [0,1]})
+                                     str(j): [0, 1]})
 
-    def explained_universal_truth(self, S:set[int], T:set[int])->ExplainedUniversalTruth:
+    def explained_universal_truth(self, S: set[int], T: set[int]) -> ExplainedUniversalTruth:
         constituent_implication = []
         L = list()
         N = len(S.union(T))
@@ -409,12 +500,12 @@ class TabularCWASemantics:
             # relation = Relation(name="R")
             return ExplainedUniversalTruth(constituent_implication, pandas.DataFrame({}))
         if N == len(S.intersection(T)) and N == 1:
-            return ExplainedUniversalTruth(constituent_implication, pandas.DataFrame({str(list(S)[0]):[0,1]}))
+            return ExplainedUniversalTruth(constituent_implication, pandas.DataFrame({str(list(S)[0]): [0, 1]}))
         else:
             for i in sorted(list(S)):
                 for j in sorted(list(T)):
                     if i != j:
-                        res = self.explained_mutual_truth(i,j)
+                        res = self.explained_mutual_truth(i, j)
                         constituent_implication.append(res)
                         L.append(res.df)
             return ExplainedUniversalTruth(constituent_implication, reduce(lambda x, y: x.merge(y), L))
@@ -426,7 +517,7 @@ class TabularCWASemantics:
             # relation = Relation(name="R")
             return pandas.DataFrame({})
         if N == len(S.intersection(T)) and N == 1:
-            return pandas.DataFrame({str(list(S)[0]):[0,1]})
+            return pandas.DataFrame({str(list(S)[0]): [0, 1]})
         else:
             for i in sorted(list(S)):
                 for j in sorted(list(T)):
@@ -434,7 +525,7 @@ class TabularCWASemantics:
                         L.append(self._mutual_truth(i, j))
             return reduce(lambda x, y: x.merge(y), L)
 
-    def explain_sentence(self, i:int, worldsWhereItAlwaysHolds:bool)->ExplainSentence:
+    def explain_sentence(self, i: int, worldsWhereItAlwaysHolds: bool) -> ExplainSentence:
         Ri = with_variables_from(self.sentence_list[i], self.minimal_constituent_dict[i], self.minimal_constituents,
                                  "R" + str(i), worldsWhereItAlwaysHolds)
         # return {"formula": self.sentence_list[i],
@@ -446,15 +537,17 @@ class TabularCWASemantics:
                                Ri,
                                worldsWhereItAlwaysHolds)
 
-    def get_explained_id_similarity(self, i:int, j:int):
+    def get_explained_id_similarity(self, i: int, j: int):
         Ri_explanation = self.explain_sentence(i, True)
         Rj_explanation = self.explain_sentence(j, False)
-        ConstImplExpl = self.explained_universal_truth(set(self.minimal_constituent_dict[i]), set(self.minimal_constituent_dict[j]))
+        ConstImplExpl = self.explained_universal_truth(set(self.minimal_constituent_dict[i]),
+                                                       set(self.minimal_constituent_dict[j]))
         relevantColumns = list(set(Ri_explanation.table.columns).union(set(Rj_explanation.table.columns)))
-        tableSemantics = ConstImplExpl.result.merge(Ri_explanation.table).merge(Rj_explanation.table)[relevantColumns].drop_duplicates()
+        tableSemantics = ConstImplExpl.result.merge(Ri_explanation.table).merge(Rj_explanation.table)[
+            relevantColumns].drop_duplicates()
         semantics = tableSemantics[["R" + str(j)]].prod(axis=1)
         Rj_holding = len(semantics)
-        total = semantics.sum(axis=0)/Rj_holding if Rj_holding>0.0 else 0.0
+        total = semantics.sum(axis=0) / Rj_holding if Rj_holding > 0.0 else 0.0
         # print(f"{i}~{j} := {total}")
         return FinalExplanation(total, Ri_explanation, Rj_explanation, ConstImplExpl, tableSemantics)
         # return {"confidence": total,
@@ -463,18 +556,8 @@ class TabularCWASemantics:
         #         "explained_joined_table": ConstImplExpl,
         #         "explained_joined_table_natural_joined_with_operands": tableSemantics}
 
-    def get_straightforward_id_similarity(self, i:int, j:int):
-        """Symbolic similarity between sentences i and j.
-
-        Mirrors the original DataFrame-based ratio
-            P(Sj=1 | Si=1, constraints)
-        but evaluates it via BDD model counting, so the truth table is never
-        materialised.  With n underlying boolean variables in the manager, the
-        ratio is invariant to phantom variables (each contributes a factor 2 to
-        both numerator and denominator), so we count over the full declared
-        variable set.
-        """
-        # Self-similarity
+    def _raw_id_similarity(self, i: int, j: int):
+        """Directional BDD model-count ratio P(Sj=1 | Si=1, constraints)."""
         if i == j:
             return 1.0
         Si_bdd = self._bdd_for_sentence(i)
@@ -487,18 +570,44 @@ class TabularCWASemantics:
         if n_vars == 0:
             return 0.0
         ctx_count = self._bdd.count(context, nvars=n_vars)
-        
-        # DEBUG
-        if ctx_count == 0:
-            print(f"DEBUG: ctx_count is 0 for i={i}, j={j}")
-            print(f"DEBUG: Si_bdd count = {self._bdd.count(Si_bdd, nvars=n_vars)}")
-            print(f"DEBUG: Sj_bdd count = {self._bdd.count(Sj_bdd, nvars=n_vars)}")
-            print(f"DEBUG: constraints count = {self._bdd.count(constraints, nvars=n_vars)}")
-            
         if ctx_count == 0:
             return 0.0
-        val = self._bdd.count(combined, nvars=n_vars) / ctx_count
-        print(f"DEBUG: Sim({i}, {j}) = {val}")
+        return self._bdd.count(combined, nvars=n_vars) / ctx_count
+
+    def get_straightforward_id_similarity(self, i: int, j: int):
+        """Symbolic similarity between sentences i and j.
+
+        Base measure is the directional entailment ratio P(Sj=1 | Si=1,
+        constraints) via BDD model counting. Distinguishing content properties
+        (REQUIREMENT, CAUSATION, SPECIFICATION, … — see
+        `_formula_logical_context_keys`, which excludes the paraphrastic
+        temporal keys) are not BDD variables, so they don't constrain the
+        entailment — a sentence can spuriously score 1.0 against another that
+        asserts different such content. Cap to a partial score when, for this
+        direction i -> j:
+
+          (A) j asserts a distinguishing context key i lacks — i then cannot
+              fully entail j (a more-specific sentence still entails a
+              less-specific one under the SAME relation, e.g.
+              record[CAUSATION] -> record, so this is directional); or
+          (S) the two differ on SPECIFICATION — that refines the event's
+              identity ("...involving X"), so it distinguishes symmetrically; or
+          (B) different surface relations AND different distinguishing content —
+              an ontology-derived relation implication between distinct events.
+        """
+        val = self._raw_id_similarity(i, j)
+        ki = _formula_logical_context_keys(self.sentence_list[i])
+        kj = _formula_logical_context_keys(self.sentence_list[j])
+        rel_i = _relation_of(self.sentence_list[i])
+        rel_j = _relation_of(self.sentence_list[j])
+        _, identity_refining = _similarity_key_sets()
+        identity_asymmetric = (ki & identity_refining) != (kj & identity_refining)
+        if (kj - ki) or identity_asymmetric or (rel_i != rel_j and ki != kj):
+            val = min(val, self._raw_id_similarity(j, i))
+            if val >= 1.0:
+                # Mutual entailment via ontology synonymy, but the asymmetric
+                # distinguishing content means the events are distinct.
+                val = 0.5
         return val
 
     def get_implication(self, i, j):
@@ -511,17 +620,13 @@ class TabularCWASemantics:
         else:
             return PairwiseCases.Indifferent
 
-
-
-
-
-    def buildReport(self, file, mathJax = True):
+    def buildReport(self, file, mathJax=True):
         from bs4 import Tag, BeautifulSoup
         import pydot
         from LaSSI.HOnK.formula_utils import latex_formula_rendering
 
         from pathlib import Path
-        Path(file+"_dir").mkdir(parents=True, exist_ok=True)
+        Path(file + "_dir").mkdir(parents=True, exist_ok=True)
         graph = pydot.Dot("my_graph", graph_type="digraph", rankdir="LR")
         nodes_map = dict()
         html = Tag(name="html")
@@ -573,10 +678,10 @@ class TabularCWASemantics:
                 x = self.ec.getIthExpandedConstituent(idx_)
                 lli.append(latex_formula_rendering(x, mathJax))
                 uuul = Tag(name="ul")
-                for (label, rule),dst in fmeqex[idx_]:
+                for (label, rule), dst in fmeqex[idx_]:
                     assert label == "eqR"
                     llli = Tag(name="li")
-                    llli.append(str(idx_)+latex_rendering(f"\\xrightarrow{{eq {rule}}}")+str(dst))
+                    llli.append(str(idx_) + latex_rendering(f"\\xrightarrow{{eq {rule}}}") + str(dst))
                     uuul.append(llli)
                 lli.append(uuul)
                 ool.append(lli)
@@ -598,7 +703,7 @@ class TabularCWASemantics:
                 for (label, rule), dst in fmimex[idx_]:
                     assert label == "implR"
                     llli = Tag(name="li")
-                    llli.append(str(idx_)+latex_rendering(f"\\xrightarrow{{impl {rule}}}")+str(dst))
+                    llli.append(str(idx_) + latex_rendering(f"\\xrightarrow{{impl {rule}}}") + str(dst))
                     uuul.append(llli)
                 lli.append(uuul)
                 ool.append(lli)
@@ -620,9 +725,8 @@ class TabularCWASemantics:
             ref = f"Sentence{i}"
             Sentence = f"Sentence #{i}"
             Services.getInstance().log(ref)
-            nodes_map[ref] = pydot.Node(ref, shape="circle",fillcolor="lightyellow",style="filled")
+            nodes_map[ref] = pydot.Node(ref, shape="circle", fillcolor="lightyellow", style="filled")
             graph.add_node(nodes_map[ref])
-
 
             lli = Tag(name="li")
             lla = Tag(name="a")
@@ -642,9 +746,9 @@ class TabularCWASemantics:
             p1.append("Logic form: ")
             p1.append(latex_formula_rendering(sentence, mathJax))
             body.append(p1)
-            nodes_map = png_node(sentence, ref+"eq", file+"_dir", nodes_map)
-            graph.add_node(nodes_map[ref+"eq"])
-            graph.add_edge(pydot.Edge(ref, ref+"eq", label="hasFormula"))
+            nodes_map = png_node(sentence, ref + "eq", file + "_dir", nodes_map)
+            graph.add_node(nodes_map[ref + "eq"])
+            graph.add_edge(pydot.Edge(ref, ref + "eq", label="hasFormula"))
 
             p2 = Tag(name="p")
             p2.append("Minimal Constituents:")
@@ -659,7 +763,8 @@ class TabularCWASemantics:
                 ali["href"] = f"#constituent{global_x_idx}"
                 ali.append(str(global_x_idx))
                 ali.append(latex_formula_rendering(obj, mathJax))
-                nodes_map = png_node(self.minimal_constituents.reverseConstituent[x_idx], f"constituent{global_x_idx}", file + "_dir", nodes_map, fillColor="lightblue")
+                nodes_map = png_node(self.minimal_constituents.reverseConstituent[x_idx], f"constituent{global_x_idx}",
+                                     file + "_dir", nodes_map, fillColor="lightblue")
                 graph.add_node(nodes_map[f"constituent{global_x_idx}"])
                 graph.add_edge(pydot.Edge(ref, f"constituent{global_x_idx}", label="hasConstituent"))
                 li.append(ali)
@@ -669,7 +774,7 @@ class TabularCWASemantics:
         html.decode()
 
         Services.getInstance().log("Printing html...")
-        with open(file+".html", "w") as f:
+        with open(file + ".html", "w") as f:
             f.write(html.prettify())
         Services.getInstance().log("... done")
 
@@ -694,7 +799,7 @@ class TabularCWASemantics:
                 graph.add_edge(pydot.Edge(label, labelDst, label=str(ruleId)))
         Services.getInstance().log("Graph finalised")
 
-        with open(file+".dot", "w") as f:
+        with open(file + ".dot", "w") as f:
             # As a string:
             output_raw_dot = graph.to_string()
             # tex_graph = convert_graph(output_raw_dot)
@@ -716,5 +821,3 @@ class TabularCWASemantics:
         #     # pdfl.params["-output-directory"] = os.getcwd()
         #     # pdfl.create_pdf(keep_pdf_file=True)
         #     # fp = subprocess.run(["pdflatex", file+".tex"])
-
-

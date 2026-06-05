@@ -53,6 +53,12 @@ class LifecyclePropertyPromotionRule(StructuralRewriteRule):
         "ccomp",
     })
     _STRUCTURAL_CONTAINER_KEYS = frozenset({"SENTENCE"})
+    # Logical-context buckets that may house a *negated* lifecycle fact. "with no
+    # suspect identified" routes the negated noun into TOGETHERNESS (surface
+    # preposition `with`), but a negated existence is a SPECIFICATION, not a
+    # togetherness — so pull negated lifecycle values out into SPECIFICATION while
+    # leaving any positive ("with a suspect") values untouched.
+    _NEGATED_CONTEXT_CONTAINER_KEYS = frozenset({"TOGETHERNESS"})
     _STATUS_VERB_TYPE_BY_LEMMA = {
         "await": "awaiting",
     }
@@ -119,6 +125,13 @@ class LifecyclePropertyPromotionRule(StructuralRewriteRule):
                             changed = True
                             promoted = True
 
+                if not promoted and key in cls._NEGATED_CONTEXT_CONTAINER_KEYS:
+                    negated_lifecycle = cls._negated_lifecycle_projection(rewritten_item, ctx)
+                    if negated_lifecycle is not None:
+                        append_unique_property_value(props, "SPECIFICATION", negated_lifecycle)
+                        changed = True
+                        promoted = True
+
                 if not promoted and key == "TIME_STATUS" and cls._is_status_node(rewritten_item, ctx):
                     normalized = cls._status_node_with_state_type(rewritten_item)
                     if normalized is not rewritten_item:
@@ -162,6 +175,11 @@ class LifecyclePropertyPromotionRule(StructuralRewriteRule):
                     if cls._negated_lifecycle_projection(item, ctx) is not None:
                         return True
                     if cls._has_promotable(item, ctx):
+                        return True
+                continue
+            if key in cls._NEGATED_CONTEXT_CONTAINER_KEYS:
+                for item in property_values(dict(node.properties), key):
+                    if cls._negated_lifecycle_projection(item, ctx) is not None:
                         return True
                 continue
             if key in cls._SEMANTIC_TARGET_KEYS or key not in cls._RAW_SYNTACTIC_KEYS:

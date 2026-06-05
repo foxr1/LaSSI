@@ -3,3 +3,5 @@ host: localhost
 port: 5432
 pw: drowssap
 uname: lassi
+fuzzy_dbs: {}
+huggingface: null

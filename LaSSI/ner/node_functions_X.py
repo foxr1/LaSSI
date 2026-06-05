@@ -189,7 +189,17 @@ class NodeFunctions:
 
     @staticmethod
     def sort_G(G):
-        sorted_nodes = list(reversed(list(nx.lexicographical_topological_sort(G, key=lambda x: -x))))
+        G_temp = G.copy()
+        while True:
+            try:
+                cycle = nx.find_cycle(G_temp, orientation='original')
+                # cycle is a list of (u, v, key, direction)
+                u, v, k, _ = cycle[0]
+                G_temp.remove_edge(u, v, key=k)
+            except nx.NetworkXNoCycle:
+                break
+
+        sorted_nodes = list(reversed(list(nx.lexicographical_topological_sort(G_temp, key=lambda x: -x))))
         sorted_G = nx.MultiDiGraph()
         sorted_G.add_nodes_from((n, G.nodes[n]) for n in sorted_nodes)
         sorted_G.add_edges_from(G.edges(data=True, keys=True))

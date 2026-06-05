@@ -323,6 +323,18 @@ class RewriteKernels:
                                                                                                       FUnaryPredicate) and dst.type == "existential"))) or dst is None:
             from LaSSI.ner.MergeSetOfSingletons import merge_multiway_static_properties
             return self.make_unary(rel, src, score, merge_multiway_static_properties(prop, dst.properties))
+        # Treat a ProgressHedgeAdjective ("underway", "ongoing") as a
+        # semantically-empty progress hedge so be(X, underway) -> be(X) unary.
+        # This keeps the relation 'be' (rather than promoting the adjective to a
+        # relation, be(X, JJ) -> JJ(?, X)) and lets a concrete activity predicate
+        # be(X, AND(...)) entail it by object-drop. Resolved via the ontology set,
+        # not a literal (see HOnK ProgressHedgeAdjective / raw_data).
+        if (rel == "be" and isinstance(dst, FVariable)
+                and getattr(dst, 'name', None) is not None and src is not None):
+            _hedges = getattr(self.p, 'progress_hedge_adjectives', None) or set()
+            if str(dst.name).strip().lower() in {str(h).lower() for h in _hedges}:
+                from LaSSI.ner.MergeSetOfSingletons import merge_multiway_static_properties
+                return self.make_unary("be", src, score, merge_multiway_static_properties(prop, dst.properties))
         # Copula normalisation: be(X, JJ) -> JJ(?, X).  Promotes the adjective
         # in the predicate-complement slot to the relation name, with a fresh
         # existential as the agent and the original subject as the patient.

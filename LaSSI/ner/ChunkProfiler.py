@@ -23,6 +23,7 @@ class ChunkRole(str, Enum):
     ACTION = "ACTION"
     PROSE = "PROSE"
     HEADER = "HEADER"
+    TOPIC_HEADER = "TOPIC_HEADER"
     REPORT_HEADER = "REPORT_HEADER"
     ATTRIBUTE = "ATTRIBUTE"
     STATUS = "STATUS"
@@ -122,6 +123,17 @@ def _has_copula(honk, tokens: Iterable[str]) -> bool:
     return any(t in copulas for t in tokens)
 
 
+def _has_modal_aux(honk, tokens: Iterable[str]) -> bool:
+    """A ModalAdjective auxiliary ("Work *expected* to end", "X *scheduled* to
+    reopen") marks a passive/raising periphrasis, not an imperative command.
+    Its presence downgrades an otherwise verb-led chunk away from ACTION so the
+    conjunctive-action splitter never tears the predication apart. Vocabulary is
+    HOnK's ModalAdjective class (raw_data/adjectives/modal_adjectives.txt) — no
+    hardcoded list."""
+    modals = _get_set(honk, "getModalAdjectives")
+    return bool(modals) and any(t in modals for t in tokens)
+
+
 def profile(chunk: StructuredChunk, honk) -> ChunkRole:
     """Assign a :class:`ChunkRole` to ``chunk``. Conservative: anything not
     confidently structural defaults to :attr:`ChunkRole.PROSE` so that
@@ -143,6 +155,18 @@ def profile(chunk: StructuredChunk, honk) -> ChunkRole:
     if chunk.is_label:
         if _any_in(tokens, weather_nouns) and _any_in(tokens, prediction_verbs):
             return ChunkRole.REPORT_HEADER
+        # Topic-substantive HEADER: head noun names the entity the row is
+        # *about* (Roadworks, Closure, Diversion). Walk past leading
+        # particles to the first real token and check ServiceStateNoun
+        # before falling back to field-label / status checks.
+        head = None
+        for t in tokens:
+            if t in _LEADING_SKIP:
+                continue
+            head = t
+            break
+        if head is not None and head in service_state_nouns:
+            return ChunkRole.TOPIC_HEADER
         if (_any_in(tokens, field_labels) or _phrase_in(lowered, field_labels)
                 or _any_in(tokens, status_nouns)
                 or _any_in(tokens, service_state_nouns)):
@@ -152,8 +176,13 @@ def profile(chunk: StructuredChunk, honk) -> ChunkRole:
         return ChunkRole.HEADER
 
     # Non-label chunks
-    # TIME_RANGE: dominated by date/time literals, no verb
-    if _DATE_LIKE_RE.search(text) and not any(_is_known_verb(honk, t) for t in tokens):
+    # TIME_RANGE: dominated by date/time literals, no verb. A modal-adjective
+    # auxiliary ("Work expected to end 2026-04-27") makes this a modal
+    # predication carrying a date, not a bare date range, so it must not be
+    # captured here — let it fall through to PROSE for periphrasis promotion.
+    if (_DATE_LIKE_RE.search(text)
+            and not _has_modal_aux(honk, tokens)
+            and not any(_is_known_verb(honk, t) for t in tokens)):
         return ChunkRole.TIME_RANGE
 
     # ATTRIBUTE: numeric value adjacent to a unit/percent. We only count
@@ -188,12 +217,17 @@ def profile(chunk: StructuredChunk, honk) -> ChunkRole:
             return ChunkRole.STATUS
 
     # ACTION: clause-initial imperative verb (after the same skip set),
-    # with no copula in the chunk. Use the narrow imperative-verb set —
-    # transitive-verb membership alone is too noisy (HOnK fuzzy-loads
-    # nouns like "bicycle" / particles like "on" into TransitiveVerb).
+    # with no copula and no modal-adjective auxiliary in the chunk. Use the
+    # narrow imperative-verb set — transitive-verb membership alone is too
+    # noisy (HOnK fuzzy-loads nouns like "bicycle" / particles like "on" into
+    # TransitiveVerb). A modal-aux ("Work expected to end …") signals a
+    # passive/raising clause, not a command, so it falls through to PROSE and
+    # the periphrasis-promotion rule handles it as one chunk.
     if head_idx < len(tokens):
         head = tokens[head_idx]
-        if _is_imperative_verb(honk, head) and not _has_copula(honk, tokens):
+        if (_is_imperative_verb(honk, head)
+                and not _has_copula(honk, tokens)
+                and not _has_modal_aux(honk, tokens)):
             return ChunkRole.ACTION
 
     return ChunkRole.PROSE

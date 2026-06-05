@@ -1,5 +1,10 @@
 import json
+import httpx
 from openai import OpenAI
+
+# Per-request timeout for Ollama inference. 120s is generous for local models;
+# the openai default (600s × 3 attempts) would block runs for 30+ minutes on timeout.
+_OLLAMA_TIMEOUT = httpx.Timeout(timeout=120.0, connect=5.0)
 
 
 class LLMPrompt:
@@ -7,37 +12,50 @@ class LLMPrompt:
         self.model_name = model_name
         self.client = OpenAI(
             base_url="http://localhost:11434/v1",
-            api_key="ollama"
+            api_key="ollama",
+            timeout=_OLLAMA_TIMEOUT,
+            max_retries=0,
         )
+
+    _PROMPT_TEMPLATE = (
+        "You are a strict logical reasoning assistant.\n\n"
+        "Premise: '{premise}'\n"
+        "Consequence: '{consequence}'\n\n"
+        "Analyze if the premise implies the consequence. "
+        "Respond ONLY in valid JSON using the following format:\n"
+        "{{\n"
+        "  \"reasoning\": \"Briefly explain your logic here\",\n"
+        "  \"implication_score\": 1.0 (if fully true), 0.5 (if partially true), or 0.0 (if false)\n"
+        "}}"
+    )
+
+    def _query(self, premise: str, consequence: str) -> dict:
+        """Send one prompt to Ollama and return the parsed JSON dict."""
+        prompt = self._PROMPT_TEMPLATE.format(premise=premise, consequence=consequence)
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                response_format={"type": "json_object"},
+            )
+            raw_content = response.choices[0].message.content
+            data = json.loads(raw_content)
+            return {
+                "implication_score": float(data.get("implication_score", 0.5)),
+                "reasoning": data.get("reasoning", ""),
+            }
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"[LLM] JSON Parsing Error: {e}")
+            return {"implication_score": 0.5, "reasoning": f"[parse error] {e}"}
+        except Exception as e:
+            print(f"[LLM] Request failed ({type(e).__name__}): {e}")
+            return {"implication_score": 0.5, "reasoning": f"[request error] {e}"}
+
+    def call_with_reasoning(self, premise: str, consequence: str) -> tuple:
+        """Return (implication_score: float, reasoning: str)."""
+        result = self._query(premise, consequence)
+        return result["implication_score"], result["reasoning"]
 
     def __call__(self, premise: str, consequence: str) -> float:
-        # We explicitly define the expected JSON schema in the prompt
-        prompt = (
-            "You are a strict logical reasoning assistant.\n\n"
-            f"Premise: '{premise}'\n"
-            f"Consequence: '{consequence}'\n\n"
-            "Analyze if the premise implies the consequence. "
-            "Respond ONLY in valid JSON using the following format:\n"
-            "{\n"
-            "  \"reasoning\": \"Briefly explain your logic here\",\n"
-            "  \"implication_score\": 1.0 (if fully true), 0.5 (if partially true), or 0.0 (if false)\n"
-            "}"
-        )
-
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            response_format={"type": "json_object"}  # Forces JSON output
-        )
-
-        raw_content = response.choices[0].message.content
-        print(raw_content)
-
-        try:
-            # Parse the JSON and extract the float score directly
-            data = json.loads(raw_content)
-            return float(data.get("implication_score", 0.0))
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"[LLM] JSON Parsing Error. Raw output: {raw_content}")
-            return 0.5
+        return self._query(premise, consequence)["implication_score"]

@@ -116,12 +116,22 @@ class NodeMerger:
                             root=any(map(is_kernel_in_props, grouped_nodes))
                         )
 
+                        # For a *compound* merge, pass the dependency governor
+                        # (grouped_nodes[0] = node['data'], the edge[0] the merged
+                        # compound edges point from) so GraphNER can correct a
+                        # named-entity geo modifier that wrongly usurped the head
+                        # (only when the governor is not itself a place).
+                        compound_head_hint = (
+                            grouped_nodes[0]
+                            if edge[2]['label'].named_entity == 'compound' else None
+                        )
                         new_node = GraphNER_withProperties(
                             new_node,
                             self.is_simplistic_rewriting,
                             self.meu_db_row,
                             self.honk,
-                            self.existentials
+                            self.existentials,
+                            head_hint=compound_head_hint
                         ) if node_type == Grouping.GROUPING else new_node
                     else:
                         new_node = grouped_nodes[0]
@@ -137,13 +147,13 @@ class NodeMerger:
                         resolver = TypeResolver(self.meu_db_row, self.honk)
                         nx.set_node_attributes(G, {node['data'].id: resolver.nodeTypeResolution(new_node, resolver.associateNodeToBestMeuMatch(new_node), G)}, 'data')
 
-                    for parent_id in [n for n in [edge[0] for edge in G.in_edges(node['data'].id)] if (isinstance(G.nodes[n]['data'], Singleton) and G.nodes[n]['data'].named_entity == 'but') or (isinstance(G.nodes[n]['data'], SetOfSingletons) and G.nodes[n]['data'].entities[0].named_entity == 'but') and n not in nodes_to_remove]:
+                    for parent_id in [n for n in [edge[0] for edge in G.in_edges(node['data'].id)] if ((isinstance(G.nodes[n]['data'], Singleton) and G.nodes[n]['data'].named_entity == 'but') or (isinstance(G.nodes[n]['data'], SetOfSingletons) and getattr(G.nodes[n]['data'].entities[0], 'named_entity', None) == 'but')) and n not in nodes_to_remove]:
                         nodes_to_remove.append(node['data'].id)
 
                         negation_nodes = [
                             e for e in G.out_edges(
                                 [n for n in [edge[0] for edge in G.in_edges(node['data'].id)]
-                                 if (isinstance(G.nodes[n]['data'], Singleton) and G.nodes[n]['data'].named_entity == 'but') or (isinstance(G.nodes[n]['data'], SetOfSingletons) and G.nodes[n]['data'].entities[0].named_entity == 'but')][0], data=True
+                                 if (isinstance(G.nodes[n]['data'], Singleton) and G.nodes[n]['data'].named_entity == 'but') or (isinstance(G.nodes[n]['data'], SetOfSingletons) and getattr(G.nodes[n]['data'].entities[0], 'named_entity', None) == 'but')][0], data=True
                             ) if e[2]['label'].named_entity == 'neg'
                         ]
 

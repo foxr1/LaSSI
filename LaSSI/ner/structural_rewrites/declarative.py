@@ -181,6 +181,16 @@ def _eval_premise(name, values, kernel, ctx, bindings):
         return True
     if name == "AndTargetRedundantTime":
         return _eval_and_target_redundant_time(values, kernel, ctx, bindings)
+    if name == "AndConjunctHasContextProperty":
+        return prim.and_conjunct_has_context_property(kernel)
+    if name == "SpaceHasTemporalEntries":
+        return prim.space_has_temporal_entries(kernel)
+    if name == "SourceAndHasReducedRelativeVerb":
+        result = prim.match_source_reduced_relative(kernel, ctx)
+        if result is None:
+            return False
+        bindings.update(result)
+        return True
     if name == "AdjacentQuantityMergeable":
         for key in values:
             result = prim.match_adjacent_quantity_merge(kernel, key, ctx)
@@ -353,6 +363,12 @@ def _apply_consequence(name, params, kernel, bindings, ctx):
         kept = bindings["kept_target_entities"]
         new_target = kept[0] if len(kept) == 1 else target.update_entities(kept)
         return replace_kernel(kernel, target=new_target)
+    if name == "LiftConjunctContext":
+        return prim.lift_conjunct_context_properties(kernel)
+    if name == "DropTemporalFromSpace":
+        return prim.drop_temporal_from_space(kernel)
+    if name == "PromoteSourceReducedRelative":
+        return prim.apply_promote_source_reduced_relative(kernel, bindings, ctx)
     if name == "SplitModifier":
         changed, new_target = prim.split_modifier_node(kernel.kernel.target, params, ctx)
         return replace_kernel(kernel, target=new_target) if changed else kernel

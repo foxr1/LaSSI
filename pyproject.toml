@@ -67,7 +67,8 @@ dependencies = [
     "shap",
     "accelerate<=0.26.0",
     "sqlitedict",
-    "pyyaml"
+    "pyyaml",
+    "intervaltree"
 ]
 
 #[tool.scikit-build]

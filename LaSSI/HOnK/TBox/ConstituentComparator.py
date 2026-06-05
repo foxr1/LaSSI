@@ -117,6 +117,29 @@ def _is_change_of_state_relation(rel):
         return False
     return str(rel).lower() in {str(v).lower() for v in change_verbs}
 
+
+def _strip_event_classifier_suffix(name):
+    """Drop trailing EventClassifierHeadNoun(s) ("offence", "incident", ...) from
+    a surface phrase: "weapons possession offence" -> "weapons possession",
+    "possession offence" -> "possession". A classifier head noun categorises an
+    event without changing its referent, so "X offence" denotes the same thing
+    as "X". Mirrors `_strip_geo_generic_suffix` for locations; data-driven from
+    HOnK's EventClassifierHeadNoun set (never a hardcoded list). Returns `name`
+    unchanged when nothing strips."""
+    if not isinstance(name, str) or not name.strip() or not HOnKSingleton.isReady():
+        return name
+    try:
+        classifiers = {c.strip().lower()
+                       for c in (HOnKSingleton.get().getEventClassifierHeadNouns() or set())}
+    except Exception:
+        return name
+    if not classifiers:
+        return name
+    words = name.strip().split()
+    while len(words) > 1 and words[-1].lower() in classifiers:
+        words = words[:-1]
+    return " ".join(words)
+
 def _compare_single_prop_val(d, lhs_val, rhs_val, lhs_parent_concept=None, rhs_parent_concept=None):
     if lhs_val == rhs_val:
         return CasusHappening.EQUIVALENT
@@ -426,6 +449,14 @@ def compare_variable(d, lhs, rhs, lhs_parent_concept=None, rhs_parent_concept=No
             nameEQ = CasusHappening.EQUIVALENT
         else:
             nameEQ = kb.name_eq(lhs.name, rhs.name)
+        # Fallback: a trailing event-classifier head noun ("offence", "incident")
+        # categorises without changing the referent, so retry with it stripped
+        # ("possession offence" -> "possession").
+        if nameEQ == CasusHappening.INDIFFERENT and lhs.name and rhs.name:
+            lhs_name_ec = _strip_event_classifier_suffix(lhs.name)
+            rhs_name_ec = _strip_event_classifier_suffix(rhs.name)
+            if lhs_name_ec != lhs.name or rhs_name_ec != rhs.name:
+                nameEQ = kb.name_eq(lhs_name_ec, rhs_name_ec)
         if (nameEQ == CasusHappening.INDIFFERENT
                 and lhs.name is not None and rhs.name is not None):
             lhs_dt = _canonicalize_datetime_string(lhs.name)
@@ -450,6 +481,17 @@ def compare_variable(d, lhs, rhs, lhs_parent_concept=None, rhs_parent_concept=No
         else:
             specEQ = kb.name_eq(lhs.specification, rhs.specification)
         specEQInv = kb.name_eq(rhs.specification, lhs.specification)
+        # Same event-classifier fallback for specifications ("weapons" vs
+        # "possession offence" -> "possession"), so a compound object phrase
+        # parsed with the classifier on the modifier still lines up.
+        if (specEQ == CasusHappening.INDIFFERENT
+                and isinstance(lhs.specification, str) and isinstance(rhs.specification, str)
+                and lhs.specification and rhs.specification):
+            lhs_spec_ec = _strip_event_classifier_suffix(lhs.specification)
+            rhs_spec_ec = _strip_event_classifier_suffix(rhs.specification)
+            if lhs_spec_ec != lhs.specification or rhs_spec_ec != rhs.specification:
+                specEQ = kb.name_eq(lhs_spec_ec, rhs_spec_ec)
+                specEQInv = kb.name_eq(rhs_spec_ec, lhs_spec_ec)
         if lhs.spec_negation != rhs.spec_negation:
             specEQ = transformCaseWhenOneArgIsNegated(specEQ)
         _lhs_concept = _paraphrase_concept_of(lhs)
@@ -587,6 +629,20 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                 hasDirectSubset = True
             else:
                 for key in keys:
+                    if key == "SPACE":
+                        # A SPACE descriptor may be a single "<Locality> <Facility>"
+                        # compound on one side and a [<Facility>, <Locality>] pair on
+                        # the other — the same place, but uncomparable through the
+                        # per-value cross-product below (one compound can't match two
+                        # separate Singletons). Resolve it jointly; the verdict is
+                        # directional (near ⇒ on-or-near, but not vice versa).
+                        from LaSSI.HOnK.TBox.SpatialReasoner import _space_coreference_verdict
+                        cor = _space_coreference_verdict(x, y)
+                        if cor is not None:
+                            keyCmp[key] = cor
+                            cor_inv = _space_coreference_verdict(y, x)
+                            keyCmpInv[key] = cor_inv if cor_inv is not None else CasusHappening.INDIFFERENT
+                            continue
                     if key in dLHS and key in dRHS:
                         lhs_bests = [
                             simplifyConstituents([compare_variable(d, xx, yy) for yy in dRHS[key]])

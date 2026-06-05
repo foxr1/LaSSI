@@ -17,3 +17,18 @@ class HuggingFace:
         if (strictSim > np.finfo(float).eps): #ReLU
             return strictSim
         return 0.0
+
+    # Fixed-baseline thresholds for mapping sentence-transformer similarity scores
+    # onto {refuted, neutral, supported}. Chosen a priori (not tuned on the test
+    # set) so the baseline stays methodologically defensible; sentence similarity
+    # is a symmetric, non-directional signal, so over-tuning these is misleading.
+    TAU_HIGH = 0.8
+    TAU_LOW = 0.2
+
+    @classmethod
+    def label(cls, score: float) -> str:
+        if score >= cls.TAU_HIGH:
+            return "supported"
+        if score <= cls.TAU_LOW:
+            return "refuted"
+        return "neutral"
