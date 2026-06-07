@@ -164,10 +164,11 @@ class CreateFinalKernelX:
 
         # Return the last node ('highest' topological kernel)
         sorted_G = list(NodeFunctions.sort_G(self.G))
-        final_kernel = self.G.nodes[
+        selected_root_id = (
             [n_id for n_id in sorted_G if n_id in filtered_top_node_ids][-1]
             if len(filtered_top_node_ids) > 0 else sorted_G[-1]
-        ]['data']
+        )
+        final_kernel = self.G.nodes[selected_root_id]['data']
 
         # If the highest topological node is a copula ("are"), but we have a semantic verb ("carry out")
         # in our roots, swap them so the final kernel prioritizes the semantic action.
@@ -194,7 +195,15 @@ class CreateFinalKernelX:
                     cand = self.G.nodes[nid]['data']
                     if isinstance(cand, Singleton) and cand.kernel is not None and not is_copula_node(cand):
                         final_kernel = cand
+                        selected_root_id = nid
                         break
+
+        preferred_root_id = self._preferred_reduced_relative_reporting_root_id(
+            selected_root_id, filtered_top_node_ids, sorted_G
+        )
+        if preferred_root_id is not None:
+            selected_root_id = preferred_root_id
+            final_kernel = self.G.nodes[selected_root_id]['data']
 
         # Multi-component reconciliation: hoist subordinate clauses as SENTENCE properties
         # of the primary kernel.
@@ -231,7 +240,9 @@ class CreateFinalKernelX:
                     merged_props[k] = list(v)
                 else:
                     merged_props[k] = v
-            for nid in filtered_top_node_ids[:-1]:
+            for nid in filtered_top_node_ids:
+                if nid == selected_root_id:
+                    continue
                 other_kernel = self.G.nodes[nid]['data']
                 if not isinstance(other_kernel, Singleton):
                     continue
@@ -448,6 +459,7 @@ class CreateFinalKernelX:
             position_pairs,
         )
         final_kernel = self.post.run(final_kernel)
+        final_kernel = self._promote_embedded_reduced_relative_reporting_root(final_kernel)
 
         print(f"{final_kernel.to_string()}\n")
         return final_kernel
@@ -510,6 +522,282 @@ class CreateFinalKernelX:
         if not candidates:
             return None
         return min(candidates, key=lambda nid: self._kernel_min_pos(self.G.nodes[nid]['data']))
+
+    def _preferred_reduced_relative_reporting_root_id(self, selected_root_id, root_ids, sorted_G):
+        """Prefer a passive reduced-relative reporting verb over an outcome verb.
+
+        Crime rows such as "an investigation recorded near X concluded ..."
+        produce two same-component roots after the acl normalisation: the matrix
+        lifecycle/outcome verb (`conclude`) and the passive reduced-relative
+        reporting verb (`record`) sharing the same subject.  The reporting event
+        is the stable predicate for cross-row comparison; the outcome clause is
+        status context.
+        """
+        if selected_root_id is None or selected_root_id not in self.G:
+            return None
+        selected_kernel = self.G.nodes[selected_root_id]['data']
+        if not self._kernel_edge_matches_class(selected_kernel, "LifecycleOutcomeVerb"):
+            return None
+
+        for nid in reversed([n for n in sorted_G if n in root_ids]):
+            if nid == selected_root_id:
+                continue
+            candidate = self.G.nodes[nid]['data']
+            if not self._kernel_edge_matches_class(candidate, "ReportingVerb"):
+                continue
+            if not self._is_passive_reduced_relative_root(nid):
+                continue
+            if not self._roots_share_subject(nid, selected_root_id, candidate, selected_kernel):
+                continue
+            return nid
+        return None
+
+    def _kernel_edge_matches_class(self, kernel, class_name):
+        if not isinstance(kernel, Singleton) or kernel.kernel is None:
+            return False
+        edge = kernel.kernel.edgeLabel
+        if not isinstance(edge, Singleton):
+            return False
+        try:
+            return self.post.matchers.matches_class(edge, class_name, kernel=kernel)
+        except Exception:
+            return False
+
+    def _is_passive_reduced_relative_root(self, root_id):
+        passive_labels = {"nsubjpass", "subjpass"}
+        return bool(self._root_subject_ids(root_id, passive_labels))
+
+    def _roots_share_subject(self, lhs_root_id, rhs_root_id, lhs_kernel, rhs_kernel):
+        lhs_subjects = self._root_subject_ids(lhs_root_id, {"nsubj", "nsubjpass", "subj", "subjpass"})
+        rhs_subjects = self._root_subject_ids(rhs_root_id, {"nsubj", "nsubjpass", "subj", "subjpass"})
+        if lhs_subjects and rhs_subjects:
+            return bool(lhs_subjects & rhs_subjects)
+
+        lhs_refs = self._referenced_ids(lhs_kernel.kernel.source) | self._referenced_ids(lhs_kernel.kernel.target)
+        rhs_refs = self._referenced_ids(rhs_kernel.kernel.source) | self._referenced_ids(rhs_kernel.kernel.target)
+        for value in dict(rhs_kernel.properties).values():
+            rhs_refs |= self._referenced_ids(value)
+        return bool(lhs_refs and rhs_refs and lhs_refs & rhs_refs)
+
+    def _root_subject_ids(self, root_id, labels):
+        if root_id not in self.G:
+            return set()
+        subject_ids = set()
+        for _src, dst, data in self.G.out_edges(root_id, data=True):
+            label = data.get("label")
+            label_name = str(getattr(label, "named_entity", "") or "")
+            if label_name not in labels or dst not in self.G:
+                continue
+            subject_ids.add(dst)
+            subject_ids |= self._referenced_ids(self.G.nodes[dst].get("data"))
+        return subject_ids
+
+    @classmethod
+    def _referenced_ids(cls, value):
+        ids = set()
+        if isinstance(value, Singleton):
+            ids.add(value.id)
+            if value.kernel is not None:
+                ids |= cls._referenced_ids(value.kernel.source)
+                ids |= cls._referenced_ids(value.kernel.target)
+                ids |= cls._referenced_ids(value.kernel.edgeLabel)
+            for prop_value in dict(value.properties).values():
+                ids |= cls._referenced_ids(prop_value)
+        elif isinstance(value, SetOfSingletons):
+            ids.add(value.id)
+            for entity in value.entities:
+                ids |= cls._referenced_ids(entity)
+        elif isinstance(value, (list, tuple, set)):
+            for item in value:
+                ids |= cls._referenced_ids(item)
+        return ids
+
+    def _promote_embedded_reduced_relative_reporting_root(self, kernel):
+        """Recover a reporting root when a lifecycle outcome swallowed it.
+
+        Some parses reduce "an investigation recorded near X concluded..." to
+        `conclude(?, AND(recorded, damage))` with the event subject stranded in
+        `TIME_STATUS`.  The candidate-root helper cannot see `recorded` at that
+        point because it is no longer a root, so this fallback promotes the
+        embedded reporting verb under the same narrow ontology guards.
+        """
+        if not self._kernel_edge_matches_class(kernel, "LifecycleOutcomeVerb"):
+            return kernel
+        if not isinstance(kernel, Singleton) or kernel.kernel is None:
+            return kernel
+
+        reporting_node, content_nodes = self._embedded_reporting_target_parts(kernel.kernel.target)
+        if reporting_node is None or not content_nodes:
+            return kernel
+
+        props = defaultdict(list)
+        for key, value in dict(kernel.properties).items():
+            props[key] = list(value) if isinstance(value, (list, tuple)) else value
+
+        status_nodes = [
+            item for item in self._as_list(props.get("TIME_STATUS"))
+            if isinstance(item, Singleton)
+        ]
+        if status_nodes:
+            original_status = status_nodes[0]
+            event_content = self._status_event_content_node(original_status)
+            status = self._status_node_with_lifecycle_completion(original_status)
+            props["TIME_STATUS"] = [
+                status if getattr(item, "id", None) == status.id else item
+                for item in self._as_list(props.get("TIME_STATUS"))
+            ]
+            if event_content is not None and not any(
+                self._same_node_identity(event_content, node) for node in content_nodes
+            ):
+                content_nodes.append(event_content)
+        props = self._drop_lifecycle_outcome_specifications(props)
+
+        new_edge_name = dict(reporting_node.properties).get("lemma") or reporting_node.named_entity
+        new_edge = reporting_node.update_name(new_edge_name)
+        promoted = kernel.update_kernel(new_edge, "edgeLabel")
+        promoted = promoted.update_kernel(self._wrap_promoted_target(kernel.kernel.target, content_nodes), "target")
+        return promoted.update_node_props(props)
+
+    def _drop_lifecycle_outcome_specifications(self, props):
+        specs = self._as_list(props.get("SPECIFICATION"))
+        if not specs:
+            return props
+        kept = [
+            item for item in specs
+            if not self._value_matches_class(item, "LifecycleOutcomeVerb")
+        ]
+        if kept == specs:
+            return props
+        new_props = defaultdict(list)
+        for key, value in props.items():
+            new_props[key] = value
+        if kept:
+            new_props["SPECIFICATION"] = kept
+        else:
+            new_props.pop("SPECIFICATION", None)
+        return new_props
+
+    def _value_matches_class(self, value, class_name):
+        if isinstance(value, Singleton):
+            try:
+                if self.post.matchers.matches_class(value, class_name):
+                    return True
+            except Exception:
+                pass
+            if value.kernel is not None:
+                return self._kernel_edge_matches_class(value, class_name)
+        elif isinstance(value, SetOfSingletons):
+            return any(self._value_matches_class(entity, class_name) for entity in value.entities)
+        return False
+
+    def _embedded_reporting_target_parts(self, target):
+        if isinstance(target, SetOfSingletons):
+            entities = list(target.entities)
+        elif isinstance(target, Singleton):
+            entities = [target]
+        else:
+            return None, []
+
+        reporting = None
+        content = []
+        for entity in entities:
+            if isinstance(entity, Singleton) and self.post.matchers.matches_class(entity, "ReportingVerb"):
+                reporting = entity
+                continue
+            if isinstance(entity, (Singleton, SetOfSingletons)):
+                content.append(entity)
+        return reporting, content
+
+    @staticmethod
+    def _as_list(value):
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple)):
+            return list(value)
+        return [value]
+
+    @staticmethod
+    def _same_node_identity(left, right):
+        if not isinstance(left, Singleton) or not isinstance(right, Singleton):
+            return False
+        if left.id is not None and right.id is not None and left.id == right.id:
+            return True
+        return bool(left.named_entity and left.named_entity == right.named_entity)
+
+    def _status_node_with_lifecycle_completion(self, status):
+        props = dict(status.properties)
+        existing = props.get("type")
+        props["type"] = "complete"
+        status_name = self._status_head_surface(status)
+        if status_name is not None:
+            return status.update_name(status_name).update_node_props(props)
+        return status.update_node_props(props)
+
+    def _status_head_surface(self, status):
+        if not isinstance(status, Singleton) or not isinstance(status.named_entity, str):
+            return None
+        parts = status.named_entity.split()
+        status_parts = []
+        while parts and self._surface_matches_class(parts[-1], "StatusNoun"):
+            status_parts.insert(0, parts.pop())
+        return " ".join(status_parts) if status_parts else None
+
+    def _status_event_content_node(self, status):
+        if not isinstance(status, Singleton) or not isinstance(status.named_entity, str):
+            return None
+        parts = status.named_entity.split()
+        while parts and self._surface_matches_class(parts[-1], "StatusNoun"):
+            parts.pop()
+        if not parts:
+            return None
+        content_name = " ".join(parts)
+        if content_name == status.named_entity:
+            return None
+        props = {
+            key: value
+            for key, value in dict(status.properties).items()
+            if key != "type"
+        }
+        return Singleton(
+            id=status.id,
+            named_entity=content_name,
+            properties=frozenset(props.items()),
+            min=status.min,
+            max=status.max,
+            type=status.type,
+            confidence=status.confidence,
+            kernel=status.kernel,
+        )
+
+    def _surface_matches_class(self, surface, class_name):
+        node = Singleton(
+            id=-1,
+            named_entity=surface,
+            properties=frozenset(),
+            min=-1,
+            max=-1,
+            type="noun",
+            confidence=1.0,
+            kernel=None,
+        )
+        try:
+            return self.post.matchers.matches_class(node, class_name)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _wrap_promoted_target(original_target, content_nodes):
+        if len(content_nodes) == 1:
+            return content_nodes[0]
+        return SetOfSingletons(
+            id=getattr(original_target, "id", -1),
+            type=Grouping.AND,
+            entities=content_nodes,
+            min=min(getattr(node, "min", 0) for node in content_nodes),
+            max=max(getattr(node, "max", 0) for node in content_nodes),
+            confidence=min(getattr(node, "confidence", 1.0) for node in content_nodes),
+            root=getattr(original_target, "root", False),
+        )
 
     def find_prepositions_and_true_targets(self):
         found_preposition_labels = {}

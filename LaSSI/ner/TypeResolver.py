@@ -122,6 +122,15 @@ def _filter_spurious_meus(meu_db_row, honk):
                 monads = noun_monads_at_span.get(span_key, set())
                 if len(monads) >= 5:
                     continue
+                # A geo match that merely ties a noun on an all-lowercase
+                # single common word (e.g. "safety", "surface") is almost
+                # always a gazetteer false positive: real toponyms in notice
+                # text are capitalised ("Newcastle", "Whitley Bay"). Prefer
+                # the noun reading so the term is not mis-promoted to a
+                # location (which would otherwise drag its head — e.g.
+                # "safety concerns" — into a spurious geo type).
+                if text and text.isalpha() and text.islower():
+                    continue
         kept.append(meu)
     if len(kept) == len(meu_db_row.multi_entity_unit):
         return meu_db_row
@@ -187,6 +196,14 @@ class TypeResolver:
             end_meu = meu.end_char
             start_graph = item.min
             end_graph = item.max
+            # A synthetic/merged node can carry an invalid lower bound (min=-1)
+            # while its max is a real character offset. The plain overlap test
+            # then matches every MEU up to `max`, letting a distant place name
+            # (e.g. "Whitley Bay", GPE 1.0) bleed its type onto an unrelated
+            # token like "concerns". Anchor the lower bound to the node's real
+            # extent so only genuinely co-located MEUs are considered.
+            if start_graph is None or start_graph < 0:
+                start_graph = end_graph
             if start_graph > end_meu or start_meu > end_graph:
                 continue
             else:

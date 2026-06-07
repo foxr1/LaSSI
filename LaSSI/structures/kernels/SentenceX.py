@@ -1211,19 +1211,43 @@ def get_prepositions(node):
     found_prepositions = []
     node_props = dict(node.properties)
     _smart_apos = chr(0x2019)
+    float_keyed = {}
     for key in node_props:
         if key in DependencyRoles.preposition_marker_labels():
             value = node_props[key]
             if isinstance(value, str):
-                found_prepositions.append(value.lower().replace(_smart_apos, "’"))
+                found_prepositions.append(value.lower().replace(_smart_apos, "'"))
         try:
             case_position = float(key)
-            found_prepositions.append(node_props[key].lower().replace(_smart_apos, "’"))
+            value = node_props[key]
+            if not isinstance(value, str):
+                continue
+            val = value.lower().replace(_smart_apos, "'")
+            found_prepositions.append(val)
+            float_keyed[case_position] = val
         except (ValueError, AttributeError):
             continue
 
     if node.type in {"IN", "TO", "RB"}:
         found_prepositions.append(node.named_entity.lower())
+
+    # Reconstruct compound prepositions from position-ordered marker tokens.
+    # CoreNLP sometimes stores "on or near" as separate numeric properties
+    # (6:on, 7:or, 8:near) without a `case:on`; logical_analysis.json expects
+    # the compound surface form so the disjunctive SPACE type can fire.
+    if len(float_keyed) >= 2:
+        sorted_vals = [
+            v for _, v in sorted(float_keyed.items())
+            if re.search(r"[a-z]", v)
+        ]
+        if sorted_vals:
+            unique_vals = [sorted_vals[0]]
+            for v in sorted_vals[1:]:
+                if v != unique_vals[-1]:
+                    unique_vals.append(v)
+            compound = " ".join(unique_vals)
+            if compound and compound not in found_prepositions:
+                found_prepositions.append(compound)
     return set(found_prepositions)
 
 

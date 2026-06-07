@@ -1,4 +1,4 @@
-from LaSSI.structures.extended_fol.Formulae import FVariable, FOr, FUnaryPredicate, FBinaryPredicate, FNot
+from LaSSI.structures.extended_fol.Formulae import FVariable, FOr, FAnd, FUnaryPredicate, FBinaryPredicate, FNot
 from LaSSI.HOnK.HOnK import HOnKSingleton, CasusHappening
 from LaSSI.HOnK.TBox.ComparatorUtils import isImplication
 
@@ -435,3 +435,63 @@ def _space_coreference_verdict(lhs_formula, rhs_formula):
     if lhs_rel <= rhs_rel:
         return CasusHappening.GENERAL_IMPLICATION
     return CasusHappening.INDIFFERENT
+
+
+def _space_relation_narrowing(lhs_formula, rhs_formula) -> bool:
+    """True when LHS only commits to a broader spatial relation than RHS.
+
+    Example: a predicate located "on or near" a place carries
+    OR(stay in place, near place), while another says simply "near place".
+    The values are related enough to be partial support, but LHS should not
+    fully entail RHS because "on" is also allowed.
+    """
+    for lhs_pred in _iter_predicate_atoms(lhs_formula):
+        for rhs_pred in _iter_predicate_atoms(rhs_formula):
+            if getattr(lhs_pred, "rel", None) != getattr(rhs_pred, "rel", None):
+                continue
+            for lhs_val in _space_geo_values(lhs_pred):
+                lhs_rel = _spatial_relation_labels_for_value(lhs_val)
+                if not lhs_rel:
+                    continue
+                for rhs_val in _space_geo_values(rhs_pred):
+                    if not _space_values_name_compatible(lhs_val, rhs_val):
+                        continue
+                    rhs_rel = _spatial_relation_labels_for_value(rhs_val)
+                    if rhs_rel and rhs_rel < lhs_rel:
+                        return True
+    return False
+
+
+def _iter_predicate_atoms(formula):
+    if isinstance(formula, FNot):
+        formula = formula.arg
+    if isinstance(formula, (FBinaryPredicate, FUnaryPredicate)):
+        yield formula
+        return
+    if isinstance(formula, (FAnd, FOr)):
+        for arg in getattr(formula, "args", ()) or ():
+            yield from _iter_predicate_atoms(arg)
+
+
+def _spatial_relation_labels_for_value(value):
+    if not isinstance(value, FVariable) or not value.properties:
+        return set()
+    labels = set()
+    for key, val in value.properties:
+        if key != "type":
+            continue
+        for item in (val if isinstance(val, tuple) else (val,)):
+            labels |= _collect_label_strings(item)
+    return labels & _SPATIAL_RELATION_LABELS
+
+
+def _space_values_name_compatible(lhs_val, rhs_val):
+    lhs_name = getattr(lhs_val, "name", None)
+    rhs_name = getattr(rhs_val, "name", None)
+    if not lhs_name or not rhs_name:
+        return False
+    if lhs_name == rhs_name or lhs_name.lower() == rhs_name.lower():
+        return True
+    if not HOnKSingleton.isReady():
+        return False
+    return _geo_names_compatible(HOnKSingleton.get(), lhs_name, rhs_name)

@@ -75,7 +75,10 @@ class KernelOntologyMatchers:
         honk = self.services.getHOnK()
         class_getters = {
             "AccessPointNoun": honk.getAccessPointNouns,
+            "CausalSignalVerb": honk.getCausalSignalVerbs,
             "CausativeVerb": honk.getCausativeVerbs,
+            "ReportingVerb": honk.getReportingVerbs,
+            "LifecycleOutcomeVerb": honk.getLifecycleOutcomeVerbs,
             "MaterialisationVerb": honk.getMaterialisationVerbs,
             "ChangeOfStateVerb": honk.getChangeOfStateVerbs,
             "FacilityNoun": honk.getFacilityNouns,

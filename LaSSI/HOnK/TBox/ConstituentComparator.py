@@ -158,7 +158,7 @@ def _compare_single_prop_val(d, lhs_val, rhs_val, lhs_parent_concept=None, rhs_p
             return CasusHappening.GENERAL_IMPLICATION
     if isinstance(lhs_val, FOr):
         if any(_name_match(rhs_val, arg) for arg in lhs_val.args):
-            return CasusHappening.INDIFFERENT
+            return CasusHappening.INSTANTIATION_IMPLICATION
 
     if isinstance(lhs_val, FVariable) and isinstance(rhs_val, FVariable):
         return compare_variable(d, lhs_val, rhs_val, lhs_parent_concept=lhs_parent_concept, rhs_parent_concept=rhs_parent_concept)

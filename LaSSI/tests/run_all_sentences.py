@@ -193,7 +193,7 @@ if __name__ == '__main__':
             delete_files(False, False, folders, transformation)
             if transformation == SentenceRepresentation.FullText:
                 llm_transformers = [
-                    "LLM#llama3.2:3b", "LLM#qwen3.5:4b", "LLM#gemma4:e2b"
+                    "LLM#llama3.2:3b", "LLM#qwen2.5:7b", "LLM#gemma4:e2b"
                 ]
                 transformers = [
                     "all-MiniLM-L6-v2", "all-MiniLM-L12-v2", "all-mpnet-base-v2",

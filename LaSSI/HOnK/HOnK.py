@@ -106,6 +106,9 @@ _LOOKUP_SET_REGISTRY: dict = {
     "prototypical_prepositions":    "getPrototypicalPrepositions",
     "transitive_verbs":             "getTransitiveVerbs",
     "causative_verbs":              "getCausativeVerbs",
+    "causal_signal_verbs":          "getCausalSignalVerbs",
+    "reporting_verbs":              "getReportingVerbs",
+    "lifecycle_outcome_verbs":      "getLifecycleOutcomeVerbs",
     "consumption_verbs":            "getConsumptionVerbs",
     "movement_verbs":               "getMovementVerbs",
     "means_verbs":                  "getMeansVerbs",
@@ -167,6 +170,9 @@ class HOnK(RDFGraph):
             "PrototypicalPreposition": "prototypical_prepositions",
             "TransitiveVerb":          "transitive_verbs",
             "CausativeVerb":           "causative_verbs",
+            "CausalSignalVerb":        "causal_signal_verbs",
+            "ReportingVerb":           "reporting_verbs",
+            "LifecycleOutcomeVerb":    "lifecycle_outcome_verbs",
             "ConsumptionVerb":         "consumption_verbs",
             "MotionVerb":              "movement_verbs",
             "MeansVerb":               "means_verbs",
@@ -229,7 +235,9 @@ class HOnK(RDFGraph):
             ("units_of_measure.txt", ("units_of_measure",)),
             ("abstract_entity_concepts.txt", ("abstract_entities",)),
             (os.path.join("verbs", "causative_verbs.txt"), ("causative_verbs",)),
-            (os.path.join("verbs", "causal_signal_verbs.txt"), ("causative_verbs",)),
+            (os.path.join("verbs", "causal_signal_verbs.txt"), ("causative_verbs", "causal_signal_verbs")),
+            (os.path.join("verbs", "reporting_verbs.txt"), ("reporting_verbs",)),
+            (os.path.join("verbs", "lifecycle_outcome_verbs.txt"), ("lifecycle_outcome_verbs",)),
             (os.path.join("verbs", "consumption_verbs.txt"), ("consumption_verbs",)),
             (os.path.join("verbs", "transitive_verbs.txt"), ("transitive_verbs",)),
             (os.path.join("verbs", "stative_verbs.txt"), ("stative_verbs",)),
@@ -1371,4 +1379,3 @@ def _load_logical_rules_from_json(json_path: str):
             rule_id += 1
 
     return rules
-

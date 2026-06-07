@@ -7,6 +7,21 @@ HONK_NS = "https://ofox.co.uk/honk#"
 
 negations = {'not', 'no'}
 
+# Dependency markers (case / preposition tokens) are stored on a node under
+# float-formatted *position* keys, e.g. "10.000000". Several passes (graph
+# construction, the structural rewrites, the kernel rewriter) need to recognise
+# these; this is the single shared predicate so the pattern is not re-implemented
+# per module.
+POSITION_KEY_RE = re.compile(r"^\d+(?:\.\d+)?$")
+
+
+def is_position_key(key) -> bool:
+    """True when *key* is a position-keyed property name (e.g. "10.000000")."""
+    try:
+        return bool(POSITION_KEY_RE.match(str(key)))
+    except (TypeError, ValueError):
+        return False
+
 @lru_cache(maxsize = 1024)
 def is_label_verb(edge_label_name):
     edge_label_name = lemmatize_verb(edge_label_name).lower()

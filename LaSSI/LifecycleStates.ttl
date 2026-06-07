@@ -447,3 +447,58 @@ lifecycle:phrase_very_low
     rdfs:label "very low" ;
     lifecycle:memberOf lifecycle:PrecipitationIntensity ;
     lifecycle:partition "low" .
+
+# ---------------------------------------------------------------------------
+# Transport-availability dimension — whether a piece of transport
+# infrastructure (footbridge, lift, platform, station) is asserted to be in
+# service or out of service.  Phrases on opposite partitions contradict, so
+# 'out of use' neqTo 'operational' even though HOnK does not encode it.
+#
+# Source sentences: transport_004 — "The smaller footbridge … is out of use."
+# vs "Both footbridges … are fully operational."
+# ---------------------------------------------------------------------------
+
+lifecycle:TransportAvailability
+    a lifecycle:LifecycleDimension ;
+    rdfs:label "transport_availability" ;
+    rdfs:comment "e.g. 'The smaller footbridge is out of use.' vs 'Both footbridges are fully operational.'" .
+
+# ---------- Available / in service ----------
+
+lifecycle:phrase_operational
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "operational" ;
+    lifecycle:memberOf lifecycle:TransportAvailability ;
+    lifecycle:partition "available" .
+
+lifecycle:phrase_in_use
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "in use" ;
+    lifecycle:memberOf lifecycle:TransportAvailability ;
+    lifecycle:partition "available" .
+
+# ---------- Unavailable / out of service ----------
+
+lifecycle:phrase_out_of_use
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "out of use" ;
+    lifecycle:memberOf lifecycle:TransportAvailability ;
+    lifecycle:partition "unavailable" .
+
+lifecycle:phrase_out-of-use
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "out-of-use" ;
+    lifecycle:memberOf lifecycle:TransportAvailability ;
+    lifecycle:partition "unavailable" .
+
+lifecycle:phrase_out_of_service
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "out of service" ;
+    lifecycle:memberOf lifecycle:TransportAvailability ;
+    lifecycle:partition "unavailable" .
+
+lifecycle:phrase_out-of-service
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "out-of-service" ;
+    lifecycle:memberOf lifecycle:TransportAvailability ;
+    lifecycle:partition "unavailable" .

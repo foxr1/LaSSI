@@ -12,6 +12,8 @@
     ]
   },
   "rules": [
+    {"impl": "pseudo_verb_copula_recovery:PseudoVerbCopulaRecoveryRule"},
+    {"impl": "copula_complement_promotion:CopulaComplementPromotionRule"},
     {
       "name": "promote_source_reduced_relative",
       "phase": "post_logical_rewrite",
@@ -99,6 +101,7 @@
     {"impl": "lifecycle_property_promotion:LifecyclePropertyPromotionRule"},
     {"impl": "lifecycle_property_promotion:LifecyclePropertyPromotionLateRule"},
     {"impl": "status_verb_into_time_status:StatusVerbIntoTimeStatusRule"},
+    {"impl": "causal_signal_result:CausalSignalResultRule"},
     {
       "name": "after_occurrence_context_to_causation",
       "phase": "post_logical_rewrite",

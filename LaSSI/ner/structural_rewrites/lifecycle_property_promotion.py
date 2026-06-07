@@ -4,8 +4,7 @@ __license__ = "GPL"
 __version__ = "2.0"
 __maintainer__ = "Oliver R. Fox"
 
-import re
-
+from LaSSI.ner.string_functions import is_position_key
 from LaSSI.ner.structural_rewrites.base import (
     StructuralRewriteRule,
     append_unique_property_value,
@@ -251,19 +250,51 @@ class LifecyclePropertyPromotionRule(StructuralRewriteRule):
         if not isinstance(value, Singleton) or value.kernel is None:
             return None
         edge = value.kernel.edgeLabel
-        edge_name = str(getattr(edge, "named_entity", "") or "").strip().lower()
-        status_type = cls._STATUS_VERB_TYPE_BY_LEMMA.get(edge_name)
+        status_type = cls._status_type_for_edge(edge, ctx)
         if status_type is None:
             return None
 
-        target = value.kernel.target
-        if cls._is_status_node(target, ctx):
-            return cls._status_node_with_explicit_type(target, status_type)
+        for endpoint in (value.kernel.target, value.kernel.source):
+            status_node = cls._find_status_node(endpoint, ctx)
+            if status_node is not None:
+                return cls._status_node_with_explicit_type(status_node, status_type)
 
-        status_extra = cls._status_extra(target, ctx)
-        if status_extra is not None:
-            return cls._status_node_with_explicit_type(status_extra, status_type)
+        for prop_value in dict(value.properties).values():
+            status_node = cls._find_status_node(prop_value, ctx)
+            if status_node is not None:
+                return cls._status_node_with_explicit_type(status_node, status_type)
         return None
+
+    @classmethod
+    def _status_type_for_edge(cls, edge, ctx):
+        edge_name = str(getattr(edge, "named_entity", "") or "").strip().lower()
+        status_type = cls._STATUS_VERB_TYPE_BY_LEMMA.get(edge_name)
+        if status_type is not None:
+            return status_type
+        try:
+            if ctx.matchers.matches_class(edge, "LifecycleOutcomeVerb"):
+                return "complete"
+        except Exception:
+            pass
+        return None
+
+    @classmethod
+    def _find_status_node(cls, value, ctx):
+        if isinstance(value, SetOfSingletons):
+            for entity in value.entities:
+                found = cls._find_status_node(entity, ctx)
+                if found is not None:
+                    return found
+            return None
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                found = cls._find_status_node(item, ctx)
+                if found is not None:
+                    return found
+            return None
+        if cls._is_status_node(value, ctx):
+            return value
+        return cls._status_extra(value, ctx)
 
     @staticmethod
     def _status_node_with_explicit_type(value, status_type):
@@ -303,6 +334,8 @@ class LifecyclePropertyPromotionRule(StructuralRewriteRule):
 
     @classmethod
     def _status_extra(cls, value, ctx):
+        if not isinstance(value, Singleton):
+            return None
         props = dict(value.properties)
         for extra in property_values(props, "extra"):
             if isinstance(extra, Singleton) and cls._is_status_node(extra, ctx):
@@ -318,8 +351,6 @@ class LifecyclePropertyPromotionRule(StructuralRewriteRule):
         props = dict(value.properties)
         punct_values = property_values(props, "punct")
         return any(str(p) == ":" for p in punct_values)
-
-    _NUMBERED_KEY_RE = re.compile(r"^\d+(?:\.\d+)?$")
 
     @classmethod
     def _status_node_with_state_type(cls, value):
@@ -367,7 +398,7 @@ class LifecyclePropertyPromotionRule(StructuralRewriteRule):
                 return name.lower(), "amod", item
 
         for key, raw in props.items():
-            if not isinstance(key, str) or not cls._NUMBERED_KEY_RE.match(key):
+            if not isinstance(key, str) or not is_position_key(key):
                 continue
             if not isinstance(raw, str):
                 continue

@@ -608,6 +608,10 @@ class TabularCWASemantics:
                 # Mutual entailment via ontology synonymy, but the asymmetric
                 # distinguishing content means the events are distinct.
                 val = 0.5
+        if val > 0.5:
+            from LaSSI.HOnK.TBox.SpatialReasoner import _space_relation_narrowing
+            if _space_relation_narrowing(self.sentence_list[i], self.sentence_list[j]):
+                val = 0.5
         return val
 
     def get_implication(self, i, j):

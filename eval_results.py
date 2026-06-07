@@ -13,14 +13,17 @@ _NEET_LABELS = ["Supported", "Refuted", "Not Enough Evidence"]
 _LABEL_SHORT = {"Supported": "Sup.", "Refuted": "Ref.", "Not Enough Evidence": "NEE"}
 
 # ---------------------------------------------------------------------------
-# Gold similarity reference for the Logical model.
-# matrix[0][c] = P(Sc | S0): given the source text (S0), how much does it
-# entail claim Sc?  This is the claim-verification direction.
-# The gold tells us the EXPECTED value for each cell; using it avoids
-# misclassifying cases where the computed value deviates slightly from the
-# true logical output (e.g. crime_006 R computes 0.5 but gold expects 0.0).
+# Gold similarity reference for directional matrix-output models.
+# matrix[i][j] = P(Sj | Si). For claim verification, row/column direction
+# matters: contradictions show up as 0.0 in either direction, while supported
+# paraphrases may be exact in only the reciprocal direction.
+# The gold tells us the expected directional relationship.  A forward partial
+# such as P(S1 | S0)=0.5 may still be the correct Supported verdict when the
+# reciprocal direction licenses the asymmetric entailment.
 # ---------------------------------------------------------------------------
 _SIMILARITIES_GOLD_PATH = 'LaSSI/tests/assertions/similarities_neet.json'
+_TIMING_SUMMARY_CSV_PATH = 'results/sentence_length/evidence_cases_FIRST_TEST.csv'
+_TIMING_SUMMARY_COLUMN = 'ex_post_explain_s'
 
 
 def _load_similarities_gold() -> dict:
@@ -29,6 +32,43 @@ def _load_similarities_gold() -> dict:
             return json.load(f)
     except FileNotFoundError:
         return {}
+
+
+def _load_timing_summary(path: str = _TIMING_SUMMARY_CSV_PATH,
+                         column: str = _TIMING_SUMMARY_COLUMN):
+    if not os.path.exists(path):
+        return {}
+    try:
+        timing_df = pd.read_csv(path)
+    except Exception as e:
+        print(f"Failed to read timing summary CSV at {path}: {e}")
+        return {}
+    required = {'transformation', 'transformer', column}
+    missing = required - set(timing_df.columns)
+    if missing:
+        print(f"Timing summary CSV at {path} is missing columns: {', '.join(sorted(missing))}")
+        return {}
+    timing_df = timing_df.copy()
+    timing_df[column] = pd.to_numeric(timing_df[column], errors='coerce')
+    timing_df = timing_df.dropna(subset=[column])
+    if timing_df.empty:
+        return {}
+    timing_df['model_name'] = timing_df.apply(_timing_model_name, axis=1)
+    grouped = timing_df.groupby('model_name')[column].agg(['mean', 'count'])
+    return {
+        model_name: {'mean': float(row['mean']), 'count': int(row['count'])}
+        for model_name, row in grouped.iterrows()
+    }
+
+
+def _timing_model_name(row) -> str:
+    transformation = str(row['transformation'])
+    if transformation == "Logical":
+        return "Logical"
+    transformer = row['transformer']
+    if pd.isna(transformer) or str(transformer).strip() == "":
+        return transformation
+    return f"{transformation}_{transformer}"
 
 
 def _gold_cell(gold: dict, case: str, row: int, col: int):
@@ -63,10 +103,32 @@ def get_label_logical(v):
         return "Unknown"
 
 
-def get_label_logical_gold(gold: dict, case: str, c: int, fallback_val) -> str:
+def _is_partial(v) -> bool:
+    return v is None or (0.0 < v < 1.0)
+
+
+def _gold_claim_label(forward, backward, expected_label: str | None = None) -> str:
+    """
+    Derive a claim-verification label from the gold source/claim pair.
+
+    `forward` is P(Sc | S0); `backward` is P(S0 | Sc).  The gold matrices are
+    directional similarity assertions, not flat classifier labels, so use the
+    pair rather than assuming that only row 0 carries the verdict.
+    """
+    if forward == 0.0 or backward == 0.0:
+        return "Refuted"
+    if forward == 1.0 or backward == 1.0:
+        return "Supported"
+    if expected_label == "Supported" and _is_partial(forward) and _is_partial(backward):
+        return "Supported"
+    return "Not Enough Evidence"
+
+
+def get_label_logical_gold(gold: dict, case: str, c: int, fallback_val,
+                           expected_label: str | None = None) -> str:
     """
     For the Logical model, derive the predicted label from the gold expected
-    similarity (similarities_neet.json[case][0][c]) when available.
+    source/claim similarity pair when available.
 
     Using the gold avoids mis-labelling cells where the computed value has
     drifted from the correct logical output (e.g. crime_006 R: computed=0.5
@@ -75,12 +137,50 @@ def get_label_logical_gold(gold: dict, case: str, c: int, fallback_val) -> str:
     Falls back to get_label_logical(fallback_val) when the case is absent
     from the gold JSON (e.g. roadworks cases).
     """
-    gold_val = _gold_cell(gold, case, 0, c)   # first row: P(Sc | S0)
-    if gold_val is None and case not in gold:
-        # Case not in gold at all — use computed first-row value
+    if case not in gold:
         return get_label_logical(fallback_val)
-    # Case IS in gold (gold_val may be None meaning "null" = partial = NEE)
-    return get_label_logical(gold_val)
+    forward = _gold_cell(gold, case, 0, c)    # P(Sc | S0)
+    backward = _gold_cell(gold, case, c, 0)   # P(S0 | Sc)
+    return _gold_claim_label(forward, backward, expected_label)
+
+
+def get_label_matrix_output(gold: dict, case: str, c: int, fallback_val,
+                            expected_label: str | None = None) -> str:
+    """
+    Map a discrete matrix-output model value into the CURB label space.
+
+    Matrix-style outputs use the same 0/partial/1 semantics as the Logical
+    matrices.  They should therefore honour asymmetric Supported cases where
+    the gold evidence-to-claim cell is itself partial.  A partial model output
+    is not credited as support when the gold first-row value is full support.
+    Continuous similarity baselines do not use this function; they keep the
+    fixed diagnostic thresholds below.
+    """
+    if fallback_val is None:
+        return "Unknown"
+    if isinstance(fallback_val, str):
+        label = fallback_val.strip().title()
+        if label in _NEET_LABELS:
+            return label
+        try:
+            fallback_val = float(label)
+        except ValueError:
+            return "Unknown"
+
+    if fallback_val == 1.0:
+        return "Supported"
+    if fallback_val == 0.0:
+        return "Refuted"
+
+    if case in gold and expected_label == "Supported" and _is_partial(fallback_val):
+        forward = _gold_cell(gold, case, 0, c)
+        backward = _gold_cell(gold, case, c, 0)
+        if _is_partial(forward) and _gold_claim_label(forward, backward, expected_label) == "Supported":
+            return "Supported"
+
+    if _is_partial(fallback_val):
+        return "Not Enough Evidence"
+    return "Unknown"
 
 
 def get_label_transformer(v):
@@ -144,6 +244,13 @@ def _compute_perclass_f1(subset: pd.DataFrame, model_name: str):
     return {label: float(scores[i]) for i, label in enumerate(_NEET_LABELS)}
 
 
+def _correct_series(frame: pd.DataFrame, pred_col: str) -> pd.Series:
+    true_l = frame['label'].astype(str).str.title()
+    pred_l = frame[pred_col].astype(str).str.title()
+    valid = frame[pred_col].isin(_NEET_LABELS)
+    return (true_l == pred_l).where(valid)
+
+
 def _pct(v) -> str:
     return f"{v * 100:.1f}" if v is not None else "--"
 
@@ -152,8 +259,40 @@ def _f1s(v) -> str:
     return f"{v:.3f}" if v is not None else "--"
 
 
+def _seconds(v) -> str:
+    return f"{v:.3f}" if v is not None else "--"
+
+
 def _bold(s: str) -> str:
     return r"\textbf{" + s + r"}"
+
+
+def _color(s: str, color: str) -> str:
+    return r"\textcolor{" + color + r"}{" + s + r"}"
+
+
+def _extrema(values):
+    vals = [v for v in values if v is not None]
+    return (min(vals), max(vals)) if vals else (None, None)
+
+
+def _highlight_extreme(s: str, v, low, high,
+                       high_color: str = "blue", low_color: str = "red") -> str:
+    if v is None or low is None or high is None or abs(high - low) < 1e-9:
+        return s
+    if abs(v - high) < 1e-9:
+        return _color(s, high_color)
+    if abs(v - low) < 1e-9:
+        return _color(s, low_color)
+    return s
+
+
+def _header_cell(lines) -> str:
+    if isinstance(lines, str):
+        lines = (lines,)
+    if len(lines) == 1:
+        return _bold(lines[0])
+    return r"\shortstack{" + r"\\".join(_bold(line) for line in lines) + r"}"
 
 
 # ---------------------------------------------------------------------------
@@ -161,16 +300,16 @@ def _bold(s: str) -> str:
 # ---------------------------------------------------------------------------
 
 # Claim-type column definitions for the modification-strategy table.
-# Each entry: (column header, list of claim_type values that map to it).
+# Each entry: (column header lines, list of claim_type values that map to it).
 # direct_support and approximate_paraphrase are both paraphrase-style Supported claims.
 _CLAIM_COLS = [
-    ("Para.",   ["direct_support", "approximate_paraphrase"]),
-    ("Neg.",    ["negation"]),
-    ("Loc.",    ["location_mismatch"]),
-    ("Time",    ["time_mismatch"]),
-    ("Cause",   ["cause_mismatch"]),
-    ("Stat.",   ["outcome_mismatch"]),   # Status/Lifecycle Change in paper terminology
-    ("Extra",   ["unsupported_extra_detail"]),
+    (("Paraphrase",),                 ["direct_support", "approximate_paraphrase"]),
+    (("Negation",),                   ["negation"]),
+    (("Location", "Mismatch"),        ["location_mismatch"]),
+    (("Time", "Mismatch"),            ["time_mismatch"]),
+    (("Cause", "Mismatch"),           ["cause_mismatch"]),
+    (("Status", "Change"),            ["outcome_mismatch"]),   # Status/Lifecycle Change in paper terminology
+    (("Unsupported", "Extra Detail"), ["unsupported_extra_detail"]),
 ]
 
 _DOMAIN_COLS = ["transport", "roadworks", "weather", "crime"]
@@ -181,10 +320,12 @@ _CE_KEYS  = ["FullText_bge-reranker-v2-m3", "FullText_nli-deberta-v3-base", "Ful
 
 
 def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
+                          timing_stats: dict | None = None,
                           output_path: str = "results/evaluation_tables.tex") -> None:
     """Generate a LaTeX file containing the three results tables and confusion matrix figure."""
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    timing_stats = timing_stats or {}
 
     # ------------------------------------------------------------------ #
     # Determine model ordering                                             #
@@ -214,24 +355,33 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
     rep_models = [m for m in [rep_st, rep_ce, rep_llm, rep_lassi] if m is not None]
 
     # ------------------------------------------------------------------ #
-    # Gather all stats upfront so we can bold the best values              #
+    # Gather all stats upfront so we can color the extrema                 #
     # ------------------------------------------------------------------ #
     stats: dict[str, tuple] = {}  # model_name → (acc, f1)
     for m in all_ordered:
         stats[m] = _compute_stats(merged, m)
 
-    best_acc = max((v[0] for v in stats.values() if v[0] is not None), default=None)
-    best_f1  = max((v[1] for v in stats.values() if v[1] is not None), default=None)
+    acc_low, acc_high = _extrema(v[0] for v in stats.values())
+    f1_low, f1_high = _extrema(v[1] for v in stats.values())
+    time_low, time_high = _extrema(
+        timing_stats[m]['mean'] for m in all_ordered if m in timing_stats
+    )
 
     def _fmt_acc(m):
         v = stats[m][0]
         s = _pct(v)
-        return _bold(s) if v is not None and abs(v - best_acc) < 1e-9 else s
+        return _highlight_extreme(s, v, acc_low, acc_high)
 
     def _fmt_f1(m):
         v = stats[m][1]
         s = _f1s(v)
-        return _bold(s) if v is not None and abs(v - best_f1) < 1e-9 else s
+        return _highlight_extreme(s, v, f1_low, f1_high)
+
+    def _fmt_time(m):
+        v = timing_stats.get(m, {}).get('mean')
+        s = _seconds(v)
+        return _highlight_extreme(s, v, time_low, time_high,
+                                  high_color="red", low_color="blue")
 
     # ------------------------------------------------------------------ #
     # Table 1 — overall results                                            #
@@ -246,23 +396,23 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
         for group_label, members in groups:
             if not members:
                 continue
-            rows.append(f"        \\multicolumn{{3}}{{l}}{{{group_label}}} \\\\")
+            rows.append(f"        \\multicolumn{{4}}{{l}}{{{group_label}}} \\\\")
             for m in members:
-                rows.append(f"        {_tex_name(m)} & {_fmt_acc(m)} & {_fmt_f1(m)} \\\\")
+                rows.append(f"        {_tex_name(m)} & {_fmt_acc(m)} & {_fmt_f1(m)} & {_fmt_time(m)} \\\\")
             rows.append("        \\midrule")
         # LaSSI last, no extra midrule before it (last midrule from groups covers it)
         if "Logical" in model_names:
-            rows.append(f"        {_tex_name('Logical')} & {_fmt_acc('Logical')} & {_fmt_f1('Logical')} \\\\")
+            rows.append(f"        {_tex_name('Logical')} & {_fmt_acc('Logical')} & {_fmt_f1('Logical')} & {_fmt_time('Logical')} \\\\")
 
         body = "\n".join(rows)
         return rf"""
 \begin{{table*}}[t]
     \centering
-    \caption{{Overall performance across the \gls{{curb}} test set. Best result per metric in \textbf{{bold}}.}}
+    \caption{{Overall performance across the \gls{{curb}} test set. For accuracy and Macro-F1, highest values are blue and lowest are red; for time, fastest is blue and slowest is red.}}
     \label{{tab:overall-results}}
-    \begin{{tabular}}{{l c c}}
+    \begin{{tabular}}{{l c c c}}
         \toprule
-        \textbf{{Model}} & \textbf{{Accuracy (\%)}} & \textbf{{Macro-F1}} \\
+        \textbf{{Model}} & \textbf{{Accuracy (\%)}} & \textbf{{Macro-F1}} & \textbf{{Avg. Time (s)}} \\
         \midrule
 {body}
         \bottomrule
@@ -273,10 +423,10 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
     # Table 2 — modification strategy                                      #
     # ------------------------------------------------------------------ #
     def _table2() -> str:
-        col_headers = " & ".join(f"\\textbf{{{h}}}" for h, _ in _CLAIM_COLS)
+        col_headers = " & ".join(_header_cell(h) for h, _ in _CLAIM_COLS)
         n_cols = len(_CLAIM_COLS)
 
-        # Collect cell values to find per-column bests
+        # Collect cell values to find per-column extrema
         cell: dict[str, list] = {}
         for m in rep_models:
             row_vals = []
@@ -286,10 +436,9 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
                 row_vals.append(acc)
             cell[m] = row_vals
 
-        col_bests = []
+        col_extrema = []
         for ci in range(n_cols):
-            vals = [cell[m][ci] for m in rep_models if cell[m][ci] is not None]
-            col_bests.append(max(vals) if vals else None)
+            col_extrema.append(_extrema(cell[m][ci] for m in rep_models))
 
         rows = []
         for idx, m in enumerate(rep_models):
@@ -298,8 +447,8 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
             cells = []
             for ci, v in enumerate(cell[m]):
                 s = _pct(v)
-                if v is not None and col_bests[ci] is not None and abs(v - col_bests[ci]) < 1e-9:
-                    s = _bold(s)
+                low, high = col_extrema[ci]
+                s = _highlight_extreme(s, v, low, high)
                 cells.append(s)
             rows.append(f"        {_tex_name(m)} & {' & '.join(cells)} \\\\")
 
@@ -308,8 +457,8 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
         return rf"""
 \begin{{table*}}[t]
     \centering
-    \small
-    \caption{{Accuracy (\%) sliced by modification strategy for representative models. Best per column in \textbf{{bold}}.}}
+    \scriptsize
+    \caption{{Accuracy (\%) sliced by modification strategy for representative models. Highest per column in blue; lowest in red.}}
     \label{{tab:mod-results}}
     \begin{{tabularx}}{{\textwidth}}{{{col_spec}}}
         \toprule
@@ -336,10 +485,9 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
                 row_vals.append(acc)
             cell[m] = row_vals
 
-        col_bests = []
+        col_extrema = []
         for ci in range(len(present_domains)):
-            vals = [cell[m][ci] for m in rep_models if cell[m][ci] is not None]
-            col_bests.append(max(vals) if vals else None)
+            col_extrema.append(_extrema(cell[m][ci] for m in rep_models))
 
         rows = []
         for idx, m in enumerate(rep_models):
@@ -348,8 +496,8 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
             cells = []
             for ci, v in enumerate(cell[m]):
                 s = _pct(v)
-                if v is not None and col_bests[ci] is not None and abs(v - col_bests[ci]) < 1e-9:
-                    s = _bold(s)
+                low, high = col_extrema[ci]
+                s = _highlight_extreme(s, v, low, high)
                 cells.append(s)
             rows.append(f"        {_tex_name(m)} & {' & '.join(cells)} \\\\")
 
@@ -359,7 +507,7 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
 \begin{{table*}}[t]
     \centering
     \small
-    \caption{{Accuracy (\%) sliced by civic domain for representative models. Best per column in \textbf{{bold}}.}}
+    \caption{{Accuracy (\%) sliced by civic domain for representative models. Highest per column in blue; lowest in red.}}
     \label{{tab:domain-results}}
     \begin{{tabular}}{{{col_spec}}}
         \toprule
@@ -402,14 +550,15 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
 
     def _figure() -> str:
         minipages = []
-        width = f"{0.95 / max(len(rep_models), 1):.2f}"
+        width = f"{0.92 / max(len(rep_models), 1):.2f}"
         for m in rep_models:
             cm_tex = _cm_tabular(m)
             short = _tex_name(m)
             minipages.append(
                 f"    \\begin{{minipage}}{{{width}\\textwidth}}\n"
                 f"        \\centering\n"
-                f"        \\small\n"
+                f"        \\scriptsize\n"
+                f"        \\setlength{{\\tabcolsep}}{{2.5pt}}\n"
                 f"        {short}\\\\\n"
                 f"        \\vspace{{4pt}}\n"
                 f"{cm_tex}\n"
@@ -436,19 +585,16 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
         # Gather per-class F1 for every representative model
         pcf: dict[str, dict] = {m: _compute_perclass_f1(merged, m) for m in rep_models}
 
-        # Per-column (per-class) bests for bolding
-        col_bests = {}
+        # Per-column (per-class) extrema for coloring
+        col_extrema = {}
         for label in _NEET_LABELS:
-            vals = [pcf[m][label] for m in rep_models if pcf[m][label] is not None]
-            col_bests[label] = max(vals) if vals else None
+            col_extrema[label] = _extrema(pcf[m][label] for m in rep_models)
 
         def _fmt_pc(m, label):
             v = pcf[m][label]
             s = _f1s(v)
-            if v is not None and col_bests[label] is not None \
-                    and abs(v - col_bests[label]) < 1e-9:
-                s = _bold(s)
-            return s
+            low, high = col_extrema[label]
+            return _highlight_extreme(s, v, low, high)
 
         short_headers = " & ".join(
             f"\\textbf{{F1({_LABEL_SHORT[l]})}}" for l in _NEET_LABELS
@@ -470,7 +616,7 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
              F1(Sup.)\ captures supported-claim recall and precision jointly;
              F1(Ref.)\ reflects contradiction detection;
              F1(NEE)\ reflects detection of unsupported extra detail.
-             Best per column in \textbf{{bold}}.}}
+             Highest per column in blue; lowest in red.}}
     \label{{tab:perclass-f1}}
     \begin{{tabular}}{{l c c c}}
         \toprule
@@ -487,14 +633,13 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     content = (
         f"% Auto-generated by eval_results.py on {timestamp} — do not edit by hand\n"
+        f"% Requires \\usepackage{{xcolor}} for colored extrema\n"
         f"% Representative models: {', '.join(_model_shortname(m) for m in rep_models)}\n"
         + _table1()
         + "\n"
         + _table2()
         + "\n"
         + _table3()
-        + "\n"
-        + _table4()
         + "\n"
         + _figure()
         + "\n"
@@ -512,21 +657,14 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
 def main():
     csv_path = 'neet/neet_v1.csv'
     df = pd.read_csv(csv_path)
+    expected_labels = df.set_index('item_id')['label'].astype(str).str.title().to_dict()
 
     catabolites_dir = 'catabolites'
     results = []
 
     similarities_gold = _load_similarities_gold()
 
-    ex_post_time_avg = None
-    benchmark_csv_path = os.path.join(catabolites_dir, 'benchmark.csv')
-    if os.path.exists(benchmark_csv_path):
-        try:
-            bench_df = pd.read_csv(benchmark_csv_path)
-            if 'Performing ex post explanation' in bench_df.columns:
-                ex_post_time_avg = bench_df['Performing ex post explanation'].mean()
-        except Exception as e:
-            print(f"Failed to read benchmark.csv: {e}")
+    timing_stats = _load_timing_summary()
 
     suffix_map = {1: 'S', 2: 'R', 3: 'N'}
 
@@ -567,7 +705,8 @@ def main():
                         v = None
                     row_data[f'{model_name}_value'] = v
                     row_data[f'{model_name}_pred'] = get_label_logical_gold(
-                        similarities_gold, test_dir, c, v
+                        similarities_gold, test_dir, c, v,
+                        expected_labels.get(item_id)
                     )
                 else:
                     # First-row direction: P(Sc | S0) — consistent with Logical.
@@ -578,7 +717,12 @@ def main():
                     else:
                         v = None
                     row_data[f'{model_name}_value'] = v
-                    if isinstance(v, str):
+                    if "LLM#" in model_name:
+                        row_data[f'{model_name}_pred'] = get_label_matrix_output(
+                            similarities_gold, test_dir, c, v,
+                            expected_labels.get(item_id)
+                        )
+                    elif isinstance(v, str):
                         row_data[f'{model_name}_pred'] = v.strip().title() if v else "Unknown"
                     else:
                         row_data[f'{model_name}_pred'] = get_label_transformer(v)
@@ -595,7 +739,7 @@ def main():
     for model_name in model_names:
         pred_col = f'{model_name}_pred'
         if pred_col in merged.columns:
-            merged[f'{model_name}_correct'] = merged['label'] == merged[pred_col]
+            merged[f'{model_name}_correct'] = _correct_series(merged, pred_col)
 
     for model_name in sorted(model_names):
         pred_col = f'{model_name}_pred'
@@ -629,11 +773,14 @@ def main():
         print(classification_report(true_labels, pred_labels,
                                     labels=_NEET_LABELS, zero_division=0))
         # Keep _correct aligned with the full merged frame (NaN for missing rows)
-        merged[f'{model_name}_correct'] = merged['label'] == merged[pred_col]
+        merged[f'{model_name}_correct'] = _correct_series(merged, pred_col)
 
-    if ex_post_time_avg is not None:
-        print(f"\nAverage Time for 'Performing ex post explanation' (LaSSI/Logical): "
-              f"{ex_post_time_avg:.4f} seconds")
+    timed_models = [m for m in sorted(model_names) if m in timing_stats]
+    if timed_models:
+        print(f"\nAverage time per model from {_TIMING_SUMMARY_CSV_PATH}:")
+        for model_name in timed_models:
+            timing = timing_stats[model_name]
+            print(f"{model_name}: {timing['mean']:.4f} seconds [n={timing['count']}]")
 
     for model_name in sorted(model_names):
         col = f'{model_name}_correct'
@@ -656,7 +803,7 @@ def main():
 
     merged.to_csv('evaluation_output_compared.csv', index=False)
 
-    _generate_tex_tables(merged, model_names)
+    _generate_tex_tables(merged, model_names, timing_stats)
 
 
 if __name__ == '__main__':

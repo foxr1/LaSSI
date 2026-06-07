@@ -1,7 +1,8 @@
 import networkx as nx
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton, Grouping
 
-from LaSSI.ner.string_functions import does_string_have_negations
+from LaSSI.ner.string_functions import does_string_have_negations, is_position_key as _is_position_key
+
 
 class GraphBuilder:
     def __init__(self, existentials, honk, shouldDrawGraphs=False):
@@ -12,6 +13,7 @@ class GraphBuilder:
 
     def build(self, gsm_json, node_functions):
         self._promote_detached_passive_content_root(gsm_json)
+        self._lift_chained_preposition_markers(gsm_json)
 
         for gsm_item in gsm_json:
             amods = []
@@ -214,6 +216,139 @@ class GraphBuilder:
                 copied['score']['parent'] = root.get('id')
                 root.setdefault('phi', []).append(copied)
                 existing.add(key)
+
+    def _lift_chained_preposition_markers(self, gsm_json):
+        """Reassemble chained case/marker runs that govern a fixed phrase.
+
+        DatagramDB parses a multi-token fixed preposition like "out of use" as
+        a chain ``use --case--> out(IN) --none--> of(IN)`` rather than hanging
+        both markers directly off the governed noun.  The downstream kernel
+        builder folds only the *direct* ``case`` child (``out``) onto ``use``
+        as a position-keyed property (``10:out``); the deeper ``of`` is a
+        grandchild and is silently dropped.  The later fixed-expression
+        normaliser (``KernelLogicalRewriter._normalize_multi_preposition_phrase``)
+        then never sees two prepositions, and for a copula complement like S2
+        the bare noun target is discarded before it is ever reached.
+
+        Walk each marker chain hanging off a ``case``/``mark`` child.  If the
+        run plus the governed noun spells a known HOnK fixed phrase (e.g. the
+        adjective "out of use"), rename the head to that phrase here — at graph
+        construction, before the kernel builder can drop it — so it survives as
+        a clean adjectival complement just like "operational".  Otherwise fall
+        back to materialising the deeper marker tokens onto the head as
+        position-keyed properties so ``get_prepositions`` still recovers the
+        full run downstream.
+        """
+        by_id = {item.get('id'): item for item in gsm_json if item.get('id') is not None}
+        marker_ell = {'IN', 'TO', 'RB'}
+        lift_through = {'case', 'mark'}
+
+        def ell0(item):
+            ells = item.get('ell') or []
+            return ells[0] if ells else None
+
+        def xi0(item):
+            xis = item.get('xi') or []
+            return xis[0] if xis else None
+
+        def pos_of(item):
+            try:
+                return float(item.get('properties', {}).get('pos', 'nan'))
+            except (TypeError, ValueError):
+                return float('inf')
+
+        def edge_label(edge):
+            return str(edge.get('containment', '')).strip()
+
+        def edge_child(edge):
+            return by_id.get(edge.get('score', {}).get('child'))
+
+        # Reverse map: a node may be projected by inherit_edge/orig copies that
+        # the kernel builder selects instead of the original; a rename has to
+        # reach those copies too.
+        projectors_of = {}
+        for node in gsm_json:
+            for e in node.get('phi', []):
+                if edge_label(e) in {'inherit_edge', 'orig'}:
+                    projectors_of.setdefault(
+                        e.get('score', {}).get('child'), []
+                    ).append(node)
+
+        for head in gsm_json:
+            head_props = head.setdefault('properties', {})
+            for edge in list(head.get('phi', [])):
+                if edge_label(edge) not in lift_through:
+                    continue
+                m1 = edge_child(edge)
+                if m1 is None or ell0(m1) not in marker_ell:
+                    continue
+                # Collect the linear marker chain hanging off the direct child.
+                chain = [m1]
+                cur = m1
+                seen = {m1.get('id')}
+                while cur is not None:
+                    nxt = None
+                    for e2 in cur.get('phi', []):
+                        child = edge_child(e2)
+                        if child is None or child.get('id') in seen:
+                            continue
+                        if ell0(child) in marker_ell:
+                            nxt = child
+                            break
+                    if nxt is None:
+                        break
+                    chain.append(nxt)
+                    seen.add(nxt.get('id'))
+                    cur = nxt
+                if len(chain) < 2:
+                    continue  # only the direct child — already folded downstream
+
+                ordered = sorted(chain, key=pos_of)
+                tokens = [xi0(n) for n in ordered if xi0(n)]
+                head_name = xi0(head)
+
+                # Prefer reassembling a known HOnK fixed phrase on the head.
+                renamed = False
+                if ell0(head) == 'noun' and head_name and tokens:
+                    candidate = ' '.join(tokens + [head_name])
+                    types = self.honk.typeOf(candidate)
+                    if types:
+                        head['xi'] = [candidate]
+                        if any('JJ' in str(t) or 'Adjective' in str(t) for t in types):
+                            head['ell'] = ['JJ']
+                        # Drop the consumed marker chain so it is not re-folded.
+                        head['phi'] = [
+                            e for e in head.get('phi', [])
+                            if not (edge_label(e) in lift_through and edge_child(e) is m1)
+                        ]
+                        consumed = {t.lower() for t in tokens}
+                        for k in [k for k, v in list(head_props.items())
+                                  if isinstance(v, str) and v.lower() in consumed
+                                  and (k == 'case' or _is_position_key(k))]:
+                            del head_props[k]
+                        # Propagate the rename onto noun projector copies.
+                        is_jj = head['ell'] == ['JJ']
+                        stack = list(projectors_of.get(head.get('id'), []))
+                        visited = {head.get('id')}
+                        while stack:
+                            proj = stack.pop()
+                            pid = proj.get('id')
+                            if pid in visited or ell0(proj) != 'noun':
+                                continue
+                            visited.add(pid)
+                            proj['xi'] = [candidate]
+                            if is_jj:
+                                proj['ell'] = ['JJ']
+                            stack.extend(projectors_of.get(pid, []))
+                        renamed = True
+
+                if not renamed:
+                    # Materialise the deeper markers as position-keyed props.
+                    for n in chain[1:]:
+                        pos = n.get('properties', {}).get('pos')
+                        token = xi0(n)
+                        if pos is not None and token and str(pos) not in head_props:
+                            head_props[str(pos)] = token
 
     def create_singleton(self, gsm_item):
         min_value = -1

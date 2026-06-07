@@ -787,14 +787,18 @@ def get_prepositions(node):
 
     # Reconstruct compound prepositions from position-ordered tokens (e.g. "on or near")
     if len(float_keyed) >= 2:
-        sorted_vals = [v for _, v in sorted(float_keyed.items())]
-        unique_vals = [sorted_vals[0]]
-        for v in sorted_vals[1:]:
-            if v != unique_vals[-1]:
-                unique_vals.append(v)
-        compound = ' '.join(unique_vals)
-        if compound not in found_prepositions:
-            found_prepositions.append(compound)
+        sorted_vals = [
+            v for _, v in sorted(float_keyed.items())
+            if re.search(r"[a-z]", v)
+        ]
+        if sorted_vals:
+            unique_vals = [sorted_vals[0]]
+            for v in sorted_vals[1:]:
+                if v != unique_vals[-1]:
+                    unique_vals.append(v)
+            compound = ' '.join(unique_vals)
+            if compound and compound not in found_prepositions:
+                found_prepositions.append(compound)
 
     return set(found_prepositions)
 
