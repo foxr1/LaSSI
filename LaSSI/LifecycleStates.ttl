@@ -502,3 +502,42 @@ lifecycle:phrase_out-of-service
     rdfs:label "out-of-service" ;
     lifecycle:memberOf lifecycle:TransportAvailability ;
     lifecycle:partition "unavailable" .
+
+# ---------------------------------------------------------------------------
+# Parking-capacity dimension — whether a car park's available capacity is
+# asserted to be REDUCED or running at NORMAL capacity. Binary, so a negated
+# "reduction" ("no reduction") inverts to the "normal" partition.
+#
+# Source sentences: transport_002 — "There is a temporary reduction in spaces
+# available at NPCP ..." vs "NPCP is operating normally with no reduction in
+# available parking spaces."
+# ---------------------------------------------------------------------------
+
+# Parking-capacity dimension — whether a car park's available capacity is
+# asserted to be REDUCED or running at NORMAL capacity. Binary, so a negated
+# "reduction" ("no reduction") inverts to the "normal" partition.
+# Source: transport_002 "a temporary reduction in available spaces" vs
+# "operating normally with no reduction in available parking spaces".
+
+lifecycle:ParkingCapacity
+    a lifecycle:LifecycleDimension ;
+    rdfs:label "parking_capacity" ;
+    rdfs:comment "e.g. 'a temporary reduction in available spaces' vs 'operating normally with no reduction'." .
+
+lifecycle:phrase_reduction
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "reduction" ;
+    lifecycle:memberOf lifecycle:ParkingCapacity ;
+    lifecycle:partition "reduced" .
+
+lifecycle:phrase_reduced
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "reduced" ;
+    lifecycle:memberOf lifecycle:ParkingCapacity ;
+    lifecycle:partition "reduced" .
+
+lifecycle:phrase_operating_normally
+    a lifecycle:LifecyclePhrase ;
+    rdfs:label "operating normally" ;
+    lifecycle:memberOf lifecycle:ParkingCapacity ;
+    lifecycle:partition "normal" .

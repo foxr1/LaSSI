@@ -3,6 +3,21 @@ from LaSSI.HOnK.HOnK import HOnKSingleton, CasusHappening
 from LaSSI.HOnK.TBox.ComparatorUtils import isImplication
 
 _GEO_TYPES = {"LOC", "GPE", "FAC"}
+
+# Names (lowercase) that are geo-typed (LOC/GPE/FAC) somewhere in the current
+# comparison set. Populated per matrix build by TabularCWASemantics so that a
+# place mis-typed as a bare "noun" in one sentence is still recognised as a
+# location (see _space_named_geo_entities). Empty by default, so the per-pair
+# compare path (ConstituentComparator / ModelSearch) keeps its strict
+# geo-typed-only behaviour unless a caller opts in.
+_DOC_GEO_NAMES: frozenset = frozenset()
+
+
+def set_doc_geo_names(names) -> None:
+    global _DOC_GEO_NAMES
+    _DOC_GEO_NAMES = frozenset(
+        n.strip().lower() for n in (names or ()) if isinstance(n, str) and n.strip()
+    )
 _SPATIAL_MOVEMENT_LABELS = frozenset({"stay in place", "motion to place", "motion from place"}) # TODO: modify this to take from logical_analysis.json
 # The full set of spatial-relation type labels (movement labels plus the
 # proximity label "near place") that can appear under a SPACE value's `type`
@@ -188,8 +203,21 @@ def _space_named_geo_entities(formula):
             continue
         if v.name is None or (isinstance(v.name, str) and v.name.startswith("?")):
             continue
-        if (v.type or "").upper() not in _GEO_TYPES:
-            continue
+        # SPACE-slot values are locations by construction, but the NER stage
+        # types named places inconsistently across rows (LOC in one sentence,
+        # bare "noun"/None in another — a known gazetteer/NodeMerger
+        # nondeterminism, see reference_concerns_gpe_min_overlap_bug). Accept a
+        # mis-typed value only when this exact name is geo-typed (LOC/GPE/FAC)
+        # somewhere in the comparison set (_DOC_GEO_NAMES), so a place like
+        # "South Gosforth"/"Benton" still counts, while a generic facility/
+        # common noun ("station", "premises", "section") — never geo-typed
+        # anywhere — is not treated as a distinguishing location. Geo-typed
+        # values are taken as-is.
+        _vt = (v.type or "").upper()
+        if _vt not in _GEO_TYPES:
+            _nm = v.name.strip().lower() if isinstance(v.name, str) else ""
+            if not _nm or _nm not in _DOC_GEO_NAMES:
+                continue
         if v.properties:
             is_near = False
             for kk, vv in v.properties:
@@ -215,22 +243,26 @@ def _space_city_mismatch_contradiction(lhs, rhs) -> bool:
     rhs_names = _space_named_geo_entities(rhs)
     if not lhs_names or not rhs_names:
         return False
-    if lhs_names & rhs_names:
+    # Two SPACE descriptors contradict when their location SETS differ: each
+    # side names a place with no geo-compatible counterpart on the other. This
+    # is the "between A and B" vs "between C and B" case — they share an
+    # endpoint (B) but describe different route segments, so a shared name no
+    # longer grants blanket immunity. A pure subset/superset ({A} vs {A,B}) is
+    # specificity rather than contradiction, so we require an incompatible
+    # *unique* element on BOTH sides.
+    kb = HOnKSingleton.get() if HOnKSingleton.isReady() else None
+
+    def _has_counterpart(name, others):
+        for o in others:
+            if name == o or name.lower() == o.lower():
+                return True
+            if kb is not None and _geo_names_compatible(kb, name, o):
+                return True
         return False
-    if {x.lower() for x in lhs_names} & {x.lower() for x in rhs_names}:
-        return False
-    if not HOnKSingleton.isReady():
-        return True
-    kb = HOnKSingleton.get()
-    for ln in lhs_names:
-        compatible = False
-        for rn in rhs_names:
-            if _geo_names_compatible(kb, ln, rn):
-                compatible = True
-                break
-        if not compatible:
-            return True
-    return False
+
+    lhs_has_unique = any(not _has_counterpart(ln, rhs_names) for ln in lhs_names)
+    rhs_has_unique = any(not _has_counterpart(rn, lhs_names) for rn in rhs_names)
+    return lhs_has_unique and rhs_has_unique
 
 def _geo_names_compatible(kb, lhs_name: str, rhs_name: str) -> bool:
     """Compare location names exactly first, then case-fold as a fallback.

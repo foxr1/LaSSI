@@ -696,6 +696,11 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                 antonymRelationContradiction = True
             elif isinstance(x, FBinaryPredicate) and isinstance(y, FBinaryPredicate):
                 relCmp = HOnKSingleton.get().name_eq(x.rel, y.rel) if x.rel != y.rel else CasusHappening.EQUIVALENT
+                # Predicate paraphrase: two surface-distinct verbs grouped under the
+                # same Paraphrase.ttl concept (e.g. "operate" / "run" a service) name
+                # the same event, so treat the relations as equivalent.
+                if relCmp != CasusHappening.EQUIVALENT and _paraphrase_match(x.rel, y.rel):
+                    relCmp = CasusHappening.EQUIVALENT
                 if relCmp == CasusHappening.INDIFFERENT:
                     val = CasusHappening.INDIFFERENT
                 else:
@@ -740,6 +745,8 @@ def test_pairwise_sentence_similarity(d, x, y, store=True, shift=True):
                                 val = simplifyConstituents({srcCmp, dstCmp})
             elif isinstance(y, FUnaryPredicate) and isinstance(x, FUnaryPredicate):
                 relCmp = HOnKSingleton.get().name_eq(x.rel, y.rel) if x.rel != y.rel else CasusHappening.EQUIVALENT
+                if relCmp != CasusHappening.EQUIVALENT and _paraphrase_match(x.rel, y.rel):
+                    relCmp = CasusHappening.EQUIVALENT
                 if relCmp == CasusHappening.INDIFFERENT:
                     val = CasusHappening.INDIFFERENT
                 else:

@@ -72,6 +72,27 @@ def make_or(entities):
 def make_not(param):
     return FNot(arg=param)
 
+def _negated_inner_names(prop):
+    """Lowercased names of the entities wrapped in a NOT(...) (``FNot``) inside
+    a property item-set. Used to detect a positive target that merely duplicates
+    a negated property value (see ``make_binary``)."""
+    names = set()
+    try:
+        items = prop.items() if hasattr(prop, "items") else prop
+    except Exception:
+        return names
+    for pair in items:
+        if not (isinstance(pair, tuple) and len(pair) == 2):
+            continue
+        _k, v = pair
+        vals = v if isinstance(v, (tuple, list)) else (v,)
+        for x in vals:
+            arg = getattr(x, "arg", None)
+            if isinstance(x, FNot) and isinstance(arg, FVariable) and arg.name:
+                names.add(str(arg.name).lower())
+    return names
+
+
 def has_prop_just_one_negated_constituent(prop):
     """
     This function returns a pair of a boolean and of a rewritten set of properties
@@ -392,6 +413,17 @@ class RewriteKernels:
                 else:
                     prop[x] = tuple(prop[x])
         prop = self.props_as_unique_itemset(prop)
+        # Drop a spurious *positive* target that merely duplicates a negated
+        # property value. "... operating normally with no reduction in available
+        # parking spaces" leaks a positive `reduction` as the verb object while
+        # `NOT(reduction)` is the genuine assertion in a property; the positive
+        # copy makes the clause assert the very thing it denies (so "no reduction"
+        # stops contradicting "a reduction"). Replace it with an existential.
+        if isinstance(dst, FVariable) and dst.name is not None \
+                and str(dst.name).lower() in _negated_inner_names(prop):
+            _ex_id = self.e.increaseAndGetExistential()
+            dst = FVariable(name=f"?{_ex_id}", type="existential",
+                            specification=None, cop=None, id=None)
         test, prop = has_prop_just_one_negated_constituent(prop)
         result =  FBinaryPredicate(rel=rel, src=src, dst=dst, score=score, properties=prop)
         return FNot(result) if test else result

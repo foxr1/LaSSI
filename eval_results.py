@@ -22,7 +22,7 @@ _LABEL_SHORT = {"Supported": "Sup.", "Refuted": "Ref.", "Not Enough Evidence": "
 # reciprocal direction licenses the asymmetric entailment.
 # ---------------------------------------------------------------------------
 _SIMILARITIES_GOLD_PATH = 'LaSSI/tests/assertions/similarities_neet.json'
-_TIMING_SUMMARY_CSV_PATH = 'results/sentence_length/evidence_cases_FIRST_TEST.csv'
+_TIMING_SUMMARY_CSV_PATH = 'results/sentence_length/evidence_cases.csv'
 _TIMING_SUMMARY_COLUMN = 'ex_post_explain_s'
 
 
@@ -453,11 +453,11 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
             rows.append(f"        {_tex_name(m)} & {' & '.join(cells)} \\\\")
 
         body = "\n".join(rows)
-        col_spec = "l " + " ".join(["c"] * n_cols)
+        col_spec = "l " + " ".join([r">{\centering\arraybackslash}X"] * n_cols)
         return rf"""
 \begin{{table*}}[t]
     \centering
-    \scriptsize
+    \small
     \caption{{Accuracy (\%) sliced by modification strategy for representative models. Highest per column in blue; lowest in red.}}
     \label{{tab:mod-results}}
     \begin{{tabularx}}{{\textwidth}}{{{col_spec}}}

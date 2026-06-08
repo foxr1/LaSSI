@@ -213,6 +213,49 @@ class TabularCWASemantics:
         self.ec = ExpandConstituents(self.cache_folder, nonNegatedObjects)
 
         self._init_bdd()
+        self._register_doc_geo_names()
+
+    def _register_doc_geo_names(self):
+        """Collect every geo-typed (LOC/GPE/FAC) entity name across the whole
+        comparison set and hand it to SpatialReasoner. This lets a place that is
+        geo-typed in one sentence but mis-typed as a bare noun in another still
+        be recognised as a location for SPACE-contradiction detection (the
+        cross-row gazetteer nondeterminism), without treating generic facility
+        nouns (never geo-typed anywhere) as locations."""
+        from LaSSI.HOnK.TBox.SpatialReasoner import set_doc_geo_names, _GEO_TYPES
+        from LaSSI.structures.extended_fol.Formulae import (
+            FVariable, FUnaryPredicate, FBinaryPredicate, FNot, FAnd, FOr,
+        )
+        geo_names = set()
+
+        def _collect(obj):
+            if isinstance(obj, FVariable):
+                if (isinstance(obj.name, str) and obj.name and not obj.name.startswith("?")
+                        and (obj.type or "").upper() in _GEO_TYPES):
+                    geo_names.add(obj.name.strip().lower())
+                for _k, _v in (obj.properties or ()):
+                    _collect(_v)
+            elif isinstance(obj, FUnaryPredicate):
+                _collect(obj.arg)
+                for _k, _v in (obj.properties or ()):
+                    _collect(_v)
+            elif isinstance(obj, FBinaryPredicate):
+                _collect(obj.src)
+                _collect(obj.dst)
+                for _k, _v in (obj.properties or ()):
+                    _collect(_v)
+            elif isinstance(obj, FNot):
+                _collect(obj.arg)
+            elif isinstance(obj, (FAnd, FOr)):
+                for a in (obj.args or ()):
+                    _collect(a)
+            elif isinstance(obj, (tuple, list)):
+                for a in obj:
+                    _collect(a)
+
+        for s in self.sentence_list:
+            _collect(s)
+        set_doc_geo_names(geo_names)
 
     def _init_bdd(self):
         """Build the BDD manager, declare one boolean variable per non-negated
@@ -595,6 +638,19 @@ class TabularCWASemantics:
           (B) different surface relations AND different distinguishing content —
               an ontology-derived relation implication between distinct events.
         """
+        # Hard SPACE contradiction: two predicates whose SPACE slots name
+        # disjoint, geographically-incompatible places (e.g. South Gosforth vs
+        # Regent Centre) describe mutually exclusive locations and cannot both
+        # hold of the same event. ModelSearch.compare already returns EXCLUSIVES
+        # for this, but SPACE is not a BDD variable, so the raw model count is
+        # unaffected and _space_relation_narrowing would only cap it to 0.5.
+        # Honour the contradiction as a directional 0.0, consistent with compare().
+        from LaSSI.HOnK.TBox.SpatialReasoner import (
+            _space_mismatch_contradiction, _space_city_mismatch_contradiction,
+        )
+        if (_space_mismatch_contradiction(self.sentence_list[i], self.sentence_list[j]) or
+                _space_city_mismatch_contradiction(self.sentence_list[i], self.sentence_list[j])):
+            return 0.0
         val = self._raw_id_similarity(i, j)
         ki = _formula_logical_context_keys(self.sentence_list[i])
         kj = _formula_logical_context_keys(self.sentence_list[j])

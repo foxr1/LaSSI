@@ -418,3 +418,20 @@ para:phrase_perform
     rdfs:label "perform" ;
     para:memberOf para:NoticeActionPerform ;
     para:form "name" .
+
+para:ServiceOperation
+    a para:ParaphraseConcept ;
+    rdfs:label "service_operation" ;
+    rdfs:comment "Operating vs running a transport service/timetable, e.g. 'We are operating a revised timetable' vs 'trains are running on a revised timetable'." .
+
+para:phrase_operate
+    a para:ParaphrasePhrase ;
+    rdfs:label "operate" ;
+    para:memberOf para:ServiceOperation ;
+    para:form "name" .
+
+para:phrase_run
+    a para:ParaphrasePhrase ;
+    rdfs:label "run" ;
+    para:memberOf para:ServiceOperation ;
+    para:form "name" .

@@ -12,7 +12,7 @@ def benchmark_sentences(iterations=1):
 
 if __name__ == '__main__':
     num_of_iterations = 1
-    should_rerun_meuDB_generation = True
+    should_rerun_meuDB_generation = False
 
     if should_rerun_meuDB_generation:
         for i in range(num_of_iterations):

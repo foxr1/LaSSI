@@ -14,6 +14,7 @@
   "rules": [
     {"impl": "pseudo_verb_copula_recovery:PseudoVerbCopulaRecoveryRule"},
     {"impl": "copula_complement_promotion:CopulaComplementPromotionRule"},
+    {"impl": "existential_locative_to_have:ExistentialLocativeToHaveRule"},
     {
       "name": "promote_source_reduced_relative",
       "phase": "post_logical_rewrite",
@@ -46,6 +47,7 @@
       "consequence": [{"GraphAclRecoveredTarget": {}}]
     },
     {"impl": "requirement_simplifier:RequirementClauseSimplifierRule"},
+    {"impl": "logical_context_clause_dedupe:LogicalContextClauseDedupeRule"},
     {"impl": "passive_progressive:PassiveProgressiveRewrite"},
     {"impl": "existential_passive_and_promote:ExistentialPassiveAndPromoteRule"},
     {
@@ -65,6 +67,13 @@
       "phase": "post_logical_rewrite",
       "premise": {"SpaceHasTemporalEntries": []},
       "consequence": [{"DropTemporalFromSpace": {}}]
+    },
+    {
+      "name": "orientation_space_to_specification",
+      "phase": "post_logical_rewrite",
+      "uses_honk_sets": ["OrientationNoun"],
+      "premise": {"PropertyMatchedBy": ["SPACE:OrientationNoun"]},
+      "consequence": [{"Move": {"property": "SPACE", "select": "matched", "intoProperty": "SPECIFICATION"}}]
     },
     {
       "name": "singleton_and_location_to_space",

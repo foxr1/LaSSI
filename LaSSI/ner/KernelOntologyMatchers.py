@@ -87,6 +87,7 @@ class KernelOntologyMatchers:
             "PredictionVerb": honk.getPredictionVerbs,
             "RelativePronoun": honk.getRelativePronouns,
             "RouteNoun": honk.getRouteNouns,
+            "OrientationNoun": honk.getOrientationNouns,
             "ServiceStateNoun": honk.getServiceStateNouns,
             "StateNoun": honk.getStateNouns,
             "StateVerb": honk.getStateVerbs,

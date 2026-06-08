@@ -317,7 +317,13 @@ class FBinaryPredicate:
                     yield from x.extract_provenance()
 
     def bogusCopula(self):
-        return FUnaryPredicate(self.rel, self.src.bogusCopula(), self.dst.bogusCopula(), self.score, update_property_function(self.properties, update_bogus_copula))
+        return FBinaryPredicate(
+            self.rel,
+            self.src.bogusCopula() if self.src is not None else None,
+            self.dst.bogusCopula() if self.dst is not None else None,
+            self.score,
+            update_property_function(self.properties, update_bogus_copula),
+        )
 
     def instantiate_variable_with_entity(self, arg):
         return self
@@ -378,7 +384,7 @@ class FAnd:
             yield from x.extract_provenance()
 
     def bogusCopula(self):
-        return FAnd([x.bogusCopula() for x in self.args])
+        return FAnd(tuple(x.bogusCopula() for x in self.args))
 
     def instantiate_variable_with_entity(self, external_entity):
         return FAnd(args=tuple([x.instantiate_variable_with_entity(external_entity) for x in self.args]))
@@ -409,7 +415,7 @@ class FOr:
             yield from x.extract_provenance()
 
     def bogusCopula(self):
-        return FOr([x.bogusCopula() for x in self.args])
+        return FOr(tuple(x.bogusCopula() for x in self.args))
 
     def instantiate_variable_with_entity(self, external_entity):
         return FOr(args=tuple([x.instantiate_variable_with_entity(external_entity) for x in self.args]))

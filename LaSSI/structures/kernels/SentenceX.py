@@ -17,7 +17,7 @@ import networkx as nx
 import itertools
 
 from LaSSI.ner.node_functions import create_existential_node, create_props_for_singleton, get_min_position
-from LaSSI.ner.string_functions import lemmatize_verb, check_semi_modal, lemmatize_sentence
+from LaSSI.ner.string_functions import lemmatize_verb, check_semi_modal, lemmatize_sentence, is_position_key
 from LaSSI.structures import DependencyRoles
 from LaSSI.structures.internal_graph.EntityRelationship import Relationship, Singleton, SetOfSingletons, Grouping
 from LaSSI.external_services.Services import Services
@@ -866,6 +866,12 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
     honk = Services.getInstance().getHOnK()
     transitive_verbs = honk.getTransitiveVerbs()
     rejected_verbs = honk.getRejectedVerbs()
+    preposition_surface_forms = {str(p).strip().lower() for p in honk.getPrepositions() if p}
+    status_state_noun_forms = {
+        str(n).strip().lower()
+        for n in (set(honk.getStatusNouns()) | set(honk.getServiceStateNouns()))
+        if n
+    }
 
     def is_valid_verb(node):
         if node is None: return False
@@ -873,6 +879,14 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
 
         # Grammatical Rules to determine if it is NOT a verb in this scenario
         props = dict(node.properties)
+
+        # Rule 0: A preposition that the grammar mis-typed as a verb edge label
+        # (e.g. a subject-attached locative "between South Gosforth and Benton"
+        # lifted onto the edge) is a case/spatial marker, never the clausal verb.
+        # Without this it can be picked as the kernel relation ahead of the real
+        # root verb (e.g. "between(trains, ...)" instead of "run(trains, ...)").
+        if node.named_entity is not None and node.named_entity.strip().lower() in preposition_surface_forms:
+            return False
 
         # Rule 1: Verbs usually don't have determiners (e.g. "The staircases")
         if 'det' in props:
@@ -917,7 +931,9 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
     if not any(is_valid_verb(e[3]['label']) for e in edges):
         root_data = G.nodes[root_sentence_id]['data'] if root_sentence_id in G.nodes else None
         if root_data is not None and is_valid_verb(root_data):
-            nsubj_tgt = obj_tgt = None
+            nsubj_tgt = obj_tgt = obl_tgt = None
+            obl_tgt_id = None
+            obl_edge = None
             root_neg = False
             for e in edges:
                 if e[0] != root_sentence_id:
@@ -929,6 +945,43 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
                 elif lbl in ('obj', 'dobj') and obj_tgt is None:
                     obj_tgt = G.nodes[e[1]]['data']
                     root_neg = root_neg or e[3]['isNegated']
+                elif lbl == 'obl' and obl_tgt is None:
+                    obl_tgt = G.nodes[e[1]]['data']
+                    obl_tgt_id = e[1]
+                    obl_edge = e
+
+            # Fall back to an oblique complement when the (intransitive) root verb
+            # exposes no direct object: "trains are running ON a timetable" ->
+            # run(trains, timetable). Only when the obl object is a contentful noun
+            # acting as the event's theme, NOT:
+            #  - a location (a locative obl is spatial framing -> SPACE), or
+            #  - a status/state noun ("remains UNDER investigation" is a predicative
+            #    lifecycle state -> TIME_STATUS, not the kernel target).
+            obl_is_status = (
+                isinstance(obl_tgt, Singleton)
+                and obl_tgt.named_entity is not None
+                and obl_tgt.named_entity.strip().lower() in status_state_noun_forms
+            )
+            # Only a plain common/proper NOUN obl is a genuine theme object. Exclude
+            # DATE/TIME obliques ("recorded in January 2026" -> TIME, not target),
+            # verb obliques / reduced relatives ("involved a bicycle taken ..." ->
+            # `taken` is a sub-clause, not the target), locations (-> SPACE), and
+            # lifecycle status nouns ("remains under investigation" -> TIME_STATUS).
+            if (obj_tgt is None and obl_tgt is not None
+                    and not isinstance(obl_tgt, SetOfSingletons)
+                    and not obl_is_status
+                    and getattr(obl_tgt, 'type', None) == 'noun'):
+                # Strip the obl's own case-marker preposition ("on") IN THE GRAPH so
+                # that (a) the later case-stripping pass keeps it as the genuine target
+                # rather than demoting it to a property and nulling the target, and
+                # (b) the property loop does not re-route the same node into SPACE.
+                for _k in list(dict(obl_tgt.properties).keys()):
+                    if _k == 'case' or is_position_key(_k):
+                        obl_tgt = obl_tgt.remove_prop(_k)
+                if obl_tgt_id is not None and obl_tgt_id in G.nodes:
+                    nx.set_node_attributes(G, {obl_tgt_id: obl_tgt}, 'data')
+                obj_tgt = obl_tgt
+
             if (nsubj_tgt is not None and obj_tgt is not None
                     and getattr(nsubj_tgt, 'type', None) != 'existential'
                     and getattr(obj_tgt, 'type', None) != 'existential'
@@ -938,9 +991,47 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
                     edgeLabel=root_data, isNegated=root_neg,
                 )
                 kernel = root_verb_kernel
+                # The obl edge has been consumed as the kernel's verb→target
+                # relation. Drop it from the shared edge list so the downstream
+                # property loop does not ALSO reprocess it as a nominal modifier
+                # (`obl` ∈ nominal_modifier_edges), which would re-attach the root
+                # verb onto the target as a spurious specification/extra
+                # (timetable → "timetable/running").
+                if obl_edge is not None and obl_edge in edges:
+                    try:
+                        edges.remove(obl_edge)
+                    except (ValueError, AttributeError):
+                        pass
+
+    # When several edges leave the root verb, the direct object (`obj`/`dobj`) is
+    # the kernel target, NOT a subordinate adverbial/relative clause. The grammar
+    # can emit the `advcl`/`acl` edge before the `obj` edge, so a naive first-match
+    # would wrongly pick the modifier clause as the target (e.g. "operating a
+    # timetable affecting trains" -> operate(?, affecting) with `timetable` lost).
+    # Order candidate edges so a real object is preferred over a modifier clause.
+    _subordinate_clause_labels = {'advcl', 'acl', 'acl_relcl'}
+    _object_labels = {'obj', 'dobj'}
+    _root_has_object = any(
+        e[0] == root_sentence_id and e[3]['label'].named_entity in _object_labels
+        for e in edges
+    )
+
+    def _edge_target_preference(edge):
+        # Only intervene when the root verb has a genuine direct object: in that
+        # case a subordinate adverbial/relative clause must NOT be picked as the
+        # kernel target ahead of the object. A *stable* sort keeps every other
+        # edge in its original relative order, so this is a no-op for sentences
+        # without an obj+clause conflict (avoids disturbing unrelated cases).
+        if (_root_has_object
+                and edge[0] == root_sentence_id
+                and edge[3]['label'].named_entity in _subordinate_clause_labels):
+            return 1
+        return 0
+
+    ordered_edges = sorted(edges, key=_edge_target_preference)
 
     # Priority 1: Find an edge that is explicitly marked as 'kernel' or 'root'
-    for edge in edges:
+    for edge in ordered_edges:
         source_data = G.nodes[edge[0]]['data']
         target_data = G.nodes[edge[1]]['data']
         edge_label = edge[3]['label']
@@ -959,7 +1050,7 @@ def assign_kernel(G, edges, kernel, negations, nodes, root_sentence_id, found_pr
     # Priority 2: Standard verb-based search if no priority edge found
     found_preposition_values = set(found_preposition_labels.values())
     if chosen_edge is None:
-        for edge in edges:
+        for edge in ordered_edges:
             if (
                     is_valid_verb(edge[3]['label']) and
                     (

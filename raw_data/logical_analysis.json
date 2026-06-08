@@ -1327,6 +1327,33 @@
     },
     {
       "premise": {
+        "Preposition": [
+          "in"
+        ],
+        "hasNMod": true,
+        "AbstractEntity": false,
+        "not": {
+          "SingletonHasBeenMatchedBy": [
+            "SUTime",
+            "GPE",
+            "LOC",
+            "FAC"
+          ]
+        }
+      },
+      "classification": [
+        {
+          "type": "specification",
+          "property": "regular"
+        }
+      ],
+      "__sentence_examples": [
+        "a temporary reduction in available spaces",
+        "no reduction in available parking spaces"
+      ]
+    },
+    {
+      "premise": {
         "hasNMod": true
       },
       "classification": [
