@@ -23,17 +23,12 @@ plainer paraphrases instead of stranding the state on the subject.
 from LaSSI.ner.structural_rewrites.base import (
     StructuralRewriteRule,
     copy_props,
+    first_value,
     is_copula_surface,
     property_values,
     replace_kernel,
 )
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton
-
-
-def _first(value):
-    if isinstance(value, (list, tuple)):
-        return value[0] if value else None
-    return value
 
 
 class CopulaComplementPromotionRule(StructuralRewriteRule):
@@ -52,7 +47,7 @@ class CopulaComplementPromotionRule(StructuralRewriteRule):
             return None
         if not isinstance(source, Singleton):
             return None
-        cop = _first(dict(source.properties).get("cop"))
+        cop = first_value(dict(source.properties).get("cop"))
         if not isinstance(cop, Singleton):
             return None
         return {"source": source, "cop": cop}

@@ -31,17 +31,12 @@ from LaSSI.ner.structural_rewrites.base import (
     StructuralRewriteRule,
     append_unique_property_value,
     copy_props,
+    first_value,
     property_values,
     replace_kernel,
 )
 from LaSSI.ner.structural_rewrites.predicates import matches_class
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton
-
-
-def _first(value):
-    if isinstance(value, (list, tuple)):
-        return value[0] if value else None
-    return value
 
 
 class PseudoVerbCopulaRecoveryRule(StructuralRewriteRule):
@@ -64,7 +59,7 @@ class PseudoVerbCopulaRecoveryRule(StructuralRewriteRule):
         # Existential subject carrying the real predicate as a `cop`.
         if not (isinstance(source, Singleton) and source.type == "existential"):
             return None
-        cop = _first(dict(source.properties).get("cop"))
+        cop = first_value(dict(source.properties).get("cop"))
         if not isinstance(cop, Singleton):
             return None
         return {"edge": edge, "cop": cop}

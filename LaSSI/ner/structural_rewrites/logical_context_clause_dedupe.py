@@ -14,18 +14,25 @@ from LaSSI.structures.internal_graph.EntityRelationship import Singleton
 # (e.g. weather "with parakeets expected to fly over"), so they are left alone.
 _LOGICAL_CONTEXT_KEYS = ("CAUSATION",)
 
-# Subordinating markers that flag a circumstantial clause whose verb is not a
-# genuine cause predicate (so the clause reduces to its object noun).
-_SUBORDINATE_MARKERS = frozenset({
-    "while", "when", "whilst", "as", "after", "before", "since", "until",
-})
-
-
 def _is_sub_kernel(node):
     return isinstance(node, Singleton) and getattr(node, "kernel", None) is not None
 
 
-def _is_subordinate_clause(sub_kernel_singleton):
+def _circumstantial_subordinators(ctx):
+    """Curated subordinating markers that flag a circumstantial clause whose verb
+    is not a genuine cause predicate (so the clause reduces to its object noun).
+    Sourced from raw_data/markers/circumstantial_subordinators.txt via HOnK — a
+    deliberate subset of honk:SubordinatingConjunction (causal/conditional
+    subordinators are excluded). Lowercased; empty when HOnK is unavailable, in
+    which case this rule simply no-ops rather than over-collapsing."""
+    try:
+        markers = ctx.services.getHOnK().getCircumstantialSubordinators()
+    except Exception:
+        return frozenset()
+    return frozenset(str(m).strip().lower() for m in (markers or ()))
+
+
+def _is_subordinate_clause(sub_kernel_singleton, markers):
     """True iff the sub-kernel's edge is a subordinating circumstantial clause
     (e.g. edge label "while carry"), not a content predicate. Keeps this rule
     from collapsing meaningful clausal causes."""
@@ -33,7 +40,7 @@ def _is_subordinate_clause(sub_kernel_singleton):
     name = getattr(edge, "named_entity", None) if edge is not None else None
     if not name:
         return False
-    return bool({tok.lower() for tok in str(name).split()} & _SUBORDINATE_MARKERS)
+    return bool({tok.lower() for tok in str(name).split()} & markers)
 
 
 def _clause_object(sub_kernel_singleton):
@@ -81,12 +88,15 @@ class LogicalContextClauseDedupeRule(StructuralRewriteRule):
     name = "logical_context_clause_dedupe"
     phase = "post_logical_rewrite"
 
-    def _reducible(self, v):
-        return (_is_sub_kernel(v) and _is_subordinate_clause(v)
+    def _reducible(self, v, markers):
+        return (_is_sub_kernel(v) and _is_subordinate_clause(v, markers)
                 and _clause_object(v) is not None)
 
     def matches(self, kernel, ctx):
         if not (isinstance(kernel, Singleton) and kernel.properties):
+            return None
+        markers = _circumstantial_subordinators(ctx)
+        if not markers:
             return None
         props = dict(kernel.properties)
         reducible = {}
@@ -95,18 +105,19 @@ class LogicalContextClauseDedupeRule(StructuralRewriteRule):
                 continue
             values = props[key]
             values = list(values) if isinstance(values, (list, tuple)) else [values]
-            if any(self._reducible(v) for v in values):
+            if any(self._reducible(v, markers) for v in values):
                 reducible[key] = True
         return {"keys": list(reducible)} if reducible else None
 
     def apply(self, kernel, bindings, ctx):
+        markers = _circumstantial_subordinators(ctx)
         props = copy_props(kernel.properties)
         for key in bindings["keys"]:
             values = props.get(key, [])
             values = list(values) if isinstance(values, (list, tuple)) else [values]
             rebuilt = []
             for v in values:
-                if self._reducible(v):
+                if self._reducible(v, markers):
                     rebuilt.append(_clause_object(v))
                 else:
                     rebuilt.append(v)

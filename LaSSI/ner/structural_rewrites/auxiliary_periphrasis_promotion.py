@@ -8,6 +8,7 @@ from LaSSI.ner.string_functions import lemmatize_verb
 from LaSSI.ner.structural_rewrites.base import (
     StructuralRewriteRule,
     append_unique_property_value,
+    as_list,
 )
 from LaSSI.structures.internal_graph.EntityRelationship import (
     Grouping,
@@ -27,14 +28,6 @@ def _is_location(node):
 
 def _is_date(node):
     return isinstance(node, Singleton) and str(getattr(node, "type", "")).upper() in _DATE_TIME_TYPES
-
-
-def _as_list(value):
-    if value is None:
-        return []
-    if isinstance(value, (list, tuple)):
-        return list(value)
-    return [value]
 
 
 class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
@@ -209,7 +202,7 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
             return True
         props = dict(value.properties)
         for prop in ("amod", "extra", "compound"):
-            for item in _as_list(props.get(prop)):
+            for item in as_list(props.get(prop)):
                 if self._matches_weather_class(item, ctx) or self._node_name_in_weather_terms(item, ctx):
                     return True
                 if isinstance(item, str) and self._matches_weather_class(item, ctx):
@@ -261,7 +254,7 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
 
     def _drop_empty_auxiliaries_from_properties(self, props, keys):
         for key in keys:
-            values = _as_list(props.get(key))
+            values = as_list(props.get(key))
             if not values:
                 continue
             kept_values = []
@@ -412,7 +405,7 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
 
         # Split TOPIC entries: date-like nodes go to TIME, others stay
         # under SPECIFICATION.
-        topic_values = _as_list(merged.pop('TOPIC', None))
+        topic_values = as_list(merged.pop('TOPIC', None))
         if topic_values:
             for item in topic_values:
                 if _is_date(item):
@@ -426,7 +419,7 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
         # rule can lift them alongside chance/conditions/etc. Drop nouns
         # that match the inner kernel's location target (already in SPACE)
         # or are simple date nodes (already in TIME).
-        noun_values = _as_list(merged.pop('noun', None))
+        noun_values = as_list(merged.pop('noun', None))
         location_id = getattr(location, 'id', None)
         for item in noun_values:
             if not isinstance(item, (Singleton, SetOfSingletons)):
@@ -445,7 +438,7 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
         # source becomes a sibling of these dates under the AND target
         # below, so an `extra` link from a date back to it would just be
         # confusing.
-        spec_values = _as_list(merged.get('SPECIFICATION'))
+        spec_values = as_list(merged.get('SPECIFICATION'))
         if spec_values:
             kept_spec = []
             for item in spec_values:
@@ -467,7 +460,7 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
         # Weather conjunctions can also arrive as a kernel-level AND property
         # of the "have" auxiliary.  Route weather content through the same
         # SPECIFICATION path used above; leave non-weather AND values alone.
-        and_values = _as_list(merged.pop('AND', None))
+        and_values = as_list(merged.pop('AND', None))
         if and_values:
             kept_and = []
             for item in and_values:
@@ -482,7 +475,7 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
         # cause.  For weather conditions that is just structural noise: the
         # condition is forecast content, so keep genuine causes untouched
         # and route only weather values through SPECIFICATION.
-        causation_values = _as_list(merged.get('CAUSATION'))
+        causation_values = as_list(merged.get('CAUSATION'))
         if causation_values:
             kept_causation = []
             for item in causation_values:
@@ -500,12 +493,12 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
         # `extra` chain.
         spec_ids = {
             getattr(item, 'id', None)
-            for item in _as_list(merged.get('SPECIFICATION'))
+            for item in as_list(merged.get('SPECIFICATION'))
             if hasattr(item, 'id')
         }
         if 'TOGETHERNESS' in merged:
             kept_togetherness = [
-                item for item in _as_list(merged['TOGETHERNESS'])
+                item for item in as_list(merged['TOGETHERNESS'])
                 if getattr(item, 'id', None) not in spec_ids
             ]
             if kept_togetherness:
@@ -553,7 +546,7 @@ class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
         # obviously mean "8pm"), so drop them; keep the entry with the
         # most case-marker / position info, falling back to the longer
         # surface span.
-        time_values = _as_list(merged.get('TIME'))
+        time_values = as_list(merged.get('TIME'))
         if time_values:
             by_name = {}
             for item in time_values:

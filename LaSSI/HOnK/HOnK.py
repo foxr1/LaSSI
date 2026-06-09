@@ -144,6 +144,7 @@ _LOOKUP_SET_REGISTRY: dict = {
     "nouns_with_a":                 "getNounsWithA",
     "relative_pronouns":            "getRelativePronouns",
     "occurrence_verbs":             "getOccurrenceVerbs",
+    "circumstantial_subordinators": "getCircumstantialSubordinators",
 }
 
 
@@ -271,6 +272,7 @@ class HOnK(RDFGraph):
             (os.path.join("pronouns", "relative_pronouns.txt"), ("pronouns", "relative_pronouns")),
             (os.path.join("pronouns", "indefinite_pronouns.txt"), ("pronouns",)),
             (os.path.join("pronouns", "interrogative_pronouns.txt"), ("pronouns",)),
+            (os.path.join("markers", "circumstantial_subordinators.txt"), ("circumstantial_subordinators",)),
         )
         for relative_path, attrs in file_map:
             self._add_lookup_terms_from_file(os.path.join(data_path, relative_path), *attrs)

@@ -135,6 +135,15 @@ def as_list(value) -> list:
     return [value]
 
 
+def first_value(value):
+    """Return the first element of a list/tuple (or None if empty), else the
+    scalar unchanged. Used by rules reading a property bucket that may be stored
+    as either a single node or a one-element list."""
+    if isinstance(value, (list, tuple)):
+        return value[0] if value else None
+    return value
+
+
 def copy_props(node_or_props) -> dict:
     """Copy a property mapping, normalising tuple values to mutable lists."""
     if isinstance(node_or_props, dict):
