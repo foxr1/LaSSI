@@ -267,6 +267,14 @@ def _copula_surface_forms_lower(ctx: Optional[RewriteContext] = None) -> set:
     return {str(form).lower() for form in copula_forms}
 
 
+def is_canonical_copula(name) -> bool:
+    """True when `name` is the canonical copula lemma (``be``). Kernel edge
+    labels are lemmatised before the call sites' checks, so the canonical-lemma
+    test is sufficient there; use `is_copula_surface` for raw surface forms
+    (``is``/``are``/...)."""
+    return bool(name) and str(name).strip().lower() == "be"
+
+
 def is_copula_surface(name, ctx: Optional[RewriteContext] = None) -> bool:
     """True when *every* whitespace token of `name` is a copula surface form
     (e.g. "is", "be", "are"). Use for edge labels that are *purely* copular."""

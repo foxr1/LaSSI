@@ -33,6 +33,7 @@ from LaSSI.ner.structural_rewrites.predicates import (
     wrap_entities,
 )
 from LaSSI.ner.node_functions import create_props_for_singleton
+from LaSSI.ner.string_functions import is_position_key
 from LaSSI.structures.internal_graph.EntityRelationship import (
     Grouping,
     SetOfSingletons,
@@ -347,13 +348,9 @@ def _swap_head_with_extra(node, config, ctx):
         return node
     promoted = extras[target_idx]
     promoted_props = dict(promoted.properties)
-    relation_props = {}
-    for key, value in promoted_props.items():
-        try:
-            float(str(key))
-        except (TypeError, ValueError):
-            continue
-        relation_props[key] = value
+    relation_props = {
+        key: value for key, value in promoted_props.items() if is_position_key(key)
+    }
 
     metric_props = {key: value for key, value in promoted_props.items() if key not in relation_props}
     extras[target_idx] = promoted.update_name(node.named_entity).update_node_props(metric_props)

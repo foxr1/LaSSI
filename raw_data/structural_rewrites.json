@@ -2,14 +2,7 @@
   "_doc": "Declarative structural-kernel rewrites. This array is the COMPLETE ordered rule registry (load_rules() builds it in this order; within a phase, order = array order). Most entries are declarative: a `premise` mapping reusable predicate names (EdgeMatchedBy / SourceMatchedBy / TargetMatchedBy / SlotIsType / HasProperty / PropertyValueCount / PropertyMatchedBy / NodePropertyMatchedBy / PropertyHasPromotableContent, plus structural escape-hatch predicates) to value lists (ALL premises hold, each ORs over its values) and an ordered `consequence` list (Move / Append / ReplaceSlot / Drop / PromoteToTarget / Flatten, plus structural/graph escape-hatch ops). A few entries are `impl: \"module:ClassName\"` references to a Python StructuralRewriteRule subclass for rewrites too bespoke to express as data (heavy graph traversal / multi-pass surgery). Vocabulary classes (StateVerb, LocationLike, ...) resolve via KernelOntologyMatchers.matches_class against HOnK / raw_data — keep lexical/class membership there, not in this file. See declarative.py for the predicate/consequence vocabulary.",
   "lexical_sets": {
     "case_prepositions_ignored_for_kernel_targets": ["by", "'s", "of", "’s"],
-    "context_entity_types": ["DATE", "TIME", "SUTime", "GPE", "LOC", "FAC", "existential"],
-    "spatial_relation_types": [
-      "stay in place",
-      "near place",
-      "motion to place",
-      "motion from place",
-      "motion through place"
-    ]
+    "context_entity_types": ["DATE", "TIME", "SUTime", "GPE", "LOC", "FAC", "existential"]
   },
   "rules": [
     {"impl": "pseudo_verb_copula_recovery:PseudoVerbCopulaRecoveryRule"},

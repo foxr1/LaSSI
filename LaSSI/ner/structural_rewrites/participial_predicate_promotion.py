@@ -4,10 +4,10 @@ __license__ = "GPL"
 __version__ = "2.0"
 __maintainer__ = "Oliver R. Fox"
 
-from LaSSI.ner.string_functions import lemmatize_verb
-from LaSSI.ner.structural_rewrites.declarative import structural_lexical_set
+from LaSSI.ner.string_functions import is_position_key, lemmatize_verb
 from LaSSI.ner.structural_rewrites.base import StructuralRewriteRule
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton
+from LaSSI.utils.logical_analysis_reader import spatial_relation_labels
 
 
 class ParticipialPredicatePromotionRule(StructuralRewriteRule):
@@ -75,13 +75,7 @@ class ParticipialPredicatePromotionRule(StructuralRewriteRule):
 
     @staticmethod
     def _remove_space_residue(props, ctx):
-        spatial_types = structural_lexical_set("spatial_relation_types") or {
-            "stay in place",
-            "near place",
-            "motion to place",
-            "motion from place",
-            "motion through place",
-        }
+        spatial_types = spatial_relation_labels("all")
         if str(props.get("type", "")).strip().lower() in spatial_types:
             props.pop("type", None)
 
@@ -95,9 +89,7 @@ class ParticipialPredicatePromotionRule(StructuralRewriteRule):
             if term
         }
         for key, value in list(props.items()):
-            try:
-                float(str(key))
-            except (TypeError, ValueError):
+            if not is_position_key(key):
                 continue
             if isinstance(value, str) and value.strip().lower() in prepositions:
                 props.pop(key, None)

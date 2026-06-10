@@ -20,6 +20,7 @@ from LaSSI.ner.KernelOntologyMatchers import KernelOntologyMatchers
 from LaSSI.ner.MergeSetOfSingletons import merge_properties
 from LaSSI.ner.node_functions_X import create_props_for_singleton
 from LaSSI.ner.structural_rewrites import RewriteContext, default_registry
+from LaSSI.ner.structural_rewrites.base import is_canonical_copula
 from LaSSI.structures import DependencyRoles
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton, SetOfSingletons, Relationship, Grouping
 from LaSSI.structures.kernels.SentenceX import is_kernel_in_props, is_node_in_kernel_nodes
@@ -123,7 +124,7 @@ class KernelPostProcessor:
         if not isinstance(kernel, Singleton) or kernel.kernel is None:
             return kernel
         edge = kernel.kernel.edgeLabel
-        if not (isinstance(edge, Singleton) and edge.named_entity == 'be'):
+        if not (isinstance(edge, Singleton) and is_canonical_copula(edge.named_entity)):
             return kernel
         src = kernel.kernel.source
         tgt = kernel.kernel.target
@@ -452,8 +453,9 @@ class KernelPostProcessor:
         # side rather than travelling with the entity. Transfer those keys from
         # `part.properties` (SPACE-side) onto the new SPACE singleton (formerly
         # the target), and strip them from the new target (formerly the part).
+        from LaSSI.utils.logical_analysis_reader import spatial_relation_labels
         SPATIAL_TYPE_KEYS = ('type',)
-        SPATIAL_TYPE_VALUES = {'stay in place', 'motion to place', 'motion from place', 'near place'}
+        SPATIAL_TYPE_VALUES = spatial_relation_labels("relation")
 
         def _split_spatial_type(props):
             kept = []
@@ -763,13 +765,8 @@ class KernelPostProcessor:
 
     @staticmethod
     def _is_position_key(key):
-        if not isinstance(key, (str, int, float)):
-            return False
-        try:
-            float(key)
-        except (TypeError, ValueError):
-            return False
-        return True
+        from LaSSI.ner.string_functions import is_position_key
+        return is_position_key(key)
 
     # ------------------------------------------------------------------
     # check_for_adv  (phrasal-verb folding)
@@ -1375,7 +1372,7 @@ class KernelPostProcessor:
                             # property whose inner kernel has no edgeLabel).  Both cases must
                             # behave as "not 'be'" so the property is preserved rather than
                             # mis-classified as a redundant copula.
-                            if (hasattr(node, 'kernel') and node.kernel is not None and not (node.kernel.edgeLabel is not None and node.kernel.edgeLabel.named_entity == "be" and (
+                            if (hasattr(node, 'kernel') and node.kernel is not None and not (node.kernel.edgeLabel is not None and is_canonical_copula(node.kernel.edgeLabel.named_entity) and (
                                     (
                                             (
                                                     kernel_nodes is not None and node.kernel.source.type != 'existential' and node.kernel.source in kernel_nodes)
@@ -1660,11 +1657,11 @@ class KernelPostProcessor:
                 isinstance(kernel, Singleton) and
                 kernel.kernel is not None and
                 kernel.kernel.edgeLabel is not None and
-                (kernel.kernel.edgeLabel.named_entity == "be" if not force else True)
+                (is_canonical_copula(kernel.kernel.edgeLabel.named_entity) if not force else True)
         ):
             source_empty = kernel.kernel.source is None or kernel.kernel.source.type == 'existential'
             target_empty = kernel.kernel.target is None or kernel.kernel.target.type == 'existential'
-            is_be = kernel.kernel.edgeLabel.named_entity == "be"
+            is_be = is_canonical_copula(kernel.kernel.edgeLabel.named_entity)
 
             if (source_empty or target_empty) if is_be else (source_empty and target_empty):
                 node_props = dict(kernel.properties)

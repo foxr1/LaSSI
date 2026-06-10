@@ -34,9 +34,6 @@ def is_existential(obj):
 bogus_dst = FVariable(name="there", type="non_verb", specification=None, cop=None, id=None)
 bogus_src = {"it"}
 discard_properties = {"end", "lemma", "begin", "kernel", "expl", "pos", "root", "common", "number", "adv", "conj", "mark", "specification", "nmod_poss", "amod"}
-relative_pronouns = {"which","that", "who", "whom" }
-interrogative_pronouns = {"what", "which", "who", "whom", "whose"}
-demonstrative_pronouns = {"this", "these", "that", "those"}
 
 
 

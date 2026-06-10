@@ -15,56 +15,23 @@ _TRACE_EXCLUSIVES_ONLY = True  # log only paths that return EXCLUSIVES
 # other doesn't — or they carry different ones — the predicates describe
 # semantically distinct events and an expansion-derived implication must not
 # silently override that distinction (e.g. REQUIREMENT vs CAUSATION).
-# SPACE and TIME are deliberately excluded: those are usually compared
-# point-by-point elsewhere, and a missing one is handled by the existing
-# shared-key compatibility loop.
-_KERNEL_LOGICAL_CONTEXT_KEYS = frozenset({
-    "CAUSATION",
-    "REQUIREMENT",
-    "TEMPORAL_CONTEXT",
-    "MODALITY",
-    "AIM_OBJECTIVE",
-    "TOPIC",
-    "MANNER",
-    "REPLACEMENT",
-    "LIMIT",
-    "EXCLUSION",
-    "DISTRIBUTIVE",
-    "INTERJECTION",
-    "VOCATIVE",
-    "FAULT_BLAME",
-    "PUNISHMENT",
-    "INSTRUMENT",
-    "ADVANTAGE",
-    "OFTERM",
-    "OF_TERM",
-    "PASSIVE AGENT_CAUSE",
-})
+# DERIVED from logical_analysis.json (`attachTo: Kernel` minus
+# `similarity_semantics.kernel_context_excluded`, expanded with
+# `key_spelling_aliases`) — a new Kernel-attached construct joins the guard
+# automatically; SPACE/TIME exclusion is declared in the JSON, never here.
+from LaSSI.utils.logical_analysis_reader import kernel_context_keys, paraphrastic_slots
+
+_KERNEL_LOGICAL_CONTEXT_KEYS = kernel_context_keys()
 
 
-# Paraphrastic kernel-key pairs. Each entry maps one surface key to a
-# canonical form so that asymmetric appearances of the two keys across a
-# pair of predicates are treated as the SAME logical slot when the guard
-# below decides whether RHS asserts something LHS lacks.
-#
-# Concrete cases this covers:
-#   - "until further notice" lands under TIME, while
-#     "no fixed reopening date" lands under TIME_STATUS — both express the
-#     same indefinite-suspension state, just routed to different keys by
-#     the parser.
-#   - "while maintenance work takes place" lands under TEMPORAL_CONTEXT,
-#     while "for maintenance work" lands under AIM_OBJECTIVE — both name
-#     the same circumstantial maintenance work; cause/purpose framing is
-#     paraphrastic in this domain.
-#
-# Keep the mapping minimal: only add a pair when both sides routinely
-# carry the same semantic content under different kernel slots. The value
-# on each side is still compared point-by-point via Paraphrase.ttl, so a
-# mapping here doesn't blanket-equate the values, only the SLOTS.
-_KERNEL_KEY_EQUIVALENCES = {
-    "TIME_STATUS": "TIME",
-    "AIM_OBJECTIVE": "TEMPORAL_CONTEXT",
-}
+# Paraphrastic kernel-key pairs, declared in logical_analysis.json
+# (`similarity_semantics.paraphrastic_slots`). Each entry maps one surface key
+# to a canonical form so that asymmetric appearances of the two keys across a
+# pair of predicates are treated as the SAME logical slot when the guard below
+# decides whether RHS asserts something LHS lacks. The value on each side is
+# still compared point-by-point via Paraphrase.ttl, so a mapping here doesn't
+# blanket-equate the values, only the SLOTS.
+_KERNEL_KEY_EQUIVALENCES = paraphrastic_slots()
 
 
 def _canonical_kernel_key(k: str) -> str:

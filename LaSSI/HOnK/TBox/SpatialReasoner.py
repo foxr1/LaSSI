@@ -1,6 +1,7 @@
 from LaSSI.structures.extended_fol.Formulae import FVariable, FOr, FAnd, FUnaryPredicate, FBinaryPredicate, FNot
 from LaSSI.HOnK.HOnK import HOnKSingleton, CasusHappening
 from LaSSI.HOnK.TBox.ComparatorUtils import isImplication
+from LaSSI.utils.logical_analysis_reader import spatial_relation_labels
 
 _GEO_TYPES = {"LOC", "GPE", "FAC"}
 
@@ -18,12 +19,15 @@ def set_doc_geo_names(names) -> None:
     _DOC_GEO_NAMES = frozenset(
         n.strip().lower() for n in (names or ()) if isinstance(n, str) and n.strip()
     )
-_SPATIAL_MOVEMENT_LABELS = frozenset({"stay in place", "motion to place", "motion from place"}) # TODO: modify this to take from logical_analysis.json
-# The full set of spatial-relation type labels (movement labels plus the
-# proximity label "near place") that can appear under a SPACE value's `type`
-# property. Used to compute the directional implication between e.g. a plain
-# "near place" and a disjunctive "on or near" = OR(stay in place, near place).
-_SPATIAL_RELATION_LABELS = _SPATIAL_MOVEMENT_LABELS | frozenset({"near place"})
+# Spatial-relation type labels, declared once in logical_analysis.json's
+# `spatial_relations` block (where they originate as the `type: space`
+# derivation-rule properties). `movement` = displacement-or-stay labels;
+# `relation` adds the proximity label "near place" — the full set that can
+# appear under a SPACE value's `type` property, used to compute the
+# directional implication between e.g. a plain "near place" and a
+# disjunctive "on or near" = OR(stay in place, near place).
+_SPATIAL_MOVEMENT_LABELS = spatial_relation_labels("movement")
+_SPATIAL_RELATION_LABELS = spatial_relation_labels("relation")
 _PROPER_NOUN_TYPES = {"LOC", "GPE", "ORG", "PERSON", "FAC"}
 
 def _strip_spatial_type_properties(props):

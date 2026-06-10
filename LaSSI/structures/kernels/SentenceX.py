@@ -513,13 +513,14 @@ def create_sentence(G, edges, nodes, negations, root_sentence_id, found_preposit
                     type_key=add_props_type_key)
 
         # If we have an edge that is a verb and not already in the kernel nodes, use this as the "edge to loop", out the next iteration on the same root node
+        from LaSSI.ner.structural_rewrites.base import is_canonical_copula
         kernel_edge_label = kernel.edgeLabel
         _src_is_acl_child = any(
             data.get('label') is not None and data['label'].named_entity in {'acl', 'acl_relcl'}
             for _, _, data in G.in_edges(edge[0], data=True)
         )
         if (edge_label is not None and
-                edge_label.type == 'verb' and edge_label.named_entity != 'be' and
+                edge_label.type == 'verb' and not is_canonical_copula(edge_label.named_entity) and
                 kernel_edge_label is not None and
                 kernel_edge_label.named_entity != edge_label_name and
                 not is_node_in_kernel_nodes(edge_label, kernel_nodes) and

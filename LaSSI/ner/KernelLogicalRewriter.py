@@ -10,6 +10,7 @@ from collections import defaultdict
 
 from LaSSI.external_services.Services import Services
 from LaSSI.ner.HOnKLogicalRewriting import get_matching_logical_rules
+from LaSSI.ner.string_functions import is_position_key
 from LaSSI.structures import DependencyRoles
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton, SetOfSingletons, Grouping
 from LaSSI.structures.kernels.SentenceX import get_prepositions
@@ -121,15 +122,8 @@ class KernelLogicalRewriter:
 
         if selected_rule is not None:
             # Remove prepositions (so long as construct property is not None) as no longer needed
-            def _is_position_key(k):
-                try:
-                    float(k)
-                    return True
-                except (TypeError, ValueError):
-                    return False
-
             node_props = {k: v for k, v in dict(prop_node.properties).items() if (
-                    _is_position_key(k)
+                    is_position_key(k)
             ) or (
                     isinstance(v, str) and
                     v.lower() not in prepositions

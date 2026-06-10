@@ -1126,5 +1126,62 @@ class _AccessPointMatchers(_FakeMatchers):
         return super().matches_class(value, class_name, kernel=kernel)
 
 
+class TestLogicalAnalysisReader(unittest.TestCase):
+    """The classification sets the comparison engine and rewrites consume are
+    DERIVED from raw_data/logical_analysis.json — these tests pin the
+    derivation and guard the JSON against drifting out of sync with itself."""
+
+    def test_kernel_context_keys_derivation(self):
+        from LaSSI.utils.logical_analysis_reader import (
+            kernel_context_keys,
+            load_logical_analysis_json,
+        )
+        data = load_logical_analysis_json()
+        types = data["types"]
+        sem = data["similarity_semantics"]
+        derived = kernel_context_keys()
+
+        # Every Kernel-attached construct is in the set unless excluded.
+        excluded = {k.upper() for k in sem["kernel_context_excluded"]}
+        for name, specs in types.items():
+            if any(s.get("attachTo") == "Kernel" for s in specs):
+                if name.upper() in excluded:
+                    self.assertNotIn(name.upper(), derived)
+                else:
+                    self.assertIn(name.upper(), derived)
+        # Spelling aliases of included keys are included too.
+        for canonical, aliases in sem["key_spelling_aliases"].items():
+            if canonical.upper() in derived:
+                for alias in aliases:
+                    self.assertIn(alias.upper(), derived)
+        # Singleton-only constructs never leak into the kernel-context set.
+        self.assertNotIn("SPECIFICATION", derived)
+        self.assertNotIn("TIME_STATUS", derived)
+
+    def test_spatial_relations_cover_space_derivation_rules(self):
+        from LaSSI.utils.logical_analysis_reader import (
+            load_logical_analysis_json,
+            spatial_relation_labels,
+        )
+        all_labels = spatial_relation_labels("all")
+        data = load_logical_analysis_json()
+        for rule in data["derivation_rules"]:
+            for cls in rule.get("classification", []):
+                if cls.get("type") == "space" and cls.get("property"):
+                    self.assertIn(
+                        cls["property"], all_labels,
+                        f"space derivation property {cls['property']!r} missing "
+                        f"from the spatial_relations block",
+                    )
+
+    def test_spatial_relation_subsets_nest(self):
+        from LaSSI.utils.logical_analysis_reader import spatial_relation_labels
+        movement = spatial_relation_labels("movement")
+        relation = spatial_relation_labels("relation")
+        everything = spatial_relation_labels("all")
+        self.assertTrue(movement <= relation <= everything)
+        self.assertIn("near place", relation - movement)
+
+
 if __name__ == "__main__":
     unittest.main()

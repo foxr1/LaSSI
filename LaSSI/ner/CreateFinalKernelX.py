@@ -20,6 +20,7 @@ from LaSSI.ner.MergeSetOfSingletons import merge_properties
 from LaSSI.ner.node_functions import create_existential_node
 from LaSSI.ner.node_functions_X import create_props_for_singleton, NodeFunctions
 from LaSSI.ner.string_functions import is_label_verb, check_semi_modal, lemmatize_verb
+from LaSSI.ner.structural_rewrites.base import is_canonical_copula
 from LaSSI.structures import DependencyRoles
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton, Relationship, SetOfSingletons, Grouping
 from LaSSI.structures.kernels.SentenceX import (
@@ -326,7 +327,7 @@ class CreateFinalKernelX:
                     if node.kernel is not None:
                         # Allow "weak" copula kernels to be treated as nominals (via their target)
                         if (node.kernel.edgeLabel is not None and 
-                            node.kernel.edgeLabel.named_entity == 'be' and
+                            is_canonical_copula(node.kernel.edgeLabel.named_entity) and
                             node.kernel.target is not None):
                             return True
                         return False
@@ -371,7 +372,7 @@ class CreateFinalKernelX:
                 # If the chosen nominal is a weak copula kernel, extract its target
                 if (isinstance(chosen_nominal, Singleton) and chosen_nominal.kernel is not None and 
                     chosen_nominal.kernel.edgeLabel is not None and 
-                    chosen_nominal.kernel.edgeLabel.named_entity == 'be'):
+                    is_canonical_copula(chosen_nominal.kernel.edgeLabel.named_entity)):
                     chosen_nominal = chosen_nominal.kernel.target
 
                 new_props = defaultdict(list)
@@ -464,7 +465,20 @@ class CreateFinalKernelX:
         print(f"{final_kernel.to_string()}\n")
         return final_kernel
 
+    # Defensive fallback only — the live set comes from HOnK's RelativePronoun
+    # class (raw_data/pronouns/relative_pronouns.txt) via _relative_pronouns().
     _REL_PRONOUNS = {"that", "which", "who", "whom", "whose"}
+
+    def _relative_pronouns(self):
+        try:
+            getter = getattr(self.services.getHOnK(), "getRelativePronouns", None)
+            if callable(getter):
+                pronouns = {str(p).lower() for p in getter() if p}
+                if pronouns:
+                    return pronouns
+        except Exception:
+            pass
+        return self._REL_PRONOUNS
 
     def _is_subordinate_kernel(self, kernel) -> bool:
         """True when `kernel` is a subordinate clause: an adverbial clause
@@ -484,7 +498,7 @@ class CreateFinalKernelX:
             if isinstance(side, Singleton):
                 if (side.type or '').strip().lower() == 'var':
                     return True
-                if (side.named_entity or '').strip().lower() in self._REL_PRONOUNS:
+                if (side.named_entity or '').strip().lower() in self._relative_pronouns():
                     return True
         return False
 
@@ -927,7 +941,7 @@ class CreateFinalKernelX:
                 (
                     action_ed_node and
                     (
-                        final_kernel.kernel.edgeLabel.named_entity == 'be' or
+                        is_canonical_copula(final_kernel.kernel.edgeLabel.named_entity) or
                         final_kernel.kernel.edgeLabel == action_ed_node
                     )
                 )
@@ -960,11 +974,11 @@ class CreateFinalKernelX:
                 isinstance(kernel, Singleton) and
                 kernel.kernel is not None and
                 kernel.kernel.edgeLabel is not None and
-                (kernel.kernel.edgeLabel.named_entity == "be" if not force else True)
+                (is_canonical_copula(kernel.kernel.edgeLabel.named_entity) if not force else True)
         ):
             source_empty = kernel.kernel.source is None or kernel.kernel.source.type == 'existential'
             target_empty = kernel.kernel.target is None or kernel.kernel.target.type == 'existential'
-            is_be = kernel.kernel.edgeLabel.named_entity == "be"
+            is_be = is_canonical_copula(kernel.kernel.edgeLabel.named_entity)
 
             if (source_empty or target_empty) if is_be else (source_empty and target_empty):
                 node_props = dict(kernel.properties)
@@ -1044,7 +1058,7 @@ class CreateFinalKernelX:
         if (
             kernel.kernel.target is not None and
             kernel.kernel.target.type == 'existential' and
-            kernel.kernel.edgeLabel.named_entity == 'be' and
+            is_canonical_copula(kernel.kernel.edgeLabel.named_entity) and
             'SENTENCE' in dict(kernel.properties)
         ):
             for key in dict(kernel.properties):
