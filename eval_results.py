@@ -388,21 +388,24 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
     # ------------------------------------------------------------------ #
     def _table1() -> str:
         rows = []
+        # (two-line group label, members); the label is placed in a left
+        # \multirow column so the standalone heading rows can be dropped (saves height).
         groups = [
-            (r"\textit{Sentence Transformers}", st_models),
-            (r"\textit{Cross-Encoders}",         ce_models),
-            (r"\textit{Generative LLMs}",         llm_models),
+            ((r"Sentence", r"Transformers"), st_models),
+            ((r"Cross-", r"Encoders"),       ce_models),
+            ((r"Generative", r"LLMs"),       llm_models),
         ]
-        for group_label, members in groups:
+        for (l1, l2), members in groups:
             if not members:
                 continue
-            rows.append(f"        \\multicolumn{{4}}{{l}}{{{group_label}}} \\\\")
-            for m in members:
-                rows.append(f"        {_tex_name(m)} & {_fmt_acc(m)} & {_fmt_f1(m)} & {_fmt_time(m)} \\\\")
+            glabel = rf"\multirow{{{len(members)}}}{{*}}{{\shortstack[l]{{{l1}\\{l2}}}}}"
+            for i, m in enumerate(members):
+                gcell = glabel if i == 0 else ""
+                rows.append(f"        {gcell} & {_tex_name(m)} & {_fmt_acc(m)} & {_fmt_f1(m)} & {_fmt_time(m)} \\\\")
             rows.append("        \\midrule")
-        # LaSSI last, no extra midrule before it (last midrule from groups covers it)
+        # LaSSI last, with an empty group cell.
         if "Logical" in model_names:
-            rows.append(f"        {_tex_name('Logical')} & {_fmt_acc('Logical')} & {_fmt_f1('Logical')} & {_fmt_time('Logical')} \\\\")
+            rows.append(f"        & {_tex_name('Logical')} & {_fmt_acc('Logical')} & {_fmt_f1('Logical')} & {_fmt_time('Logical')} \\\\")
 
         body = "\n".join(rows)
         return rf"""
@@ -410,9 +413,9 @@ def _generate_tex_tables(merged: pd.DataFrame, model_names: set,
     \centering
     \caption{{Overall performance across the \gls{{curb}} test set. For accuracy and Macro-F1, highest values are blue and lowest are red; for time, fastest is blue and slowest is red.}}
     \label{{tab:overall-results}}
-    \begin{{tabular}}{{l c c c}}
+    \begin{{tabular}}{{l l c c c}}
         \toprule
-        \textbf{{Model}} & \textbf{{Accuracy (\%)}} & \textbf{{Macro-F1}} & \textbf{{Avg. Time (s)}} \\
+        \textbf{{Paradigm}} & \textbf{{Model}} & \textbf{{Accuracy (\%)}} & \textbf{{Macro-F1}} & \textbf{{Avg. Time (s)}} \\
         \midrule
 {body}
         \bottomrule
@@ -680,14 +683,16 @@ def main():
             continue
 
         matrices = {}
-        for fname in os.listdir(test_path):
+        matrices_subdir = os.path.join(test_path, "matrices")
+        search_path = matrices_subdir if os.path.isdir(matrices_subdir) else test_path
+        for fname in os.listdir(search_path):
             if fname.startswith('confusion_matrices_') and fname.endswith('.json'):
                 model_name = fname[len('confusion_matrices_'):-len('.json')]
                 # Skip reasoning files (they contain dicts, not matrices)
                 if model_name.endswith('_reasoning'):
                     continue
                 model_names.add(model_name)
-                with open(os.path.join(test_path, fname), 'r') as file:
+                with open(os.path.join(search_path, fname), 'r') as file:
                     matrices[model_name] = json.load(file)
 
         for c in [1, 2, 3]:

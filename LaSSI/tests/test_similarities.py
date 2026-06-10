@@ -61,7 +61,7 @@ class TestSimilarities(unittest.TestCase):
                     print(f"Skipped: No expected similarities defined for {test_name} in similarities_neet.json")
                     continue
                     
-                matrix_file = os.path.join(catabolites_dir, test_name, "confusion_matrices_Logical.json")
+                matrix_file = os.path.join(catabolites_dir, test_name, "matrices", "confusion_matrices_Logical.json")
                 if not os.path.exists(matrix_file):
                     self.__class__.stats["missing_data"] += 1
                     # Fail explicitly inside subtest without killing everything

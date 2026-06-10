@@ -9,7 +9,7 @@ def delete_files(delete_all_files=False, benchmarking=False, target_folders=None
     for subdir, dirs, files in os.walk(catabolites_dir):
         if (subdir.split(os.sep)[-1][0].isdigit() and benchmarking) or (subdir.split(os.sep)[-1] in target_folders and not benchmarking):
             for in_dir in dirs:
-                if (in_dir == "viz") or (transformation is not None and in_dir == f"SentenceRepresentation.{transformation.name}"):
+                if (in_dir in ("viz", "matrices")) or (transformation is not None and in_dir == f"SentenceRepresentation.{transformation.name}"):
                     dir_path = os.path.join(subdir, in_dir)
                     try:
                         print(f"Deleting folder: {str(dir_path)}")

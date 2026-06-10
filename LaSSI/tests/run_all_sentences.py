@@ -193,7 +193,10 @@ if __name__ == '__main__':
             delete_files(False, False, folders, transformation)
             if transformation == SentenceRepresentation.FullText:
                 llm_transformers = [
-                    "LLM#llama3.2:3b", "LLM#qwen2.5:7b", "LLM#gemma4:e2b"
+                    "LLM#llama3.2:3b", "LLM#qwen2.5:7b", "LLM#gemma4:e2b",
+                    "LLMHOnK#llama3.2:3b#honk", "LLMHOnK#qwen2.5:7b#honk", "LLMHOnK#gemma4:e2b#honk",
+                    "LLMHOnK#llama3.2:3b#honk+lifecycle", "LLMHOnK#qwen2.5:7b#honk+lifecycle", "LLMHOnK#gemma4:e2b#honk+lifecycle",
+                    "LLMHOnK#llama3.2:3b#honk+lifecycle+paraphrase", "LLMHOnK#qwen2.5:7b#honk+lifecycle+paraphrase", "LLMHOnK#gemma4:e2b#honk+lifecycle+paraphrase"
                 ]
                 transformers = [
                     "all-MiniLM-L6-v2", "all-MiniLM-L12-v2", "all-mpnet-base-v2",
@@ -213,7 +216,7 @@ if __name__ == '__main__':
                         processes=num_processes
                     )
             else:
-                get_and_run_all_sentences(
+                get_and_run_all_sentences(\
                     folders, transformation,
                     ex_post_rows=ex_post_rows,
                     csv_filename=csv_filename,

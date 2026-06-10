@@ -69,8 +69,10 @@ class LaSSI():
                  useId:bool = False,
                  use_multiprocessing=True,
                  generate_png_matrix=True,
+                 for_paper=True,
                  ):
         self.use_multiprocessing = use_multiprocessing
+        self.for_paper = for_paper
         if use_multiprocessing:
             try:
                 multiprocessing.set_start_method('spawn')
@@ -88,7 +90,7 @@ class LaSSI():
         self.string_rep_dir = None
         self.benchmarking_file = None
         self.run_ex_post = run_ex_post
-        self.create_catabolites_dir(dataset_name)
+        self.create_catabolites_dir(dataset_name, transformation)
         self.dataset_name = dataset_name
         tmp = f"{self.dataset_name}_clusters.txt"
         if os.path.isfile(tmp):
@@ -112,6 +114,9 @@ class LaSSI():
         if not isinstance(fuzzyDBs, DatabaseConfiguration):
             fuzzyDBs = str(fuzzyDBs)
             fuzzyDBs = load_db_configuration(fuzzyDBs)
+        # Kept for FullText backends that must bootstrap services themselves
+        # (e.g. the LLMHOnK# backend needs HOnK credentials in _calculate_matrix).
+        self.fuzzyDBs = fuzzyDBs
 
         if self._generate_png_matrix_param is not None:
             self.generate_png_matrix = self._generate_png_matrix_param
@@ -198,9 +203,16 @@ class LaSSI():
         self.catabolites_viz = os.path.join(self.catabolites, "viz")
         self.internals = os.path.join(self.catabolites, "internals.json")
         self.logical_rewriting = os.path.join(self.catabolites, "logical_rewriting.json")
-        self.confusion_matrices = os.path.join(self.catabolites, "confusion_matrices_")
         Path(self.catabolites).mkdir(parents=True, exist_ok=True)
         Path(self.catabolites_viz).mkdir(parents=True, exist_ok=True)
+        self.matrices_dir = os.path.join(self.catabolites, "matrices")
+        Path(self.matrices_dir).mkdir(parents=True, exist_ok=True)
+        import glob as _glob
+        for _old in _glob.glob(os.path.join(self.catabolites, "confusion_matrices_*")):
+            _new = os.path.join(self.matrices_dir, os.path.basename(_old))
+            if not os.path.exists(_new):
+                os.rename(_old, _new)
+        self.confusion_matrices = os.path.join(self.matrices_dir, "confusion_matrices_")
         self.meuDB = os.path.join(self.catabolites, "meuDBs.json")
         self.gsmDB = os.path.join(self.catabolites, "gsmDB.txt")
         self.datagramdb_output = os.path.join(self.catabolites, "datagramdb_output.json")
@@ -257,7 +269,7 @@ class LaSSI():
         else:
             print("HOnK.ttl unchanged — skipping honk table rebuild")
 
-    def create_catabolites_dir(self, dataset_name):
+    def create_catabolites_dir(self, dataset_name, transformation=None):
         from pathlib import Path
         self.catabolites_dir = Path(dataset_name).stem
         self.catabolites_of_dataset = os.path.join("catabolites", self.catabolites_dir)
@@ -266,7 +278,13 @@ class LaSSI():
             f.write(str(Path(dataset_name).resolve()))
         self.string_rep_dir = os.path.join(self.catabolites_of_dataset, "string_rep.txt")
         self.benchmarking_file = os.path.join("catabolites", "benchmark.csv")
-        if os.path.exists(self.string_rep_dir):
+        is_logical = transformation is None or transformation in (
+            SentenceRepresentation.Logical,
+            SentenceRepresentation.LogicalGraph,
+            SentenceRepresentation.LogicalDisabledAPriori,
+            SentenceRepresentation.LogicalGraphDisabledAPriori,
+        )
+        if is_logical and os.path.exists(self.string_rep_dir):
             os.remove(self.string_rep_dir)
         if not os.path.exists(self.benchmarking_file):
             if not os.path.exists("catabolites"):
@@ -317,7 +335,11 @@ class LaSSI():
             from LaSSI.structures.provenance.GraphProvenance import GraphProvenance
             g = GraphProvenance(graph, meu_db, self.transformation == SentenceRepresentation.SimpleGraph)
             self.logger(f"{meu_db.first_sentence}")
-            write_variable_to_file(self.string_rep_dir, meu_db.first_sentence)
+            _write_string_rep = self.transformation in (
+                SentenceRepresentation.Logical, SentenceRepresentation.LogicalGraph
+            )
+            if _write_string_rep:
+                write_variable_to_file(self.string_rep_dir, meu_db.first_sentence)
             try:
                 internal_graph = g.internal_graph()
                 final_form = internal_graph
@@ -326,7 +348,8 @@ class LaSSI():
                     write_variable_to_file(self.string_rep_dir, f" ⇒ {final_form.to_string()}\n")
             except Exception as e:
                 self.logger(f"ERROR on sentence {idx}: {e}\n{traceback.format_exc()}")
-                write_variable_to_file(self.string_rep_dir, f" ⇒ ERROR\n")
+                if _write_string_rep:
+                    write_variable_to_file(self.string_rep_dir, f" ⇒ ERROR\n")
                 final_form = None
             internal_representations.append(final_form)
             end = time.time()
@@ -407,6 +430,47 @@ class LaSSI():
                         i, row, elapsed = future.result()
                         matrices[i] = row
                         self.sentences_benchmark.add_row(i, "Performing ex post explanation", elapsed)
+        elif self.transformation == SentenceRepresentation.FullText and self.legacy_conf.HuggingFace.startswith("LLMHOnK#"):
+            self.logger(f"Connecting to HOnK-grounded LLM model: {self.legacy_conf.HuggingFace}...")
+            from LaSSI.similarities.LLMandHOnK import LLMHOnKPrompt, parse_sources
+            from tqdm import tqdm
+            # Format: LLMHOnK#<model>[#<sources>], sources a '+'-joined subset of
+            # honk/lifecycle/paraphrase (omitted => all three). Model names contain
+            # '/' but never '#', so partition on '#' is unambiguous.
+            remainder = self.legacy_conf.HuggingFace[len("LLMHOnK#"):]
+            model_name, _, sources_str = remainder.partition("#")
+            sources = parse_sources(sources_str)
+            f = LLMHOnKPrompt(model_name, self.fuzzyDBs, sources)
+            n = len(obj_list)
+            matrices = [None] * n
+            reasoning_grid = [[None] * n for _ in range(n)]
+            with tqdm(total=n * n, desc=f"LLM+HOnK matrix ({model_name})", unit="cell") as pbar:
+                for i, x in enumerate(obj_list):
+                    t0 = time.time()
+                    row = []
+                    for j, y in enumerate(obj_list):
+                        if i == j:
+                            val, reason = 1.0, "self-comparison"
+                        else:
+                            val, reason = f.call_with_reasoning(x, y)
+                        row.append(val)
+                        reasoning_grid[i][j] = reason
+                        pbar.update(1)
+                    matrices[i] = row
+                    self.sentences_benchmark.add_row(i, "Performing ex post explanation", time.time() - t0)
+            # Tag the suffix with the active sources so ablation runs (honk vs
+            # honk+lifecycle vs all) write distinct files instead of overwriting.
+            source_tag = "-".join(sorted(sources))
+            model_suffix = f"{model_name.split('/')[-1]}_{source_tag}"
+            reasoning_path = f"{self.confusion_matrices}FullText_{model_suffix}_reasoning.json"
+            with open(reasoning_path, "w") as _rf:
+                json.dump({
+                    "model": model_name,
+                    "sources": sorted(sources),
+                    "sentences": list(obj_list),
+                    "reasoning": reasoning_grid,
+                }, _rf, indent=2)
+            self.logger(f"LLM+HOnK reasoning saved to {reasoning_path}")
         elif self.transformation == SentenceRepresentation.FullText and self.legacy_conf.HuggingFace.startswith("LLM#"):
             self.logger(f"Connecting to LLM model: {self.legacy_conf.HuggingFace}...")
             from LaSSI.similarities.LLM import LLMPrompt
@@ -519,7 +583,7 @@ class LaSSI():
 
         return matrices
 
-    def _generate_confusion_matrix_png(self, matrix, experiment_name, labels=None):
+    def _generate_confusion_matrix_png(self, matrix, experiment_name, labels=None, for_paper=False):
         try:
             import matplotlib
             matplotlib.use('Agg')
@@ -527,45 +591,138 @@ class LaSSI():
             import numpy as np
             import textwrap
 
-            data = np.array(matrix)
-            
+            data = np.clip(np.array(matrix), 0.0, 1.0)
+
             if labels is None:
                 labels = [str(i+1) for i in range(data.shape[0])]
-            
-            # Wrap labels for display
-            display_labels = ['\n'.join(textwrap.wrap(str(l), width=40)) for l in labels]
 
-            # Dynamically calculate figure size based on matrix size and label length
-            # Estimate height needed for labels
-            max_label_lines = max([l.count('\n') for l in display_labels]) + 1
-            cell_size = 1.2
-            fig_width = max(12, data.shape[1] * cell_size + 4)
-            fig_height = max(10, data.shape[0] * cell_size + (max_label_lines * 0.2))
+            title = f"Confusion Matrix: {self.catabolites_dir} ({experiment_name})"
 
-            fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-            im = ax.imshow(data, cmap='viridis')
+            if for_paper:
+                from mpl_toolkits.axes_grid1 import make_axes_locatable
+                index_labels = [f"S{i+1}" for i in range(data.shape[0])]
+                n = data.shape[0]
 
-            # Add colorbar
-            cbar = ax.figure.colorbar(im, ax=ax, shrink=0.8)
+                # Wrap every sentence and keep ALL lines so nothing is ever truncated.
+                wrap_width = 60
+                wrapped = [textwrap.fill(str(l), width=wrap_width) for l in labels]
+                line_counts = [w.count('\n') + 1 for w in wrapped]
+                # Header row counts as a single line.
+                total_lines = sum(line_counts) + 1
 
-            # Show all ticks and label them with the respective list entries
-            ax.set_xticks(np.arange(data.shape[1]))
-            ax.set_yticks(np.arange(data.shape[0]))
-            ax.set_xticklabels(display_labels, rotation=45, ha="right", fontsize=9)
-            ax.set_yticklabels(display_labels, fontsize=9)
+                # The figure must be tall enough for both the n-row matrix and the
+                # full wrapped key, whichever needs more vertical room.
+                fig_height = max(4.0, n * 0.7, total_lines * 0.26 + 0.6)
+                r1, r2 = 1, 1.3
+                fig_width = max(11, n * 0.7 + 7)
+                fig = plt.figure(figsize=(fig_width, fig_height))
+                # wspace leaves a clear gap between the matrix and the key table.
+                gs = fig.add_gridspec(1, 2, width_ratios=[r1, r2], wspace=0.1)
+                ax = fig.add_subplot(gs[0])
+                ax_table = fig.add_subplot(gs[1])
 
-            # Loop over data dimensions and create text annotations.
-            for i in range(data.shape[0]):
-                for j in range(data.shape[1]):
-                    ax.text(j, i, f"{data[i, j]:.2f}",
-                                   ha="center", va="center", color="w" if data[i,j] < 0.2 else "black", fontsize=8)
+                # Anchor the (square) matrix to the right of its cell so the
+                # colorbar sits flush against it rather than leaving slack.
+                ax.set_anchor('E')
+                im = ax.imshow(data, cmap='viridis', vmin=0.0, vmax=1.0, aspect='equal')
+                # Colorbar matched to the matrix height via an appended axes.
+                divider = make_axes_locatable(ax)
+                cax = divider.append_axes("right", size="5%", pad=0.08)
+                fig.colorbar(im, cax=cax)
 
-            ax.set_title(f"Confusion Matrix: {experiment_name}", fontsize=14, pad=20)
-            
-            # Adjust layout to make room for labels
-            plt.tight_layout()
+                ax.set_xticks(np.arange(n))
+                ax.set_yticks(np.arange(n))
+                ax.set_xticklabels(index_labels, fontsize=9)
+                ax.set_yticklabels(index_labels, fontsize=9)
+                ax.xaxis.tick_bottom()
+                ax.xaxis.set_label_position('bottom')
 
-            png_path = self.confusion_matrices + experiment_name + ".png"
+                for i in range(n):
+                    for j in range(n):
+                        ax.text(j, i, f"{data[i, j]:.2f}",
+                                ha="center", va="center",
+                                color="w" if data[i, j] < 0.2 else "black", fontsize=8)
+
+                ax_table.axis('off')
+                table_fontsize = 8
+
+                # Finalise the layout first so we can read the ACTUAL table-axes
+                # width (the gridspec wspace makes it narrower than the raw ratio).
+                fig.canvas.draw()
+                renderer = fig.canvas.get_renderer()
+
+                # Measure the real rendered text widths so each column is exactly
+                # wide enough for its content: no clipping, no trailing space.
+                def _text_w_in(s, weight='normal'):
+                    t = fig.text(0, 0, s, fontsize=table_fontsize, fontweight=weight)
+                    w = t.get_window_extent(renderer=renderer).width / fig.dpi
+                    t.remove()
+                    return w
+                sentence_lines = [line for w in wrapped for line in w.split('\n')]
+                longest_sentence_in = max([_text_w_in(s) for s in sentence_lines]
+                                          + [_text_w_in("Sentence", 'bold')])
+                index_in = max([_text_w_in(s) for s in index_labels]
+                               + [_text_w_in("Index", 'bold')])
+                cell_pad_in = 0.14
+                idx_col_in = index_in + 2 * cell_pad_in
+                sent_col_in = longest_sentence_in + 2 * cell_pad_in
+                ax_table_w_in = ax_table.get_window_extent(renderer=renderer).width / fig.dpi
+                table_w_frac = min(1.0, (idx_col_in + sent_col_in) / ax_table_w_in)
+
+                table_data = [[f"S{i+1}", wrapped[i]] for i in range(n)]
+                tbl = ax_table.table(
+                    cellText=table_data,
+                    colLabels=["Index", "Sentence"],
+                    colWidths=[idx_col_in, sent_col_in],
+                    cellLoc='left',
+                    loc='upper left',
+                    bbox=[0.0, 0.0, table_w_frac, 1.0],
+                )
+                tbl.auto_set_font_size(False)
+                tbl.set_fontsize(table_fontsize)
+                # Per-cell: centre the Index column, give each row a height
+                # proportional to its wrapped line count so nothing is clipped.
+                for (row, col), cell in tbl.get_celld().items():
+                    cell.PAD = 0.03
+                    if col == 0:
+                        cell.set_text_props(va='center', ha='center')
+                        cell._loc = 'center'
+                    else:
+                        cell.set_text_props(va='center', ha='left')
+                    if row == 0:
+                        cell.set_height(1.0 / total_lines)
+                        cell.set_text_props(fontweight='bold')
+                    else:
+                        cell.set_height(line_counts[row - 1] / total_lines)
+
+                fig.suptitle(title, fontsize=13, y=1.01)
+                png_path = self.confusion_matrices + experiment_name + "_paper.png"
+            else:
+                display_labels = ['\n'.join(textwrap.wrap(str(l), width=40)) for l in labels]
+                max_label_lines = max([l.count('\n') for l in display_labels]) + 1
+                cell_size = 1.2
+                fig_width = max(12, data.shape[1] * cell_size + 4)
+                fig_height = max(10, data.shape[0] * cell_size + (max_label_lines * 0.2))
+
+                fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+                im = ax.imshow(data, cmap='viridis', vmin=0.0, vmax=1.0)
+                ax.figure.colorbar(im, ax=ax, shrink=0.8)
+
+                ax.set_xticks(np.arange(data.shape[1]))
+                ax.set_yticks(np.arange(data.shape[0]))
+                ax.set_xticklabels(display_labels, rotation=45, ha="right", fontsize=9)
+                ax.set_yticklabels(display_labels, fontsize=9)
+
+                for i in range(data.shape[0]):
+                    for j in range(data.shape[1]):
+                        ax.text(j, i, f"{data[i, j]:.2f}",
+                                ha="center", va="center",
+                                color="w" if data[i, j] < 0.2 else "black", fontsize=8)
+
+                ax.set_title(title, fontsize=14, pad=20)
+                plt.tight_layout()
+                png_path = self.confusion_matrices + experiment_name + ".png"
+
             plt.savefig(png_path, bbox_inches='tight', dpi=150)
             plt.close(fig)
             self.logger(f"Confusion matrix PNG saved to {png_path}")
@@ -583,6 +740,8 @@ class LaSSI():
                                               json_dumps,
                                               self.force or self._is_cache_stale(matrix_cache, self.logical_rewriting))
 
+        confusion_matrices = [[min(1.0, max(0.0, v)) for v in row] for row in confusion_matrices]
+
         if self.generate_png_matrix:
             if self.transformation == SentenceRepresentation.FullText:
                 labels = list(lists)
@@ -590,7 +749,7 @@ class LaSSI():
                 labels = [m.first_sentence for m in self.meu_dbs]
             else:
                 labels = [str(i+1) for i in range(len(confusion_matrices))]
-            self._generate_confusion_matrix_png(confusion_matrices, experiment_name, labels)
+            self._generate_confusion_matrix_png(confusion_matrices, experiment_name, labels, for_paper=self.for_paper)
 
         if self.clusters_file is not None:
             from LaSSI.similarities.ClusteringTest import test_with_maximal_matching

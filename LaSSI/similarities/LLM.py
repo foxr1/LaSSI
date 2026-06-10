@@ -29,9 +29,18 @@ class LLMPrompt:
         "}}"
     )
 
+    def _build_prompt(self, premise: str, consequence: str) -> str:
+        """Build the prompt sent to the model. Subclasses override this to
+        inject extra grounding (e.g. HOnK ontology facts) while reusing the
+        Ollama dispatch/parse plumbing in `_dispatch`."""
+        return self._PROMPT_TEMPLATE.format(premise=premise, consequence=consequence)
+
     def _query(self, premise: str, consequence: str) -> dict:
         """Send one prompt to Ollama and return the parsed JSON dict."""
-        prompt = self._PROMPT_TEMPLATE.format(premise=premise, consequence=consequence)
+        return self._dispatch(self._build_prompt(premise, consequence))
+
+    def _dispatch(self, prompt: str) -> dict:
+        """Send a fully-built prompt to Ollama and return the parsed JSON dict."""
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
