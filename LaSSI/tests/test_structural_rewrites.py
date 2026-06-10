@@ -1182,6 +1182,64 @@ class TestLogicalAnalysisReader(unittest.TestCase):
         self.assertTrue(movement <= relation <= everything)
         self.assertIn("near place", relation - movement)
 
+    def test_kernel_context_monotonicity_partition(self):
+        from LaSSI.utils.logical_analysis_reader import (
+            kernel_context_keys,
+            kernel_context_monotonicity,
+        )
+        restrictive, intensional = kernel_context_monotonicity()
+        self.assertEqual(restrictive | intensional, kernel_context_keys())
+        self.assertFalse(restrictive & intensional)
+        self.assertIn("MODALITY", intensional)
+        self.assertIn("CAUSATION", restrictive)
+
+
+class TestKernelContextImplicationGuard(unittest.TestCase):
+    """Pins the directionality of ModelSearch's kernel logical-context guard:
+    restrictive keys block RHS-only assertions; intensional keys (MODALITY)
+    block LHS-only assertions (modal ⇏ factual, factual ⇒ modal allowed)."""
+
+    @staticmethod
+    def _pred(**props):
+        from LaSSI.structures.extended_fol.Formulae import FUnaryPredicate, FVariable
+        items = frozenset(
+            (k, FVariable(name=v, type="JJ", specification=None, cop=None, id=None))
+            for k, v in props.items()
+        )
+        return FUnaryPredicate(
+            rel="end",
+            arg=FVariable(name="work", type="noun", specification=None, cop=None, id=None),
+            score=1.0,
+            properties=items,
+        )
+
+    def test_restrictive_blocks_rhs_only_key(self):
+        from LaSSI.structures.extended_fol.ModelSearch import (
+            _kernel_logical_keys_block_implication as block,
+        )
+        factual = self._pred()
+        caused = self._pred(CAUSATION="incident")
+        self.assertTrue(block(factual, caused))   # plain ⇏ caused
+        self.assertFalse(block(caused, factual))  # caused ⇒ plain stays valid
+
+    def test_intensional_blocks_lhs_only_key(self):
+        from LaSSI.structures.extended_fol.ModelSearch import (
+            _kernel_logical_keys_block_implication as block,
+        )
+        factual = self._pred()
+        modal = self._pred(MODALITY="expected")
+        self.assertTrue(block(modal, factual))    # expected-to-end ⇏ ends
+        self.assertFalse(block(factual, modal))   # ends ⇒ expected-to-end stays valid
+
+    def test_shared_keys_do_not_block(self):
+        from LaSSI.structures.extended_fol.ModelSearch import (
+            _kernel_logical_keys_block_implication as block,
+        )
+        a = self._pred(MODALITY="expected", CAUSATION="incident")
+        b = self._pred(MODALITY="scheduled", CAUSATION="repairs")
+        self.assertFalse(block(a, b))
+        self.assertFalse(block(b, a))
+
 
 if __name__ == "__main__":
     unittest.main()

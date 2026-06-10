@@ -19,9 +19,21 @@ _TRACE_EXCLUSIVES_ONLY = True  # log only paths that return EXCLUSIVES
 # `similarity_semantics.kernel_context_excluded`, expanded with
 # `key_spelling_aliases`) — a new Kernel-attached construct joins the guard
 # automatically; SPACE/TIME exclusion is declared in the JSON, never here.
-from LaSSI.utils.logical_analysis_reader import kernel_context_keys, paraphrastic_slots
+from LaSSI.utils.logical_analysis_reader import (
+    kernel_context_keys,
+    kernel_context_monotonicity,
+    paraphrastic_slots,
+)
 
 _KERNEL_LOGICAL_CONTEXT_KEYS = kernel_context_keys()
+
+# Partition of the kernel-context keys by declared monotonicity (see
+# logical_analysis.json `_doc_monotonicity`): restrictive keys block an
+# implication when RHS asserts them and LHS doesn't; intensional keys
+# (MODALITY) block in the opposite direction — a modal LHS cannot imply a
+# factual RHS ("expected to end X" does not entail "ends X"), while a factual
+# LHS may imply a modal RHS (upward monotone under possibility).
+_RESTRICTIVE_CONTEXT_KEYS, _INTENSIONAL_CONTEXT_KEYS = kernel_context_monotonicity()
 
 
 # Paraphrastic kernel-key pairs, declared in logical_analysis.json
@@ -39,14 +51,23 @@ def _canonical_kernel_key(k: str) -> str:
 
 
 def _kernel_logical_keys_block_implication(lhs_formula, rhs_formula) -> bool:
-    """Return True iff the verdict ``LHS ⇒ RHS`` must be rejected because RHS
-    asserts a kernel-level logical-context property (CAUSATION, REQUIREMENT,
-    ...) that LHS does not.
+    """Return True iff the verdict ``LHS ⇒ RHS`` must be rejected because the
+    two predicates' kernel-level logical-context properties (CAUSATION,
+    REQUIREMENT, MODALITY, ...) make the implication unsound.
 
-    Asymmetric on purpose: a more-specific LHS is allowed to imply a
-    less-specific RHS (LHS may carry extra logical-context keys). The
-    implication is only invalid when RHS introduces a logical-context key
-    LHS lacks — that's RHS claiming something LHS did not commit to.
+    Direction depends on each key's declared monotonicity
+    (logical_analysis.json `_doc_monotonicity`):
+
+    - *restrictive* keys (the default — intersective event modifiers): a
+      more-specific LHS is allowed to imply a less-specific RHS (LHS may
+      carry extra keys); the implication is invalid only when RHS introduces
+      a restrictive key LHS lacks — RHS claiming something LHS did not
+      commit to.
+    - *intensional* keys (MODALITY — non-veridical operators): the modal
+      does NOT entail the factual, so the implication is invalid when LHS
+      carries the key and RHS does not ("expected to end X" ⇏ "ends X");
+      the factual⇒modal direction stays valid (upward monotone under
+      possibility).
 
     Keys listed in ``_KERNEL_KEY_EQUIVALENCES`` are canonicalised before
     the comparison, so e.g. an LHS carrying ``TEMPORAL_CONTEXT`` is
@@ -54,13 +75,15 @@ def _kernel_logical_keys_block_implication(lhs_formula, rhs_formula) -> bool:
     """
     lhs_props = getattr(lhs_formula, 'properties', None)
     rhs_props = getattr(rhs_formula, 'properties', None)
-    if rhs_props is None:
-        return False
     lhs_keys = {str(k).upper() for k, v in (lhs_props or ()) if v}
     rhs_keys = {str(k).upper() for k, v in (rhs_props or ()) if v}
-    lhs_logical = {_canonical_kernel_key(k) for k in lhs_keys & _KERNEL_LOGICAL_CONTEXT_KEYS}
-    rhs_logical = {_canonical_kernel_key(k) for k in rhs_keys & _KERNEL_LOGICAL_CONTEXT_KEYS}
-    return bool(rhs_logical - lhs_logical)
+    lhs_restrictive = {_canonical_kernel_key(k) for k in lhs_keys & _RESTRICTIVE_CONTEXT_KEYS}
+    rhs_restrictive = {_canonical_kernel_key(k) for k in rhs_keys & _RESTRICTIVE_CONTEXT_KEYS}
+    if rhs_restrictive - lhs_restrictive:
+        return True
+    lhs_intensional = {_canonical_kernel_key(k) for k in lhs_keys & _INTENSIONAL_CONTEXT_KEYS}
+    rhs_intensional = {_canonical_kernel_key(k) for k in rhs_keys & _INTENSIONAL_CONTEXT_KEYS}
+    return bool(lhs_intensional - rhs_intensional)
 
 
 class ModelSearchBasis:

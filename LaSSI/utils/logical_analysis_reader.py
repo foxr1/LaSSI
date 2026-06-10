@@ -53,6 +53,36 @@ def kernel_context_keys():
 
 
 @lru_cache(maxsize=1)
+def kernel_context_monotonicity():
+    """Split of `kernel_context_keys()` by the per-spec ``monotonicity``
+    declaration in ``logical_analysis.json`` (see `_doc_monotonicity` there):
+
+    - ``restrictive`` (default): intersective event modifier — more-specific
+      (with the key) entails less-specific (without). The guard blocks
+      LHS=>RHS when RHS asserts the key and LHS lacks it.
+    - ``intensional``: non-veridical operator (MODALITY) — the modal does NOT
+      entail the factual. The guard blocks LHS=>RHS when LHS asserts the key
+      and RHS lacks it.
+
+    Returns ``(restrictive_keys, intensional_keys)`` partitioning the
+    kernel-context set; spelling aliases follow their canonical key."""
+    data = load_logical_analysis_json()
+    types = data.get("types", {})
+    sem = data.get("similarity_semantics", {})
+    keys = kernel_context_keys()
+    intensional = set()
+    for name, specs in types.items():
+        if name.upper() not in keys:
+            continue
+        if any(s.get("monotonicity") == "intensional" for s in specs):
+            intensional.add(name.upper())
+    for canonical, aliases in sem.get("key_spelling_aliases", {}).items():
+        if str(canonical).upper() in intensional:
+            intensional |= {str(a).upper() for a in aliases}
+    return frozenset(keys - intensional), frozenset(intensional)
+
+
+@lru_cache(maxsize=1)
 def paraphrastic_slots():
     """``similarity_semantics.paraphrastic_slots``: kernel property key ->
     the canonical slot it paraphrases. The guard equates the SLOTS only; the
