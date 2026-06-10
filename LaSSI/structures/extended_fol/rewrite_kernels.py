@@ -72,7 +72,20 @@ def make_not(param):
 def _negated_inner_names(prop):
     """Lowercased names of the entities wrapped in a NOT(...) (``FNot``) inside
     a property item-set. Used to detect a positive target that merely duplicates
-    a negated property value (see ``make_binary``)."""
+    a negated property value (see ``make_binary``).
+
+    SCOPE CONVENTION: an ``FNot(FVariable)`` inside a property bag is read as
+    a wide-scope negated existential (¬∃x.name(x) within the clause — "no
+    reduction"), NOT as an existential over a negated predicate (∃x.¬name(x) —
+    "a non-reduction"). The parser routes both surface shapes to the same
+    property slot, so the distinction is *assumed*, not detected: the match in
+    ``make_binary`` is purely name-level (case-insensitive string equality
+    against the target's name) with no structural-identity check. Under that
+    convention, a positive target with the same name is a leaked duplicate of
+    the negated assertion and is safe to replace with a fresh existential; if
+    a narrow-scope reading ever reaches this path, the replacement would
+    silently delete a genuine assertion — hence the warning logged at the
+    drop site."""
     names = set()
     try:
         items = prop.items() if hasattr(prop, "items") else prop
@@ -416,8 +429,18 @@ class RewriteKernels:
         # `NOT(reduction)` is the genuine assertion in a property; the positive
         # copy makes the clause assert the very thing it denies (so "no reduction"
         # stops contradicting "a reduction"). Replace it with an existential.
+        # The match is name-level only and assumes the wide-scope ¬∃ convention
+        # (see _negated_inner_names) — log it, so a narrow-scope reading that
+        # would be silently deleted is at least visible in the run log.
         if isinstance(dst, FVariable) and dst.name is not None \
                 and str(dst.name).lower() in _negated_inner_names(prop):
+            import logging
+            logging.getLogger(__name__).warning(
+                "make_binary: dropping positive target %r duplicated by a "
+                "negated property value (rel=%r); assuming wide-scope ¬∃ — "
+                "if this clause meant a narrow-scope ∃¬, the assertion was lost",
+                dst.name, rel,
+            )
             _ex_id = self.e.increaseAndGetExistential()
             dst = FVariable(name=f"?{_ex_id}", type="existential",
                             specification=None, cop=None, id=None)

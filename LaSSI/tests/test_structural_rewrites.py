@@ -1241,5 +1241,58 @@ class TestKernelContextImplicationGuard(unittest.TestCase):
         self.assertFalse(block(b, a))
 
 
+class TestNegatedTargetDrop(unittest.TestCase):
+    """Pins make_binary's negated-duplicate target drop and its wide-scope ¬∃
+    convention (see rewrite_kernels._negated_inner_names): a positive target
+    whose name case-insensitively matches a NOT-wrapped property value is
+    replaced by a fresh existential, with a warning logged."""
+
+    @staticmethod
+    def _rewriter():
+        from types import SimpleNamespace
+        from LaSSI.structures.extended_fol.rewrite_kernels import RewriteKernels
+        rk = RewriteKernels.__new__(RewriteKernels)
+        rk.e = SimpleNamespace(increaseAndGetExistential=lambda: 99)
+        rk.p = SimpleNamespace(
+            state_verbs=set(), transitive_verbs=set(), movement_verbs=set(),
+            phrasal_verbs=set(), causative_verbs=set(), semi_modal_verbs=set(),
+            means_verbs=set(), materialisation_verbs=set(),
+        )
+        return rk
+
+    def test_negated_inner_names_collects_not_wrapped_variables(self):
+        from LaSSI.structures.extended_fol.Formulae import FNot, FVariable
+        from LaSSI.structures.extended_fol.rewrite_kernels import _negated_inner_names
+        reduction = FVariable(name="Reduction", type="noun", specification=None, cop=None, id=None)
+        prop = frozenset({
+            ("STATUS", (FNot(arg=reduction),)),
+            ("SPACE", (FVariable(name="park", type="LOC", specification=None, cop=None, id=None),)),
+        })
+        self.assertEqual(_negated_inner_names(prop), {"reduction"})
+
+    def test_positive_target_duplicating_negated_property_is_dropped(self):
+        from LaSSI.structures.extended_fol.Formulae import FNot, FVariable
+        rk = self._rewriter()
+        reduction = FVariable(name="reduction", type="noun", specification=None, cop=None, id=None)
+        src = FVariable(name="park", type="noun", specification=None, cop=None, id=None)
+        prop = {"STATUS": [FNot(arg=reduction)]}
+        with self.assertLogs("LaSSI.structures.extended_fol.rewrite_kernels", level="WARNING"):
+            result = rk.make_binary("operate", src, reduction, 1.0, prop)
+        dst = result.arg.dst if hasattr(result, "arg") else result.dst
+        self.assertEqual(dst.type, "existential")
+        self.assertEqual(dst.name, "?99")
+
+    def test_unrelated_positive_target_is_kept(self):
+        from LaSSI.structures.extended_fol.Formulae import FNot, FVariable
+        rk = self._rewriter()
+        reduction = FVariable(name="reduction", type="noun", specification=None, cop=None, id=None)
+        timetable = FVariable(name="timetable", type="noun", specification=None, cop=None, id=None)
+        src = FVariable(name="park", type="noun", specification=None, cop=None, id=None)
+        prop = {"STATUS": [FNot(arg=reduction)]}
+        result = rk.make_binary("operate", src, timetable, 1.0, prop)
+        dst = result.arg.dst if hasattr(result, "arg") else result.dst
+        self.assertEqual(dst.name, "timetable")
+
+
 if __name__ == "__main__":
     unittest.main()
