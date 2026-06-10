@@ -247,6 +247,13 @@ class GraphBuilder:
         back to materialising the deeper marker tokens onto the head as
         position-keyed properties so ``get_prepositions`` still recovers the
         full run downstream.
+
+        NOTE (2026-06): the GSM grammar's ``marker_chain`` rule now
+        materialises the deeper marker of LENGTH-2 chains upstream (the
+        common case), so for those the fallback branch below is an idempotent
+        no-op (it checks ``str(pos) not in head_props``). This method remains
+        the single home of the HOnK fixed-phrase rename (ontology lookups are
+        unavailable at GSM time) and the backstop for chains longer than 2.
         """
         by_id = {item.get('id'): item for item in gsm_json if item.get('id') is not None}
         marker_ell = {'IN', 'TO', 'RB'}

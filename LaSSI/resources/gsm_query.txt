@@ -366,3 +366,19 @@ p3noobj = (V)--[∀n:nsubj]->(>>S)
        (S)
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+;
+
+// RULE: materialise the deeper marker of a chained case/mark run as a
+// position-keyed property on the governing head, so the fixed-phrase
+// normaliser (GraphBuilder._lift_chained_preposition_markers) sees the
+// full run without graph walking: "use --case--> out(IN) --?--> of(IN)"
+// adds  pi <pos-of-of> @ use = "of".  Authoring contract: fresh variable
+// names (rank-0 scheduling), returns the entrypoint (registers no
+// replacement), property-set only (no edges added, DAG-safe).
+marker_chain = (QH)--[ql:case||mark]->(QM1)
+                  (QM1)--[qn:]->(QM2)
+        where (((FILL (ℓ 0 @ QM1) = IN) ∨ ((FILL (ℓ 0 @ QM1) = TO) ∨ (FILL (ℓ 0 @ QM1) = RB))) ∧ ((FILL (ℓ 0 @ QM2) = IN) ∨ ((FILL (ℓ 0 @ QM2) = TO) ∨ (FILL (ℓ 0 @ QM2) = RB))))
+       ↪
+          set (𝜋 (𝜋 pos @ QM2) @ QH) as (𝜉 0 @ QM2)
+          (QH)
