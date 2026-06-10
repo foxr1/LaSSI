@@ -109,6 +109,15 @@ class GraphBuilder:
         later root whose child is a nominal `multipleindobj` content group.
         Move the passive subject edge onto the detached content root so the
         kernel builder sees the same shape as ordinary passive-content cases.
+
+        NOTE (2026-06 generalisation audit): this repair's precondition occurs
+        in ZERO of the 30 evidence cases' post-grammar outputs — it is
+        insurance against a grammar split none of the current corpus
+        triggers. It also CANNOT move upstream into gsm_query.txt: the repair
+        binds two DISCONNECTED components (the subjpass holder and the
+        detached content root share no edge), while the GSM pattern language
+        matches connected subgraphs around a pivot. Keep here, or delete if
+        the insurance is judged unnecessary.
         """
         by_id = {item.get('id'): item for item in gsm_json if item.get('id') is not None}
 

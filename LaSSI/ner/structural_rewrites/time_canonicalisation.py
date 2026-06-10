@@ -4,16 +4,15 @@ __license__ = "GPL"
 __version__ = "2.0"
 __maintainer__ = "Oliver R. Fox"
 
-from LaSSI.ner.structural_rewrites.base import StructuralRewriteRule
+from LaSSI.ner.structural_rewrites.base import StructuralRewriteRule, is_date_like
 from LaSSI.structures.internal_graph.EntityRelationship import Singleton
 from LaSSI.utils.datetime_canon import canonicalize_datetime_string
 
 
-_DATE_TIME_TYPES = frozenset({"DATE", "TIME", "SUTime"})
-
-
-def _is_date(node):
-    return isinstance(node, Singleton) and str(getattr(node, "type", "")).upper() in _DATE_TIME_TYPES
+# Date/time typing goes through base.is_date_like — the local copy this
+# replaced spelled the NER source "SUTime" unuppercased, so it silently never
+# matched a SUTIME-typed node.
+_is_date = is_date_like
 
 
 def _canonicalize_singleton_datetime(item):

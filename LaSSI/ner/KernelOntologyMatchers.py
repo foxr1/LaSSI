@@ -107,7 +107,8 @@ class KernelOntologyMatchers:
         if name == "CausalNode":
             return kernel is not None and self.is_causal_node(kernel, value)
         if name == "DateLike":
-            return isinstance(value, Singleton) and str(getattr(value, "type", "")).upper() in {"DATE", "TIME", "SUTIME"}
+            from LaSSI.ner.structural_rewrites.base import is_date_like
+            return is_date_like(value)
         if name == "ContextNode":
             return self.is_context_node(value)
         if name == "ContentNode":
@@ -129,7 +130,10 @@ class KernelOntologyMatchers:
             context_types = set()
         if not context_types:
             context_types = {"DATE", "TIME", "SUTime", "GPE", "LOC", "FAC", "existential"}
-        return str(getattr(node, "type", "") or "") in context_types
+        # Case-normalised on both sides: the lexical set spells the NER source
+        # "SUTime" mixed-case, and a case-sensitive compare silently missed it.
+        context_types_upper = {str(t).upper() for t in context_types}
+        return str(getattr(node, "type", "") or "").upper() in context_types_upper
 
     def is_content_node(self, node):
         if isinstance(node, SetOfSingletons):

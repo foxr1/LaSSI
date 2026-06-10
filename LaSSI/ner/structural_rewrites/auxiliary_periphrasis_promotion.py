@@ -9,6 +9,7 @@ from LaSSI.ner.structural_rewrites.base import (
     StructuralRewriteRule,
     append_unique_property_value,
     as_list,
+    is_date_like,
 )
 from LaSSI.structures.internal_graph.EntityRelationship import (
     Grouping,
@@ -19,15 +20,16 @@ from LaSSI.structures.internal_graph.EntityRelationship import (
 
 
 _LOCATION_TYPES = frozenset({"GPE", "LOC", "FAC"})
-_DATE_TIME_TYPES = frozenset({"DATE", "TIME", "SUTime"})
 
 
 def _is_location(node):
     return isinstance(node, Singleton) and str(getattr(node, "type", "")).upper() in _LOCATION_TYPES
 
 
-def _is_date(node):
-    return isinstance(node, Singleton) and str(getattr(node, "type", "")).upper() in _DATE_TIME_TYPES
+# Date/time typing goes through base.is_date_like — the local copy this
+# replaced spelled the NER source "SUTime" unuppercased, so it silently never
+# matched a SUTIME-typed node.
+_is_date = is_date_like
 
 
 class AuxiliaryPeriphrasisPromotionRule(StructuralRewriteRule):
