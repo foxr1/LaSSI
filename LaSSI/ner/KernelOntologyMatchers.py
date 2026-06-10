@@ -192,29 +192,6 @@ class KernelOntologyMatchers:
                 ids.update(self.reachable_ids(item))
         return ids
 
-    # ---- copula / stative classification ----
-
-    def is_stative_lemma(self, verb_lemma):
-        """Stative verbs (remain/stay/pause/etc.) come from HOnK's StateVerb set;
-        the bare copula 'be' surface forms function equivalently for the swap
-        heuristic and are sourced from HOnK.getCopulaSurfaceForms()."""
-        if not verb_lemma:
-            return False
-        lemma = verb_lemma.lower().strip()
-        if not lemma:
-            return False
-        try:
-            copula_forms = self.services.getHOnK().getCopulaSurfaceForms() or set()
-        except Exception:
-            copula_forms = set()
-        if lemma in {str(f).lower() for f in copula_forms}:
-            return True
-        try:
-            state_verbs = self.services.getHOnK().getStateVerbs() or set()
-        except Exception:
-            state_verbs = set()
-        return lemma in {str(v).lower() for v in state_verbs}
-
     def is_preposition_name(self, name):
         """A node's named_entity counts as a bare preposition when HOnK's
         prototypical preposition set lists it. Used to spot orphan 'on'/'in'/etc.

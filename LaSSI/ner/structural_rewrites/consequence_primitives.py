@@ -9,16 +9,14 @@ __maintainer__ = "Oliver R. Fox"
 Each function here backs one named premise or consequence in `declarative.py`
 that cannot be expressed as pure premise/consequence data because it needs
 bespoke node surgery (split a modifier into an AND sibling, merge an adjacent
-quantity, swap a head with an `extra`, promote property buckets into a target)
-or the dependency graph (`ctx.matchers.G`: acl-relcl target recovery, nmod
-`extra` recovery). New rules should prefer the general vocabulary and only reach
-here when structure genuinely cannot express the rewrite."""
+quantity, swap a head with an `extra`, promote property buckets into a target).
+New rules should prefer the general vocabulary and only reach here when
+structure genuinely cannot express the rewrite."""
 
 from LaSSI.ner.structural_rewrites.base import (
     append_unique_property_value,
     as_list,
     copy_props,
-    is_copula_surface,
     is_date_like,
     property_values,
     replace_kernel,
@@ -40,7 +38,6 @@ from LaSSI.structures.internal_graph.EntityRelationship import (
     SetOfSingletons,
     Singleton,
 )
-from LaSSI.utils.datetime_canon import canonicalize_datetime_string
 
 
 # ---- PromoteToTarget ------------------------------------------------------
@@ -371,277 +368,7 @@ def _swap_head_with_extra(node, config, ctx):
     return node.update_node_props(props).update_type(promoted.type).update_name(promoted.named_entity)
 
 
-# ---- Graph escape hatch (needs ctx.matchers.G) ----------------------------
-
-def _referenced_ids(node):
-    ids = set()
-    matcher = None
-    if isinstance(node, tuple) and len(node) == 2 and hasattr(node[1], "reachable_ids"):
-        node, matcher = node
-    if matcher is not None and hasattr(matcher, "reachable_ids"):
-        return matcher.reachable_ids(node)
-    if isinstance(node, Singleton):
-        ids.add(node.id)
-        for value in dict(node.properties or {}).values():
-            ids.update(_referenced_ids(value))
-        if node.kernel is not None:
-            ids.update(_referenced_ids(node.kernel.source))
-            ids.update(_referenced_ids(node.kernel.target))
-            ids.update(_referenced_ids(node.kernel.edgeLabel))
-    elif isinstance(node, SetOfSingletons):
-        ids.add(node.id)
-        for entity in node.entities:
-            ids.update(_referenced_ids(entity))
-    elif isinstance(node, (list, tuple)):
-        for item in node:
-            ids.update(_referenced_ids(item))
-    return ids
-
-
-def _has_extra(props, candidate):
-    for item in as_list(props.get("extra")):
-        if isinstance(item, Singleton) and (
-            item.id == candidate.id or item.named_entity == candidate.named_entity
-        ):
-            return True
-    return False
-
-
-def _nmod_children(entity, ctx):
-    from LaSSI.structures import DependencyRoles
-    from LaSSI.structures.kernels.SentenceX import get_prepositions
-
-    matcher = getattr(ctx, "matchers", None)
-    labels = DependencyRoles.nominal_modifier_edges()
-    if matcher is not None and hasattr(matcher, "dependency_children"):
-        candidates = matcher.dependency_children(entity, labels)
-    else:
-        graph = getattr(matcher, "G", None)
-        candidates = []
-        if graph is not None and isinstance(entity, Singleton) and entity.id in graph:
-            for _, child_id, data in graph.out_edges(entity.id, data=True):
-                label = data.get("label")
-                if getattr(label, "named_entity", None) not in labels:
-                    continue
-                if child_id in graph:
-                    child = graph.nodes[child_id].get("data")
-                    if child is not None:
-                        candidates.append(child)
-    out = []
-    for child in candidates:
-        if not isinstance(child, Singleton):
-            continue
-        if not is_content_node(child, ctx):
-            continue
-        if not get_prepositions(child):
-            continue
-        out.append(child)
-    return out
-
-
-def match_graph_nmod_extra_candidates(kernel, ctx):
-    target = and_target(kernel)
-    if target is None:
-        return None
-    target_ids = _referenced_ids((target, getattr(ctx, "matchers", None)))
-    actions = []
-    for idx, entity in enumerate(target.entities):
-        if not isinstance(entity, Singleton):
-            continue
-        props = dict(entity.properties)
-        for child in _nmod_children(entity, ctx):
-            if child.id in target_ids or _has_extra(props, child):
-                continue
-            actions.append((idx, child))
-    return {"actions": actions} if actions else None
-
-
-def apply_graph_nmod_extra_candidates(kernel, bindings):
-    target = kernel.kernel.target
-    entities = list(target.entities)
-    for idx, child in bindings["actions"]:
-        entity = entities[idx]
-        props = copy_props(entity)
-        extras = as_list(props.get("extra"))
-        if not _has_extra(props, child):
-            extras.append(child)
-        props["extra"] = extras
-        entities[idx] = entity.update_node_props(props)
-    return replace_kernel(kernel, target=target.update_entities(entities))
-
-
-def _graph_has_dependency_edge(ctx, source, target, labels):
-    if not (isinstance(source, Singleton) and isinstance(target, Singleton)):
-        return False
-    graph = getattr(getattr(ctx, "matchers", None), "G", None)
-    if graph is None:
-        return False
-    labels = {str(label).lower() for label in labels}
-
-    if source.id in graph:
-        for _, child_id, data in graph.out_edges(source.id, data=True):
-            label = data.get("label")
-            if str(getattr(label, "named_entity", "")).lower() not in labels:
-                continue
-            child = graph.nodes[child_id].get("data") if child_id in graph else None
-            if (
-                child_id == target.id
-                or (isinstance(child, Singleton) and child.id == target.id)
-                or (isinstance(child, Singleton) and child.named_entity == target.named_entity)
-            ):
-                return True
-
-    # Node contraction can leave the relevant Singletons inside a grouped node
-    # while preserving edge labels elsewhere. Scan as a conservative fallback.
-    for src_id, dst_id, data in graph.edges(data=True):
-        label = data.get("label")
-        if str(getattr(label, "named_entity", "")).lower() not in labels:
-            continue
-        src = graph.nodes[src_id].get("data") if src_id in graph else None
-        dst = graph.nodes[dst_id].get("data") if dst_id in graph else None
-        if _referenced_ids(src) & {source.id} and _referenced_ids(dst) & {target.id}:
-            return True
-    return False
-
-
-def match_graph_compound_classifier_head_candidates(kernel, classifier_classes, ctx):
-    target = and_target(kernel)
-    if target is None:
-        return None
-    entities = list(target.entities)
-    actions = []
-    for head_idx, head in enumerate(entities):
-        if not isinstance(head, Singleton):
-            continue
-        if not any(matches_class(head, cls, ctx, kernel=kernel) for cls in classifier_classes):
-            continue
-        for child_idx, child in enumerate(entities):
-            if child_idx == head_idx or not isinstance(child, Singleton):
-                continue
-            if not is_content_node(child, ctx):
-                continue
-            if _graph_has_dependency_edge(ctx, head, child, {"compound"}):
-                actions.append((head_idx, child_idx))
-                break
-    return {"compound_classifier_actions": actions} if actions else None
-
-
-def apply_graph_compound_classifier_head_candidates(kernel, bindings):
-    target = kernel.kernel.target
-    entities = list(target.entities)
-    remove_indices = set()
-    for head_idx, child_idx in bindings["compound_classifier_actions"]:
-        if head_idx in remove_indices:
-            continue
-        head = entities[head_idx]
-        child = entities[child_idx]
-        props = copy_props(child)
-        extras = as_list(props.get("extra"))
-        if not _has_extra(props, head):
-            extras.append(head)
-        props["extra"] = extras
-        entities[child_idx] = child.update_node_props(props)
-        remove_indices.add(head_idx)
-
-    kept = [entity for idx, entity in enumerate(entities) if idx not in remove_indices]
-    if len(kept) == 1:
-        return replace_kernel(kernel, target=kept[0])
-    return replace_kernel(kernel, target=target.update_entities(kept))
-
-
-def match_graph_acl_recovered_target(kernel, ctx):
-    if not isinstance(kernel, Singleton) or kernel.kernel is None:
-        return None
-    rel = kernel.kernel
-    if rel.target is not None:
-        return None
-    source = rel.source
-    if not (isinstance(source, Singleton) and source.type == "existential"):
-        return None
-    if not isinstance(rel.edgeLabel, Singleton):
-        return None
-    graph = getattr(getattr(ctx, "matchers", None), "G", None)
-    if graph is None or source.id not in graph.nodes:
-        return None
-    verb_target = _find_verb_edge_target(graph, source.id)
-    if verb_target is None:
-        return None
-    nmod_target = _find_nmod_via_relcl(graph, verb_target)
-    if nmod_target is None:
-        return None
-    return {"verb_target": verb_target, "nmod_target": nmod_target}
-
-
-def apply_graph_acl_recovered_target(kernel, bindings, ctx):
-    props = copy_props(kernel)
-    verb_target = bindings["verb_target"]
-    if isinstance(verb_target, Singleton) and matches_class(verb_target, "LocationLike", ctx, kernel=kernel):
-        append_unique_property_value(props, "SPACE", verb_target)
-    return replace_kernel(kernel, target=bindings["nmod_target"]).update_node_props(props)
-
-
-def _find_verb_edge_target(graph, source_id):
-    for _, target_id, data in graph.out_edges(source_id, data=True):
-        label = data.get("label")
-        if not isinstance(label, Singleton):
-            continue
-        if (label.type or "").lower() != "verb":
-            continue
-        target_node = graph.nodes[target_id].get("data")
-        if target_node is not None:
-            return target_node
-    return None
-
-
-def _find_nmod_via_relcl(graph, verb_target):
-    if not isinstance(verb_target, Singleton) or verb_target.id not in graph.nodes:
-        return None
-    relcl_targets = []
-    for _, child_id, data in graph.out_edges(verb_target.id, data=True):
-        label = data.get("label")
-        if not isinstance(label, Singleton):
-            continue
-        if (label.named_entity or "").lower() in {"acl_relcl", "acl"}:
-            child = graph.nodes[child_id].get("data")
-            if child is not None:
-                relcl_targets.append(child)
-    for relcl_target in relcl_targets:
-        if not isinstance(relcl_target, Singleton) or relcl_target.id not in graph.nodes:
-            continue
-        for _, nmod_child_id, data in graph.out_edges(relcl_target.id, data=True):
-            label = data.get("label")
-            if not isinstance(label, Singleton):
-                continue
-            if (label.named_entity or "").lower() in {"nmod", "obj", "iobj", "dobj"}:
-                nmod_child = graph.nodes[nmod_child_id].get("data")
-                if isinstance(nmod_child, SetOfSingletons) and nmod_child.type == Grouping.AND:
-                    return nmod_child
-                if isinstance(nmod_child, Singleton) and "verb" not in (nmod_child.type or "").lower():
-                    return nmod_child
-    return None
-
-
-# ---- StripLeadingCopula / Flatten / redundant-time ------------------------
-
-def strip_leading_copula_aux(name, ctx):
-    if not name:
-        return None
-    parts = [part for part in str(name).split() if part]
-    if len(parts) < 2:
-        return None
-    leading = 0
-    for part in parts:
-        if is_copula_surface(part, ctx):
-            leading += 1
-            continue
-        break
-    if leading == 0 or leading >= len(parts):
-        return None
-    remaining = parts[leading:]
-    return " ".join(
-        [safe_lemmatize_verb(remaining[0]).lower()] + [part.lower() for part in remaining[1:]]
-    )
-
+# ---- Flatten ---------------------------------------------------------------
 
 def flatten_same_group(kernel, groups):
     def transform(node):
@@ -658,23 +385,6 @@ def flatten_same_group(kernel, groups):
         return node.update_entities(entities) if changed else node
 
     return walk_kernel(kernel, transform)
-
-
-def canonical_time_names(value):
-    names = set()
-    for item in as_list(value):
-        if not is_date_like(item):
-            continue
-        canonical = canonicalize_datetime_string(item.named_entity)
-        names.add(canonical or item.named_entity)
-    return names
-
-
-def is_duplicate_time(entity, time_names):
-    if not is_date_like(entity):
-        return False
-    canonical = canonicalize_datetime_string(entity.named_entity)
-    return (canonical or entity.named_entity) in time_names
 
 
 # ---- LiftConjunctContext --------------------------------------------------

@@ -600,10 +600,10 @@ class KernelPostProcessor:
             if unwrapped is None:
                 # Re-apply the SPACE-typing rule (e.g. at → stay in place) on
                 # the entry. Singletons that reached SPACE via paths other than
-                # `rewrite_properties_logically` -- e.g. the post-logical
-                # `passive_progressive` rewrite that lifts the sub-kernel
-                # target into SPACE, or kernels constructed via compound-merge
-                # of two non-MEU nodes -- have the preposition in their props
+                # `rewrite_properties_logically` -- e.g. a post-logical rewrite
+                # that lifts a sub-kernel target into SPACE, or kernels
+                # constructed via compound-merge of two non-MEU nodes -- have
+                # the preposition in their props
                 # but were never classified, so their inner `type` is empty.
                 # Running the matcher here makes the inner type consistent
                 # regardless of how the entry was attached.

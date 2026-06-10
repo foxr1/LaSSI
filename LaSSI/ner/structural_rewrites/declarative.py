@@ -34,7 +34,6 @@ from LaSSI.ner.structural_rewrites.config import (  # noqa: F401
 )
 from LaSSI.ner.structural_rewrites.predicates import (
     create_existential,
-    edge_label,
     kernel_slot,
     matches_class,
     node_property_value_matches_class,
@@ -170,17 +169,6 @@ def _eval_premise(name, values, kernel, ctx, bindings):
     if name == "SlotHasConstructPreposition":
         return _eval_slot_has_construct_preposition(values, kernel, ctx, bindings)
     # ---- structural / graph escape-hatch premises ----
-    if name == "EdgeHasLeadingCopulaAux":
-        label = edge_label(kernel)
-        if not isinstance(label, Singleton):
-            return False
-        new_name = prim.strip_leading_copula_aux(label.named_entity, ctx)
-        if not new_name or new_name == label.named_entity:
-            return False
-        bindings["new_edge_name"] = new_name
-        return True
-    if name == "AndTargetRedundantTime":
-        return _eval_and_target_redundant_time(values, kernel, ctx, bindings)
     if name == "AndConjunctHasContextProperty":
         return prim.and_conjunct_has_context_property(kernel)
     if name == "SpaceHasTemporalEntries":
@@ -203,24 +191,6 @@ def _eval_premise(name, values, kernel, ctx, bindings):
             prim.has_head_swap_candidate(kernel, {"extra_class": cls, "extra_property": "extra"}, ctx)
             for cls in values
         )
-    if name == "GraphAclRecoverable":
-        result = prim.match_graph_acl_recovered_target(kernel, ctx)
-        if result is None:
-            return False
-        bindings.update(result)
-        return True
-    if name == "GraphNmodExtraCandidates":
-        result = prim.match_graph_nmod_extra_candidates(kernel, ctx)
-        if result is None:
-            return False
-        bindings.update(result)
-        return True
-    if name == "GraphCompoundClassifierHeadCandidates":
-        result = prim.match_graph_compound_classifier_head_candidates(kernel, values, ctx)
-        if result is None:
-            return False
-        bindings.update(result)
-        return True
     raise ValueError(f"Unknown structural-rewrite premise {name!r}")
 
 
@@ -308,23 +278,6 @@ def _eval_slot_has_construct_preposition(values, kernel, ctx, bindings):
     return False
 
 
-def _eval_and_target_redundant_time(values, kernel, ctx, bindings):
-    if not isinstance(kernel, Singleton) or kernel.kernel is None:
-        return False
-    target = kernel.kernel.target
-    if not (isinstance(target, SetOfSingletons) and target.type == Grouping.AND):
-        return False
-    for time_key in values:
-        time_names = prim.canonical_time_names(dict(kernel.properties).get(time_key))
-        if not time_names:
-            continue
-        kept = [entity for entity in target.entities if not prim.is_duplicate_time(entity, time_names)]
-        if len(kept) != len(target.entities):
-            bindings["kept_target_entities"] = kept
-            return True
-    return False
-
-
 # ---------------------------------------------------------------------------
 # Consequence vocabulary
 #
@@ -353,16 +306,6 @@ def _apply_consequence(name, params, kernel, bindings, ctx):
         groups = {getattr(Grouping, g) for g in params.get("groups", ["AND", "OR"])}
         return prim.flatten_same_group(kernel, groups)
     # ---- structural / graph escape-hatch consequences ----
-    if name == "StripLeadingCopula":
-        label = edge_label(kernel)
-        if not isinstance(label, Singleton):
-            return kernel
-        return kernel.update_kernel(label.update_name(bindings["new_edge_name"]), "edgeLabel")
-    if name == "DropRedundantTime":
-        target = kernel.kernel.target
-        kept = bindings["kept_target_entities"]
-        new_target = kept[0] if len(kept) == 1 else target.update_entities(kept)
-        return replace_kernel(kernel, target=new_target)
     if name == "LiftConjunctContext":
         return prim.lift_conjunct_context_properties(kernel)
     if name == "DropTemporalFromSpace":
@@ -376,12 +319,6 @@ def _apply_consequence(name, params, kernel, bindings, ctx):
         return prim.apply_adjacent_quantity_merge(kernel, bindings)
     if name == "SwapHeadWithExtra":
         return prim.rewrite_head_with_extra_class(kernel, params, ctx)
-    if name == "GraphAclRecoveredTarget":
-        return prim.apply_graph_acl_recovered_target(kernel, bindings, ctx)
-    if name == "GraphNmodExtra":
-        return prim.apply_graph_nmod_extra_candidates(kernel, bindings)
-    if name == "GraphCompoundClassifierHead":
-        return prim.apply_graph_compound_classifier_head_candidates(kernel, bindings)
     raise ValueError(f"Unknown structural-rewrite consequence {name!r}")
 
 

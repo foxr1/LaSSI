@@ -38,24 +38,10 @@
         {"ReplaceSlot": {"slot": "source", "with": "existential"}}
       ]
     },
-    {"impl": "stative_eventive_swap:StativeEventiveSwapRule"},
     {"impl": "specification_into_space:FoldSpecificationIntoSpaceRule"},
-    {
-      "name": "relcl_target_lift",
-      "phase": "post_logical_rewrite",
-      "premise": {"GraphAclRecoverable": []},
-      "consequence": [{"GraphAclRecoveredTarget": {}}]
-    },
     {"impl": "requirement_simplifier:RequirementClauseSimplifierRule"},
     {"impl": "logical_context_clause_dedupe:LogicalContextClauseDedupeRule"},
-    {"impl": "passive_progressive:PassiveProgressiveRewrite"},
     {"impl": "existential_passive_and_promote:ExistentialPassiveAndPromoteRule"},
-    {
-      "name": "strip_aux_from_edge_label",
-      "phase": "post_logical_rewrite",
-      "premise": {"EdgeHasLeadingCopulaAux": []},
-      "consequence": [{"StripLeadingCopula": {}}]
-    },
     {
       "name": "lift_conjunct_context_to_kernel",
       "phase": "post_logical_rewrite",
@@ -105,11 +91,9 @@
     },
     {"impl": "geo_extra_to_space:GeoExtraToSpaceRule"},
     {"impl": "participial_collapse:ParticipialCollapseRule"},
-    {"impl": "participial_sub_kernel_preserve:ParticipialSubKernelPreserveRule"},
     {"impl": "participial_predicate_promotion:ParticipialPredicatePromotionRule"},
     {"impl": "lifecycle_property_promotion:LifecyclePropertyPromotionRule"},
     {"impl": "lifecycle_property_promotion:LifecyclePropertyPromotionLateRule"},
-    {"impl": "status_verb_into_time_status:StatusVerbIntoTimeStatusRule"},
     {"impl": "causal_signal_result:CausalSignalResultRule"},
     {
       "name": "after_occurrence_context_to_causation",
@@ -134,12 +118,6 @@
       "consequence": [{"PromoteToTarget": {}}]
     },
     {"impl": "time_canonicalisation:TimeCanonicalisationRule"},
-    {
-      "name": "drop_redundant_time_target",
-      "phase": "post_logical_rewrite",
-      "premise": {"AndTargetRedundantTime": ["TIME"]},
-      "consequence": [{"DropRedundantTime": {}}]
-    },
     {
       "name": "weather_amod_condition",
       "phase": "post_logical_rewrite",
@@ -168,19 +146,6 @@
         "HasProperty": ["QUANTITY"]
       },
       "consequence": [{"Drop": {"property": "QUANTITY"}}]
-    },
-    {
-      "name": "and_nmod_extra",
-      "phase": "post_logical_rewrite",
-      "premise": {"GraphNmodExtraCandidates": []},
-      "consequence": [{"GraphNmodExtra": {}}]
-    },
-    {
-      "name": "and_compound_classifier_extra",
-      "phase": "post_logical_rewrite",
-      "uses_honk_sets": ["EventClassifierHeadNoun"],
-      "premise": {"GraphCompoundClassifierHeadCandidates": ["EventClassifierHeadNoun"]},
-      "consequence": [{"GraphCompoundClassifierHead": {}}]
     },
     {
       "name": "lifecycle_subject_promotion",
