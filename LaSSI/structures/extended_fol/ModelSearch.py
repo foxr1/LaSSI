@@ -210,7 +210,16 @@ class ModelSearch:
             return CasusHappening.INDIFFERENT
         if direct == CasusHappening.EQUIVALENT:
             return CasusHappening.EQUIVALENT
-        if isImplication(direct):
+        if direct == CasusHappening.GENERAL_IMPLICATION:
+            # Mutual implication witnesses logical equivalence (A ⇒ B and
+            # B ⇒ A ⊢ A ≡ B) — but only when both directions are *general*
+            # implications. The weak implication kinds do not witness the
+            # reverse entailment: LOSE_SPEC/INSTANTIATION mean one side is
+            # strictly more specific (so the sides differ in content), and
+            # MISSING_1ST means an argument is absent on one side, not that
+            # the sides entail each other. Promoting on those collapsed
+            # genuinely-asymmetric pairs (e.g. forward GENERAL + reverse
+            # MISSING_1ST) into EQUIVALENT.
             reverse_direct = test_pairwise_sentence_similarity(
                 self.pairwise_similarity_cache,
                 objRHS.original,
@@ -218,7 +227,7 @@ class ModelSearch:
                 store=False,
                 shift=False,
             )
-            if reverse_direct == CasusHappening.EQUIVALENT or isImplication(reverse_direct):
+            if reverse_direct in (CasusHappening.EQUIVALENT, CasusHappening.GENERAL_IMPLICATION):
                 return CasusHappening.EQUIVALENT
         # If the full comparison didn't return INDIFFERENT but also didn't
         # return the expansion-level implication (e.g. because the relation
