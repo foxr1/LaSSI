@@ -1,3 +1,18 @@
+// ============================================================================
+// PARSER CONTRACT (DatagramDB query parser; see datagram-db
+// REPORT_engine_semantics.md, 2026-06 engine investigation):
+//   Rules are semicolon-SEPARATED, not semicolon-terminated:
+//       all_matches: (centralmatch ';')* centralmatch
+//   There is no EOF token, so the parser SILENTLY DISCARDS anything that
+//   follows the final bare (semicolon-less) rule. The FINAL rule must have
+//   NO trailing ';'.
+//   To append a rule: add a newline and a ';' after the current last rule,
+//   then append the new rule WITHOUT a trailing semicolon.
+//   Also note: rules appended to this full grammar may never fire (morphism
+//   starvation) — prototype every change with eval/_gsm_probe.py; see
+//   "GSM Grammar vs Python" in CLAUDE.md.
+// ============================================================================
+
 // Identifies if a verb has an active object or complement
 has_active_object = (V)--[l:dobj||ccomp||xcomp||obj]->(O)
         where (ℓ 0 @ V = verb)
@@ -63,14 +78,18 @@ normalise_acl = (S)--[l:acl]->(V)
           (V);
 
 
-implication = (V)--[l:nsubj||csubj||nsubj]->(subject)
-        where ((V unmatched fix_garden_path . V) ∧ ((V unmatched p3 . V) ∧ ((V unmatched p3pass . V) ∧ ((V unmatched p3expl . V) ∧ ((V unmatched p3expl . V) ∧ (V unmatched p3expl . V) ∧ (V unmatched p3expl . V) ∧ (V unmatched fauxcop . V))))))
+// NOTE (2026-06 engine investigation): `implication` and `passivity` fire on
+// 0 nodes across the 29 probed evidence cases. Their guards used to reference
+// a non-existent pattern name `fauxcop`; renaming it to the real `p3fauxcop`
+// was validated byte-identical on the cached corpus (still 0 applications).
+implication = (V)--[l:nsubj||csubj]->(subject)
+        where ((V unmatched fix_garden_path . V) ∧ ((V unmatched p3 . V) ∧ ((V unmatched p3pass . V) ∧ ((V unmatched p3expl . V) ∧ (V unmatched p3fauxcop . V)))))
        ↪  set (𝜋 action @ subject) as if ( ℓ 0 @ V = verb ) over V then (𝜉 0 @ V) else nothing
           set(   𝜋 root @ V) as SCRIPT "\"root\""
           (V);
 
 passivity = (V)--[l:nsubjpass]->(subject)
-        where ((V unmatched p3 . V) ∧ ((V unmatched p3pass . V) ∧ ((V unmatched p3expl . V) ∧ ((V unmatched p3expl . V) ∧ (V unmatched p3expl . V) ∧ (V unmatched p3expl . V) ∧ (V unmatched fauxcop . V)))))
+        where ((V unmatched p3 . V) ∧ ((V unmatched p3pass . V) ∧ ((V unmatched p3expl . V) ∧ (V unmatched p3fauxcop . V))))
        ↪  set (𝜋 action @ subject) as if ( ℓ 0 @ V = verb ) over V then (𝜉 0 @ V) else nothing
           set(   𝜋 root @ V) as SCRIPT "\"root\""
           (V);
@@ -132,8 +151,8 @@ p1 = (X)--[l:det||nmod_poss||amod||mark||case||punct||advmod||advcl||cc||punct||
 
 
 docop = (target)--[cop]->(V)
-                --[l:nsubj||csubj||nsubj]->(subject)
-        where ((V unmatched fix_garden_path . V) ∧ ((V unmatched p3 . V) ∧ ((V unmatched p3pass . V) ∧ ((V unmatched p3expl . V) ∧ ((V unmatched p3expl . V) ∧ (V unmatched p4 . V))))))
+                --[l:nsubj||csubj]->(subject)
+        where ((V unmatched fix_garden_path . V) ∧ ((V unmatched p3 . V) ∧ ((V unmatched p3pass . V) ∧ ((V unmatched p3expl . V) ∧ (V unmatched p4 . V)))))
        ↪  new a
           new b
           set (φ (𝜉 0 @ V) , a) as b

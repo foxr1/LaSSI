@@ -38,7 +38,7 @@ dependencies = [
     "antlr4-python3-runtime==4.13.1",
     "StanfordNLPExtractor @ git+https://github.com/foxr1/stanfordnlp_dg_server.git",
     "FunctionalMatch @ git+https://github.com/foxr1/FunctionalMatch.git",
-    "PyDatagramDB @ git+https://github.com/foxr1/datagram-db.git@fix-macos-build",
+    "PyDatagramDB @ git+https://github.com/foxr1/datagram-db.git@v5.0",
     "pyoxigraph",
     "pandas==2.2.3",
     "dacite",
