@@ -14,6 +14,11 @@ Three knowledge sources can be combined, each ablatable (see `sources`):
                    (e.g. "out of use" vs "operational", "rain" vs "dry").
   * "paraphrase" — domain equivalences from `Paraphrase.ttl`
                    (e.g. "operate" ≡ "run", numeric probability buckets).
+A fourth token, "conceptnet", is an ontology variant of "honk": the same
+name_eq grounding run against the ConceptNet-only build
+(`LaSSI/HOnK-cn-only.ttl`, RocksDB cache `cache_cn/`), for the degraded
+single-source grounding arm. One ontology per process: run it in its own
+invocation.
 
 This is *grounding-only*: the LLM still produces the final implication score —
 the ontologies never override it — so an `LLM#` vs `LLMHOnK#` comparison (and a
@@ -46,37 +51,73 @@ _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z'-]*")
 
 _ALL_SOURCES = frozenset({"honk", "lifecycle", "paraphrase"})
 
+# "conceptnet" is an ontology *variant* of the honk source: the same grounding
+# logic (name_eq over the term cross-product) run against a ConceptNet-only
+# build of the ontology, for the degraded single-source grounding arm.
+_VALID_TOKENS = _ALL_SOURCES | {"conceptnet"}
+
+_HONK_TTL, _HONK_CACHE = "LaSSI/HOnK.ttl", "cache"
+_CN_TTL, _CN_CACHE = "LaSSI/HOnK-cn-only.ttl", "cache_cn"
+
+# The HOnKSingleton binds one ontology per process (fixed RocksDB store per
+# cache dir), so record which TTL bootstrapped it and fail loudly on a mix.
+_BOOTSTRAPPED_TTL = None
+
 
 def parse_sources(spec) -> frozenset:
     """Parse a '+'-joined source spec (e.g. 'honk+lifecycle') into a validated
-    frozenset. Empty/None ⇒ all three sources (the default headline config)."""
+    frozenset. Empty/None ⇒ all three general sources (the headline config).
+    Unknown tokens raise, so a typo cannot silently become a different
+    condition. 'conceptnet' selects the ConceptNet-only ontology variant and
+    cannot be combined with 'honk'."""
     if not spec:
         return _ALL_SOURCES
     if isinstance(spec, (set, frozenset)):
         chosen = {s.strip().lower() for s in spec}
     else:
         chosen = {s.strip().lower() for s in str(spec).replace(",", "+").split("+")}
-    chosen &= _ALL_SOURCES
+    chosen.discard("")
+    unknown = chosen - _VALID_TOKENS
+    if unknown:
+        raise ValueError(f"unknown grounding source(s) {sorted(unknown)}; "
+                         f"valid: {sorted(_VALID_TOKENS)}")
+    if "conceptnet" in chosen and "honk" in chosen:
+        raise ValueError("'conceptnet' and 'honk' select different ontologies "
+                         "and cannot be combined in one condition")
     return frozenset(chosen) if chosen else _ALL_SOURCES
 
 
-def _ensure_honk(db_conf) -> bool:
+def _ensure_honk(db_conf, ttl_path=_HONK_TTL, cache_path=_HONK_CACHE) -> bool:
     """Bring up the HOnK singleton if it isn't already (the FullText pipeline
     path returns before HOnK is initialised — see LaSSI/LaSSI.py:212-213).
 
     Mirrors LaSSI/LaSSI.py:215-221. Returns True if HOnK is ready afterwards,
     False otherwise (the caller then drops the HOnK source for that run).
+    The singleton holds one ontology per process: mixing conditions that need
+    different TTLs (honk vs conceptnet) in one process raises rather than
+    silently grounding against the wrong graph.
     """
+    global _BOOTSTRAPPED_TTL
+    if _BOOTSTRAPPED_TTL is not None and _BOOTSTRAPPED_TTL != ttl_path:
+        raise RuntimeError(
+            f"HOnK singleton already bootstrapped from {_BOOTSTRAPPED_TTL}; "
+            f"cannot re-ground against {ttl_path} in the same process. Run "
+            f"this condition in a separate invocation.")
     try:
         from LaSSI.HOnK.HOnK import HOnKSingleton
         HOnKSingleton.instance()
         if HOnKSingleton.get() is None:
             HOnKSingleton.init(
-                "cache", db_conf.uname, db_conf.pw, db_conf.host, db_conf.port,
-                False, "LaSSI/HOnK.ttl",
+                cache_path, db_conf.uname, db_conf.pw, db_conf.host, db_conf.port,
+                False, ttl_path,
                 rules_path="raw_data/logical_analysis.json",
             )
-        return HOnKSingleton.isReady()
+        if HOnKSingleton.isReady():
+            _BOOTSTRAPPED_TTL = ttl_path
+            return True
+        return False
+    except RuntimeError:
+        raise
     except Exception as e:  # pragma: no cover - defensive bootstrap
         print(f"[LLMandHOnK] HOnK unavailable, dropping HOnK grounding source: "
               f"{type(e).__name__}: {e}")
@@ -109,10 +150,17 @@ class LLMHOnKPrompt(LLMPrompt):
         super().__init__(model_name)
         self.db_conf = db_conf
         self.sources = parse_sources(sources)
-        # HOnK is only needed (and only bootstrapped) for the honk source.
+        # HOnK is only needed (and only bootstrapped) for the honk-like
+        # sources; 'conceptnet' is the same grounding against the
+        # ConceptNet-only ontology build (its own TTL and RocksDB cache).
+        self._honk_like = ("honk" in self.sources) or ("conceptnet" in self.sources)
+        if "conceptnet" in self.sources:
+            ttl_path, cache_path = _CN_TTL, _CN_CACHE
+        else:
+            ttl_path, cache_path = _HONK_TTL, _HONK_CACHE
         self._honk_ready = (
-            _ensure_honk(db_conf)
-            if ("honk" in self.sources and db_conf is not None) else False
+            _ensure_honk(db_conf, ttl_path, cache_path)
+            if (self._honk_like and db_conf is not None) else False
         )
         self._stopwords = self._load_stopwords()
         self._para_vocab = None       # lazily built phrase vocab for Paraphrase.ttl
@@ -334,7 +382,7 @@ class LLMHOnKPrompt(LLMPrompt):
             builders.append(self._lifecycle_facts)
         if "paraphrase" in self.sources:
             builders.append(self._paraphrase_facts)
-        if "honk" in self.sources:
+        if self._honk_like:
             builders.append(self._honk_facts)
         for build in builders:
             for fact in build(premise, consequence):
