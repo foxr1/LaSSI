@@ -894,26 +894,49 @@ class HOnK(RDFGraph):
         except OSError as e:
             print(f"[HOnK]   adjacency: failed to write cache ({e!r})", flush=True)
 
+    # Equivalence classes larger than this are treated as unreliable and
+    # collapsed to the singleton {k}. The `eq` edges derived from ConceptNet's
+    # Synonym relation are a dense small-world graph: their unbounded transitive
+    # closure merges ~45k terms into one giant component (chains through
+    # polysemous hubs such as "record" → "disc" → ...), which made name_eq
+    # report almost any two common words as EQUIVALENT. Genuine synonym classes
+    # are small (WordNet synsets plus a few ConceptNet synonyms rarely exceed a
+    # few dozen members), so a word whose closure exceeds this bound has no
+    # trustworthy equivalence set and is treated as having none.
+    _MAX_SYNONYMY = 64
+
     def getSynonymy(self, k):
         """Return the set of all labels equivalent to *k* (including *k* itself).
 
         Pure-Python BFS over the preloaded `_eq_adj` adjacency dict — no
-        SPARQL on the hot path.  Caches the result for every discovered
-        synonym, so a single matrix-cell traversal warms every member of the
-        equivalence class for O(1) future lookups.
+        SPARQL on the hot path.  The closure is bounded by `_MAX_SYNONYMY`: if
+        it grows past that, *k* sits inside an implausibly large (and therefore
+        unreliable) equivalence class, so we return the singleton {k} rather
+        than a spurious mega-cluster.  Results are cached per discovered
+        synonym for O(1) future lookups.
         """
         if k in self._syn_cache:
             return self._syn_cache[k]
         synonyms = {k}
         frontier = {k}
-        while frontier:
+        oversized = False
+        while frontier and not oversized:
             next_frontier = set()
             for term in frontier:
                 for n in self._eq_adj.get(term, ()):
                     if n not in synonyms:
                         synonyms.add(n)
                         next_frontier.add(n)
+                        if len(synonyms) > self._MAX_SYNONYMY:
+                            oversized = True
+                            break
+                if oversized:
+                    break
             frontier = next_frontier
+        if oversized:
+            # Unreliable equivalence class: cache and return the singleton only.
+            self._syn_cache[k] = {k}
+            return {k}
         for t in synonyms:
             self._syn_cache[t] = synonyms
         return synonyms
