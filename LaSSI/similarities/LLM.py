@@ -39,25 +39,40 @@ class LLMPrompt:
         """Send one prompt to Ollama and return the parsed JSON dict."""
         return self._dispatch(self._build_prompt(premise, consequence))
 
-    def _dispatch(self, prompt: str) -> dict:
-        """Send a fully-built prompt to Ollama and return the parsed JSON dict."""
+    def _dispatch(self, prompt: str, _retries: int = 1) -> dict:
+        """Send a fully-built prompt to Ollama and return the parsed JSON dict.
+
+        A failed call (malformed JSON, missing score key, or transport error)
+        is retried once before defaulting to 0.5, and every defaulted result
+        carries a bracketed marker in `reasoning` so downstream analysis can
+        count and exclude them.
+        """
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
+                seed=42,
                 response_format={"type": "json_object"},
             )
             raw_content = response.choices[0].message.content
             data = json.loads(raw_content)
+            if "implication_score" not in data:
+                raise ValueError("response JSON lacks 'implication_score'")
             return {
-                "implication_score": float(data.get("implication_score", 0.5)),
+                "implication_score": float(data["implication_score"]),
                 "reasoning": data.get("reasoning", ""),
             }
         except (json.JSONDecodeError, ValueError) as e:
+            if _retries > 0:
+                print(f"[LLM] JSON Parsing Error (retrying): {e}")
+                return self._dispatch(prompt, _retries - 1)
             print(f"[LLM] JSON Parsing Error: {e}")
             return {"implication_score": 0.5, "reasoning": f"[parse error] {e}"}
         except Exception as e:
+            if _retries > 0:
+                print(f"[LLM] Request failed (retrying, {type(e).__name__}): {e}")
+                return self._dispatch(prompt, _retries - 1)
             print(f"[LLM] Request failed ({type(e).__name__}): {e}")
             return {"implication_score": 0.5, "reasoning": f"[request error] {e}"}
 
