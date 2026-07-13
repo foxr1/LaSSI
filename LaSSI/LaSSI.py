@@ -444,9 +444,20 @@ class LaSSI():
             n = len(obj_list)
             matrices = [None] * n
             reasoning_grid = [[None] * n for _ in range(n)]
-            with tqdm(total=n * n, desc=f"LLM+HOnK matrix ({model_name})", unit="cell") as pbar:
+            # LASSI_LLM_ROW0=1 computes only row 0 (evidence -> each claim),
+            # the only row the NEET grounding evaluation reads; the remaining
+            # off-diagonal cells are stored as null. Cuts LLM calls ~4x.
+            row0_only = os.environ.get("LASSI_LLM_ROW0") == "1"
+            with tqdm(total=(n if row0_only else n * n),
+                      desc=f"LLM+HOnK matrix ({model_name})", unit="cell") as pbar:
                 for i, x in enumerate(obj_list):
                     t0 = time.time()
+                    if row0_only and i > 0:
+                        matrices[i] = [1.0 if i == j else None for j in range(n)]
+                        for j in range(n):
+                            reasoning_grid[i][j] = ("self-comparison" if i == j
+                                                    else "[skipped: row-0 mode]")
+                        continue
                     row = []
                     for j, y in enumerate(obj_list):
                         if i == j:
@@ -483,9 +494,18 @@ class LaSSI():
             reasoning_grid = [[None] * n for _ in range(n)]
             # Ollama processes one request at a time by default, so rows are computed
             # sequentially. Diagonal cells (i==j) are always 1.0 and skipped.
-            with tqdm(total=n * n, desc=f"LLM matrix ({model_name})", unit="cell") as pbar:
+            # LASSI_LLM_ROW0=1: row-0-only mode, see the LLMHOnK branch above.
+            row0_only = os.environ.get("LASSI_LLM_ROW0") == "1"
+            with tqdm(total=(n if row0_only else n * n),
+                      desc=f"LLM matrix ({model_name})", unit="cell") as pbar:
                 for i, x in enumerate(obj_list):
                     t0 = time.time()
+                    if row0_only and i > 0:
+                        matrices[i] = [1.0 if i == j else None for j in range(n)]
+                        for j in range(n):
+                            reasoning_grid[i][j] = ("self-comparison" if i == j
+                                                    else "[skipped: row-0 mode]")
+                        continue
                     row = []
                     for j, y in enumerate(obj_list):
                         if i == j:
@@ -740,7 +760,10 @@ class LaSSI():
                                               json_dumps,
                                               self.force or self._is_cache_stale(matrix_cache, self.logical_rewriting))
 
-        confusion_matrices = [[min(1.0, max(0.0, v)) for v in row] for row in confusion_matrices]
+        # Row-0 mode (LASSI_LLM_ROW0=1) stores uncomputed cells as null; keep
+        # them as None through the clamp.
+        confusion_matrices = [[None if v is None else min(1.0, max(0.0, v)) for v in row]
+                              for row in confusion_matrices]
 
         if self.generate_png_matrix:
             if self.transformation == SentenceRepresentation.FullText:
