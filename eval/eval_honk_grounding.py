@@ -90,7 +90,38 @@ def parse_model_id(model_name: str):
 # Scan catabolites -> long-form records
 # ---------------------------------------------------------------------------
 
-def collect_records(catabolites_dir, neet_csv, models_filter=None):
+def gold_blind_label(v):
+    """Map a model score to a NEET label without consulting the gold matrix.
+
+    ``get_label_matrix_output`` (inherited from the Logical-matrix evaluation)
+    upgrades a partial score to Supported when the gold cell itself licenses
+    asymmetric entailment, i.e. the prediction consults the answer. For LLM
+    outputs the score schema is {0, 0.5, 1}, so we instead map each value to
+    the nearest valid score: > 0.75 -> Supported, < 0.25 -> Refuted, everything
+    between -> Not Enough Evidence. Off-schema values emitted by weaker models
+    (e.g. 0.8, 0.2) thus resolve to their nearest class instead of depending on
+    the gold-aware partial branch. Ties at exactly 0.25/0.75 stay Not Enough
+    Evidence.
+    """
+    if v is None:
+        return "Unknown"
+    if isinstance(v, str):
+        label = v.strip().title()
+        if label in _NEET_LABELS:
+            return label
+        try:
+            v = float(label)
+        except ValueError:
+            return "Unknown"
+    if v > 0.75:
+        return "Supported"
+    if v < 0.25:
+        return "Refuted"
+    return "Not Enough Evidence"
+
+
+def collect_records(catabolites_dir, neet_csv, models_filter=None,
+                    legacy_mapping=False):
     df = pd.read_csv(neet_csv)
     meta = df.set_index("item_id")[["domain", "claim_type", "label"]]
     expected = df.set_index("item_id")["label"].astype(str).str.title().to_dict()
@@ -128,7 +159,10 @@ def collect_records(catabolites_dir, neet_csv, models_filter=None):
                 if item_id not in expected:
                     continue
                 v = matrix[0][c] if (matrix and len(matrix) > 0 and c < len(matrix[0])) else None
-                pred = get_label_matrix_output(gold, case, c, v, expected.get(item_id))
+                if legacy_mapping:
+                    pred = get_label_matrix_output(gold, case, c, v, expected.get(item_id))
+                else:
+                    pred = gold_blind_label(v)
                 row = {"item_id": item_id, "case": case, "base_model": base_model,
                        "condition": condition, "value": v, "pred": pred}
                 if item_id in meta.index:
@@ -471,10 +505,15 @@ def main():
     ap.add_argument("--out", default="results/appendix_honk")
     ap.add_argument("--models", nargs="+", default=None,
                     help="restrict to these base models")
+    ap.add_argument("--legacy-mapping", action="store_true",
+                    help="reproduce the original gold-aware partial-score "
+                         "mapping (get_label_matrix_output) instead of the "
+                         "gold-blind nearest-score rule")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
-    long_df = collect_records(args.catabolites, args.neet_csv, args.models)
+    long_df = collect_records(args.catabolites, args.neet_csv, args.models,
+                              legacy_mapping=args.legacy_mapping)
     if long_df.empty:
         print("No LLM#/LLMHOnK# matrices found under", args.catabolites)
         return 1
