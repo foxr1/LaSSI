@@ -78,7 +78,8 @@ def matrix_path(case, transformer):
     '/', so the whole string (incl. the '#<sources>' tag) is kept verbatim.
     """
     suffix = transformer.split("/")[-1]
-    return os.path.join(CATABOLITES, case, f"confusion_matrices_FullText_{suffix}.json")
+    return os.path.join(CATABOLITES, case, "matrices",
+                        f"confusion_matrices_FullText_{suffix}.json")
 
 
 def run_one(case, transformer, conn, force):
