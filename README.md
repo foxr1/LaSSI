@@ -30,7 +30,7 @@ Data flows through the following phases (intermediate results cached per-sentenc
 
 ## Key Capabilities
 
-- **Declarative structural-rewrite framework** — 39 rules (19 declarative JSON + 20 Python) that repair dependency-tree artefacts into clean eFOL kernels. The rule registry lives in `raw_data/structural_rewrites.json`; Python subclasses are reserved for rewrites requiring genuine graph surgery.
+- **Declarative structural-rewrite framework** — 30 rules (14 declarative JSON + 16 Python) that repair dependency-tree artefacts into clean eFOL kernels. The rule registry lives in `raw_data/structural_rewrites.json`; Python subclasses are reserved for rewrites requiring genuine graph surgery.
 
 - **eFOL BDD similarity** — directional entailment score P(Sj | Si) computed via BDD model-counting with a distinguishing-content cap. Cap conditions and construct metadata are data-driven from `raw_data/logical_analysis.json` — no hand-maintained lists in code.
 
