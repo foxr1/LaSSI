@@ -198,5 +198,32 @@ cython_debug/
 *.pdf
 *.html
 *.dot
->>>>>>> functionalmatch/master
->>>>>>> ollie/v3.0
+
+# macOS
+.DS_Store
+
+# Local-only agent guidance (never commit)
+/CLAUDE.md
+/AGENTS.md
+
+# Generated caches, snapshots and run outputs
+/cache/
+/cache_cn/
+/catabolites-*/
+/results/
+/rport_dir/
+/DEBUG_LOG.txt
+/evidence_tests_logs*.txt
+/evaluation_output*.csv
+/benchmark_results_*.csv
+/fig1_confusion_matrices.png
+/fig2_accuracy_by_modification.png
+/java_graph_generation_benchmark_nvertices_vs_milliseconds.csv
+LaSSI/tests/results/
+extra/*.csv
+
+# Large runtime ontology data (regenerate via LaSSI/HOnK/generate_graph.py)
+LaSSI/HOnK.ttl
+LaSSI/HOnK-cn-only.ttl
+*.bak
+qa/data/*.gz
