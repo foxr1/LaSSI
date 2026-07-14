@@ -1,0 +1,37 @@
+# Surface tokens that must not be resolved as geographic entities during
+# claim grounding. Two curated groups, neither tuned to any evaluation set:
+#
+#   1. Function words / determiners — grammatically never a standalone place
+#      reference. GeoNames nonetheless carries an obscure feature named "The",
+#      "Both", etc., which would otherwise resolve as a bogus location.
+#   2. GeoNames mistags — common weather / traffic nouns that GeoNames records
+#      as minor features but that are not meaningful place references. Mirrors
+#      HOnK's ingestion ignore list.
+#
+# Deliberately EXCLUDED: genuine (if sometimes obscure) place names such as
+# "Met" (The Met), and month/weekday names ("March", "May") which are also
+# real towns. Those are left in and disambiguated by co-reference.
+the
+a
+an
+both
+this
+that
+these
+those
+all
+some
+any
+no
+there
+here
+it
+and
+or
+but
+sunny
+cloudy
+rain
+shower
+showers
+traffic

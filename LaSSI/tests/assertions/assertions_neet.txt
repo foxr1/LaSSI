@@ -1,0 +1,144 @@
+// crime_001
+Anti-social behaviour recorded on or near Parking Area, Newcastle, in January 2026. ⇒ record⁽ᵛᵉʳᵇ⁾(?5, behaviour⁽ⁿᵒᵘⁿ⁾[(punct:[,, <dot>]), (amod:Anti-social)])[(SPACE:[Parking Area⁽ᴳᴾᴱ⁾[(6:near), (5:or), (4:on), (type:OR(stay in place⁽ˡᵒᵍⁱᶜᵃˡ_ᵗʸᵖᵉ⁾, near place⁽ˡᵒᵍⁱᶜᵃˡ_ᵗʸᵖᵉ⁾))], Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (12:in)])]
+An anti-social behaviour incident was recorded near a parking area in Newcastle in January 2026. ⇒ record⁽ᵛᵉʳᵇ⁾(?7, behaviour⁽ⁿᵒᵘⁿ⁾[(det:An), (extra:incident⁽ⁿᵒᵘⁿ⁾), (amod:anti-social)])[(TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (13:in)]), (SPACE:[parking area⁽ⁿᵒᵘⁿ⁾[(type:near place), (det:a), (7:near)], Newcastle⁽ᴳᴾᴱ⁾[(11:in), (type:stay in place)]])]
+An anti-social behaviour incident was recorded near the Central Station area in Newcastle in January 2026. ⇒ record⁽ᵛᵉʳᵇ⁾(?9, behaviour⁽ⁿᵒᵘⁿ⁾[(det:An), (extra:incident⁽ⁿᵒᵘⁿ⁾), (amod:anti-social)])[(TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (14:in)]), (SPACE:[Central Station area⁽ᴸᴼᶜ⁾[(type:near place), (det:the), (7:near)], Newcastle⁽ᴳᴾᴱ⁾[(12:in), (type:stay in place)]])]
+The anti-social behaviour incident recorded near the parking area in Newcastle in January 2026 involved a group of individuals causing damage to parked vehicles. ⇒ record⁽ᵛᵉʳᵇ⁾[(punct:<dot>)](?14, behaviour⁽ⁿᵒᵘⁿ⁾[(det:The), (extra:incident⁽ⁿᵒᵘⁿ⁾), (amod:anti-social)])[(CAUSATION:cause⁽ᵛᵉʳᵇ⁾(group⁽ⁿᵒᵘⁿ⁾[(det:a), (extra:individuals⁽ⁿᵒᵘⁿ⁾[(18:of)])], damage⁽ⁿᵒᵘⁿ⁾)[(SPECIFICATION:vehicles⁽ⁿᵒᵘⁿ⁾[(22:to), (actioned:parked)])]), (SPACE:[Newcastle⁽ᴳᴾᴱ⁾[(10:in), (type:stay in place)], parking area⁽ᴸᴼᶜ⁾[(6:near), (type:near place), (det:the)]]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (12:in)])]
+
+
+// crime_002
+Bicycle theft recorded on On Or Near Edward Place, Newcastle, in January 2026. Outcome: Under investigation. ⇒ record⁽ᵛᵉʳᵇ⁾[(punct:<dot>)](?36, Bicycle⁽ⁿᵒᵘⁿ⁾[(extra:theft⁽ⁿᵒᵘⁿ⁾)])[(TIME_STATUS:investigation⁽ⁿᵒᵘⁿ⁾[(type:under), (punct:<dot>)]), (SPACE:[Edward Place⁽ᴸᴼᶜ⁾[(type:OR(stay in place⁽ˡᵒᵍⁱᶜᵃˡ_ᵗʸᵖᵉ⁾, near place⁽ˡᵒᵍⁱᶜᵃˡ_ᵗʸᵖᵉ⁾)), (case:on), (5:or), (4:on), (punct:,), (6:near)], Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (12:in)])]
+A bicycle theft was recorded near Edward Place in Newcastle in January 2026 and remains under investigation. ⇒ record⁽ᵛᵉʳᵇ⁾(?42, bicycle⁽ⁿᵒᵘⁿ⁾[(extra:theft⁽ⁿᵒᵘⁿ⁾), (det:A)])[(SPACE:[Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place), (9:in)], Edward Place⁽ᴸᴼᶜ⁾[(type:near place), (6:near)]]), (TIME_STATUS:investigation⁽ⁿᵒᵘⁿ⁾[(type:under)]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (11:in)])]
+The bicycle theft recorded near Edward Place in Newcastle in January 2026 has concluded with a suspect being charged. ⇒ record⁽ᵛᵉʳᵇ⁾(bicycle⁽ⁿᵒᵘⁿ⁾[(det:The), (extra:theft⁽ⁿᵒᵘⁿ⁾)], 2026-01⁽ᴰᴬᵀᴱ⁾[(nummod:2026), (10:in)])[(SPACE:[Newcastle⁽ᴳᴾᴱ⁾[(8:in), (type:stay in place)], Edward Place⁽ᴸᴼᶜ⁾[(type:near place), (5:near)]]), (TEMPORAL_CONTEXT:charged⁽ᵛᵉʳᵇ⁾[(actioned:being), (type:conclude)]), (TOGETHERNESS:suspect⁽ⁿᵒᵘⁿ⁾[(15:with), (det:a)]), (TIME_STATUS:suspect⁽ⁿᵒᵘⁿ⁾[(det:a), (type:with)])]
+The bicycle theft near Edward Place in January 2026 involved a locked bicycle taken from a local business. ⇒ involve⁽ᵛᵉʳᵇ⁾[(punct:<dot>)](?48, bicycle⁽ⁿᵒᵘⁿ⁾[(det:The), (extra:theft⁽ⁿᵒᵘⁿ⁾)])[(REQUIREMENT:take⁽ᵛᵉʳᵇ⁾(bicycle⁽ⁿᵒᵘⁿ⁾[(det:a), (actioned:locked)], business⁽ⁿᵒᵘⁿ⁾[(det:a), (amod:local), (15:from)])), (SPACE:Edward Place⁽ᴸᴼᶜ⁾[(type:near place), (4:near)]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(7:in), (type:defined)])]
+
+
+// crime_003
+Burglary recorded on On Or Near Haymarket, Newcastle, in January 2026. Outcome: Under investigation. ⇒ record⁽ᵛᵉʳᵇ⁾[(punct:<dot>)](?1, Burglary⁽ⁿᵒᵘⁿ⁾)[(TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (10:in)]), (SPACE:Haymarket⁽ᴳᴾᴱ⁾[(5:near), (extra:Newcastle⁽ᴳᴾᴱ⁾), (type:OR(stay in place⁽ˡᵒᵍⁱᶜᵃˡ_ᵗʸᵖᵉ⁾, near place⁽ˡᵒᵍⁱᶜᵃˡ_ᵗʸᵖᵉ⁾)), (3:on), (punct:,), (4:or)]), (TIME_STATUS:investigation⁽ⁿᵒᵘⁿ⁾[(type:under), (punct:<dot>)])]
+A burglary was recorded near the Haymarket area of Newcastle in January 2026 and is currently under investigation. ⇒ record⁽ᵛᵉʳᵇ⁾(?7, burglary⁽ⁿᵒᵘⁿ⁾[(det:A)])[(SPACE:Haymarket area⁽ᴸᴼᶜ⁾[(5:near), (type:near place), (det:the), (extra:Newcastle⁽ᴳᴾᴱ⁾[(9:of)])]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (11:in)]), (TIME_STATUS:investigation⁽ⁿᵒᵘⁿ⁾[(type:under)])]
+A burglary was recorded near Eldon Square in Newcastle in January 2026 and is currently under investigation. ⇒ record⁽ᵛᵉʳᵇ⁾(?10, burglary⁽ⁿᵒᵘⁿ⁾[(det:A)])[(TIME_STATUS:investigation⁽ⁿᵒᵘⁿ⁾[(type:under), (advmod:currently)]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (10:in)]), (SPACE:[Eldon Square⁽ᴸᴼᶜ⁾[(type:near place), (5:near)], Newcastle⁽ᴳᴾᴱ⁾[(8:in), (type:stay in place)]])]
+The burglary recorded near the Haymarket in January 2026 was at a commercial premises. ⇒ record⁽ᵛᵉʳᵇ⁾(?13, burglary⁽ⁿᵒᵘⁿ⁾[(det:The)])[(SPACE:[premises⁽ⁿᵒᵘⁿ⁾[(type:stay in place), (det:a), (amod:commercial), (punct:<dot>), (11:at)], Haymarket⁽ᴳᴾᴱ⁾[(type:near place), (det:the), (4:near)]]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (7:in)])]
+
+
+// crime_004
+Criminal damage and arson recorded on On Or Near St Nicholas' Church Yard, Newcastle, in January 2026. Outcome: Investigation complete; no suspect identified. ⇒ record⁽ᵛᵉʳᵇ⁾(?5, AND(damage⁽ⁿᵒᵘⁿ⁾[(amod:Criminal), (punct:[,, <dot>])], arson⁽ⁿᵒᵘⁿ⁾))[(TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (17:in)]), (SPECIFICATION:NOT(suspect⁽ⁿᵒᵘⁿ⁾)), (SPACE:[St Nicholas' Church Yard⁽ᴸᴼᶜ⁾[(6:on), (type:OR(stay in place⁽ˡᵒᵍⁱᶜᵃˡ_ᵗʸᵖᵉ⁾, near place⁽ˡᵒᵍⁱᶜᵃˡ_ᵗʸᵖᵉ⁾)), (11:'), (8:near), (7:or)], Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]]), (TIME_STATUS:Investigation⁽ⁿᵒᵘⁿ⁾[(type:complete)])]
+A criminal damage and arson investigation recorded near St Nicholas' Church Yard in Newcastle in January 2026 concluded with no suspect identified. ⇒ record⁽ᵛᵉʳᵇ⁾(?9, AND(damage⁽ⁿᵒᵘⁿ⁾[(det:A), (amod:criminal)], arson⁽ⁿᵒᵘⁿ⁾))[(SPACE:[Newcastle⁽ᴳᴾᴱ⁾[(14:in), (type:stay in place)], St Nicholas' Church Yard⁽ᴸᴼᶜ⁾[(11:'), (8:near), (type:near place)]]), (TIME_STATUS:investigation⁽ⁿᵒᵘⁿ⁾[(type:complete)]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (16:in)]), (SPECIFICATION:NOT(suspect⁽ⁿᵒᵘⁿ⁾[(20:with)]))]
+The criminal damage and arson offence near St Nicholas' Church Yard in Newcastle in January 2026 resulted in a suspect being arrested and charged. ⇒ result⁽ᵛᵉʳᵇ⁾[(punct:<dot>)](AND(damage⁽ⁿᵒᵘⁿ⁾[(amod:criminal), (det:The)], arson⁽ⁿᵒᵘⁿ⁾[(extra:offence⁽ⁿᵒᵘⁿ⁾)]), suspect⁽ⁿᵒᵘⁿ⁾[(actioned:[being, arrested]), (extra:charged⁽ᵛᵉʳᵇ⁾), (det:a)])[(SPACE:[Newcastle⁽ᴳᴾᴱ⁾[(13:in), (type:stay in place)], St Nicholas' Church Yard⁽ᴸᴼᶜ⁾[(10:'), (type:near place), (7:near)]]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (15:in)])]
+The criminal damage and arson recorded near St Nicholas' Church Yard in January 2026 involved a burning rubbish bin. ⇒ record⁽ᵛᵉʳᵇ⁾(?11, AND(damage⁽ⁿᵒᵘⁿ⁾[(amod:criminal), (det:The)], arson⁽ⁿᵒᵘⁿ⁾))[(SPACE:St Nicholas' Church Yard⁽ᴸᴼᶜ⁾[(10:'), (type:near place), (7:near)]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (13:in)]), (SPECIFICATION:rubbish bin⁽ⁿᵒᵘⁿ⁾[(actioned:burning), (det:a)])]
+
+// crime_005
+Drugs offence recorded on On Or Near Fenkle Street, Newcastle, in January 2026. Outcome: Under investigation. ⇒ record⁽ᵛᵉʳᵇ⁾[(punct:<dot>)](?106, Drugs⁽ⁿᵒᵘⁿ⁾[(extra:offence⁽ⁿᵒᵘⁿ⁾)])[(SPACE:[Fenkle Street⁽ᴸᴼᶜ⁾[(6:near), (type:OR(stay in place⁽ˡᵒᵍⁱᶜᵃˡ_ᵗʸᵖᵉ⁾, near place⁽ˡᵒᵍⁱᶜᵃˡ_ᵗʸᵖᵉ⁾)), (5:or), (4:on), (case:on), (punct:,)], Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]]), (TIME_STATUS:investigation⁽ⁿᵒᵘⁿ⁾[(punct:<dot>), (type:under)]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (12:in)])]
+A drugs offence was recorded near Fenkle Street in Newcastle in January 2026 and is currently under investigation. ⇒ record⁽ᵛᵉʳᵇ⁾(?112, drugs⁽ⁿᵒᵘⁿ⁾[(det:A), (extra:offence⁽ⁿᵒᵘⁿ⁾)])[(TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (11:in)]), (SPACE:[Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place), (9:in)], Fenkle Street⁽ᴸᴼᶜ⁾[(6:near), (type:near place)]]), (TIME_STATUS:investigation⁽ⁿᵒᵘⁿ⁾[(type:under)])]
+No drugs offences were recorded near Fenkle Street in Newcastle in January 2026. ⇒ NOT(record⁽ᵛᵉʳᵇ⁾(?114, drugs⁽ᴺᵒⁿᵉ⁾[(extra:offences⁽ⁿᵒᵘⁿ⁾)])[(TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined), (11:in)]), (SPACE:[Fenkle Street⁽ᴸᴼᶜ⁾[(6:near), (type:near place)], Newcastle⁽ᴳᴾᴱ⁾[(9:in), (type:stay in place)]])])
+A drugs offence recorded near Fenkle Street in January 2026 involved possession of Class A substances. ⇒ record⁽ᵛᵉʳᵇ⁾[(punct:<dot>)](?115, drugs⁽ⁿᵒᵘⁿ⁾[(det:A), (extra:offence⁽ⁿᵒᵘⁿ⁾), (TOPIC:Class⁽ᴶᴶ⁾[(extra:A substances⁽ⁿᵒᵘⁿ⁾), (13:of)])])[(SPACE:Fenkle Street⁽ᴸᴼᶜ⁾[(5:near), (type:near place)]), (TIME:2026-01⁽ᴰᴬᵀᴱ⁾[(type:defined)]), (SPECIFICATION:possession⁽ᵛᵉʳᵇ⁾[(extra:Class⁽ᴶᴶ⁾[(extra:A substances⁽ⁿᵒᵘⁿ⁾), (13:of)]), (amod:involved), (8:in)])]
+
+
+// crime_006
+
+// crime_007
+
+// roadworks_001
+
+// roadworks_002
+
+// roadworks_003
+
+// roadworks_004
+
+// roadworks_005
+
+// roadworks_006
+
+// roadworks_007
+
+// transport_001
+Haymarket Station Due to storm damage, the Percy Street entrance is currently closed. ⇒ close⁽ᵛᵉʳᵇ⁾(storm⁽ⁿᵒᵘⁿ⁾[(punct:,), (extra:damage⁽ⁿᵒᵘⁿ⁾), (3:Due), (4:to)], Percy Street⁽ᴸᴼᶜ⁾[(det:the), (extra:entrance⁽ⁿᵒᵘⁿ⁾)])[(SPACE:Haymarket Station⁽ᴸᴼᶜ⁾[(type:stay in place)])]
+The Percy Street entrance to Haymarket Metro station is currently closed following storm damage. ⇒ close⁽ᵛᵉʳᵇ⁾(storm⁽ⁿᵒᵘⁿ⁾[(actioned:following), (extra:damage⁽ⁿᵒᵘⁿ⁾)], Percy Street⁽ᴸᴼᶜ⁾[(det:The), (extra:entrance⁽ⁿᵒᵘⁿ⁾)])[(SPACE:Haymarket⁽ᴸᴼᶜ⁾[(extra:Metro station⁽ⁿᵒᵘⁿ⁾), (type:stay in place), (5:to)])]
+The Percy Street entrance to Monument Metro station is currently closed following storm damage. ⇒ close⁽ᵛᵉʳᵇ⁾(storm⁽ⁿᵒᵘⁿ⁾[(actioned:following), (extra:damage⁽ⁿᵒᵘⁿ⁾)], Percy Street⁽ᴸᴼᶜ⁾[(type:stay in place), (extra:entrance⁽ⁿᵒᵘⁿ⁾)])[(SPACE:[Monument Metro⁽ᴸᴼᶜ⁾[(type:stay in place), (5:to)], station⁽ⁿᵒᵘⁿ⁾[(det:The)]])]
+The Percy Street entrance at Haymarket Metro station was closed after storm damage occurred on 12th April. ⇒ close⁽ᵛᵉʳᵇ⁾(storm⁽ⁿᵒᵘⁿ⁾[(extra:damage⁽ⁿᵒᵘⁿ⁾), (type:occur)], Percy Street⁽ᴸᴼᶜ⁾[(det:The), (extra:entrance⁽ⁿᵒᵘⁿ⁾)])[(SPACE:Haymarket⁽ᴸᴼᶜ⁾[(extra:Metro station⁽ⁿᵒᵘⁿ⁾), (5:at), (type:stay in place)]), (TIME:2026-04-12T00:00:00Z⁽ᴰᴬᵀᴱ⁾[(amod:12th), (15:on), (type:defined)])]
+
+
+// transport_002
+There is a temporary reduction in spaces available at Northumberland Park Car Park while we carry out repairs due to intentional damage to maintain a safe environment. ⇒ have⁽ᵛᵉʳᵇ⁾[(punct:<dot>)](Northumberland Park Car Park⁽ᴸᴼᶜ⁾[(type:stay in place), (9:at)], reduction⁽ⁿᵒᵘⁿ⁾[(amod:temporary), (det:a), (extra:spaces⁽ⁿᵒᵘⁿ⁾[(amod:available), (6:in)])])[(CAUSATION:repairs⁽ⁿᵒᵘⁿ⁾[(extra:carry out⁽ᵛᵉʳᵇ⁾[(mark:while)])])]
+Northumberland Park Car Park has a temporary reduction in available spaces while repairs are carried out following intentional damage. ⇒ have⁽ᵛᵉʳᵇ⁾[(punct:<dot>)](Northumberland Park Car Park⁽ᴸᴼᶜ⁾, reduction⁽ⁿᵒᵘⁿ⁾[(amod:temporary), (det:a), (extra:spaces⁽ⁿᵒᵘⁿ⁾[(9:in), (amod:available)])])
+Northumberland Park Car Park is operating normally with no reduction in available parking spaces. ⇒ operate⁽ᵛᵉʳᵇ⁾[(punct:<dot>), (advmod:normally)](?76, reduction⁽ⁿᵒᵘⁿ⁾[(8:with)])[(SPECIFICATION:NOT(reduction⁽ⁿᵒᵘⁿ⁾[(8:with)])), (SPACE:Northumberland Park Car Park⁽ᴸᴼᶜ⁾[(type:stay in place)])]
+The intentional damage at Northumberland Park Car Park that caused the reduction in parking spaces was reported to Northumbria Police and is under investigation. ⇒ report⁽ᵛᵉʳᵇ⁾(?79, damage⁽ⁿᵒᵘⁿ⁾[(det:The), (amod:intentional)])[(SPECIFICATION:reduction⁽ⁿᵒᵘⁿ⁾[(det:the)]), (SPACE:Northumberland Park Car Park⁽ᴸᴼᶜ⁾[(type:stay in place), (4:at), (extra:parking spaces⁽ⁿᵒᵘⁿ⁾[(13:in)])]), (CAUSATION:reduction⁽ⁿᵒᵘⁿ⁾[(det:the), (OFTERM:Northumbria Police⁽ᴼᴿᴳ⁾[(18:to)])]), (TIME_STATUS:investigation⁽ⁿᵒᵘⁿ⁾[(type:under)])]
+
+// transport_003
+
+// transport_004
+Whitley Bay footbridge the smaller footbridge within the station is out of use. ⇒ be⁽ᵛᵉʳᵇ⁾(footbridge⁽ⁿᵒᵘⁿ⁾[(det:the), (amod:smaller)], out of use⁽ᴶᴶ⁾)[(SPACE:Whitley Bay⁽ᴸᴼᶜ⁾[(extra:station⁽ⁿᵒᵘⁿ⁾[(det:the), (7:within)]), (type:stay in place)])]
+The smaller footbridge at Whitley Bay Metro station is currently out of use. ⇒ be⁽ᵛᵉʳᵇ⁾(footbridge⁽ⁿᵒᵘⁿ⁾[(det:The), (amod:smaller)], out of use⁽ᴶᴶ⁾[(punct:<dot>), (advmod:currently)])[(SPACE:Whitley Bay Metro⁽ᴸᴼᶜ⁾[(4:at), (extra:station⁽ⁿᵒᵘⁿ⁾), (type:stay in place)])]
+Both footbridges at Whitley Bay Metro station are fully operational. ⇒ be⁽ᵛᵉʳᵇ⁾(footbridges⁽ⁿᵒᵘⁿ⁾[(det:Both)], operational⁽ᴶᴶ⁾[(punct:<dot>), (advmod:fully)])[(SPACE:Whitley Bay Metro⁽ᴸᴼᶜ⁾[(3:at), (extra:station⁽ⁿᵒᵘⁿ⁾), (type:stay in place)])]
+The smaller footbridge at Whitley Bay Metro station is out of use due to safety concerns with the walkway surface. ⇒ be⁽ᵛᵉʳᵇ⁾(footbridge⁽ⁿᵒᵘⁿ⁾[(det:The), (amod:smaller)], out of use⁽ᴶᴶ⁾)[(CAUSATION:concerns⁽ⁿᵒᵘⁿ⁾[(punct:<dot>), (13:due), (14:to), (extra:safety⁽ⁿᵒᵘⁿ⁾)]), (TOGETHERNESS:walkway surface⁽ⁿᵒᵘⁿ⁾[(det:the), (17:with)]), (SPACE:Whitley Bay⁽ᴳᴾᴱ⁾[(4:at), (extra:Metro station⁽ᴸᴼᶜ⁾), (type:stay in place)])]
+
+// transport_005
+The staircases at University station are closed until further notice while maintenance work takes place. ⇒ close⁽ᵛᵉʳᵇ⁾(?2, staircases⁽ⁿᵒᵘⁿ⁾[(det:The)])[(SPACE:University station⁽ᴸᴼᶜ⁾[(3:at), (type:stay in place)]), (TIME:until further notice⁽ⁿᵒᵘⁿ⁾[(type:continuous), (8:until)]), (TEMPORAL_CONTEXT:maintenance work⁽ⁿᵒᵘⁿ⁾[(type:take place)])]
+The staircases at University Metro station are closed for maintenance work with no fixed reopening date. ⇒ close⁽ᵛᵉʳᵇ⁾(?5, staircases⁽ⁿᵒᵘⁿ⁾[(det:The)])[(AIM_OBJECTIVE:maintenance work⁽ⁿᵒᵘⁿ⁾[(9:for)]), (TIME_STATUS:NOT(reopening⁽ⁿᵒᵘⁿ⁾[(actioned:fixed), (12:with), (extra:date⁽ⁿᵒᵘⁿ⁾)])), (SPACE:University Metro station⁽ᴸᴼᶜ⁾[(3:at), (type:stay in place)])]
+The staircases at University Metro station are fully open to the public. ⇒ be⁽ᵛᵉʳᵇ⁾(staircases⁽ⁿᵒᵘⁿ⁾[(det:The)], open⁽ᴶᴶ⁾[(advmod:fully), (punct:<dot>)])[(OFTERM:public⁽ⁿᵒᵘⁿ⁾[(det:the), (10:to)]), (SPACE:University Metro station⁽ᴸᴼᶜ⁾[(3:at), (type:stay in place)])]
+The staircases at University Metro station are closed due to fire safety concerns identified during an inspection. ⇒ close⁽ᵛᵉʳᵇ⁾(concerns⁽ᴸᴼᶜ⁾[(9:due), (case:due), (extra:fire safety)], staircases⁽ⁿᵒᵘⁿ⁾[(det:The)])[(SPACE:University Metro station⁽ᴸᴼᶜ⁾[(3:at), (type:stay in place)]), (TIME:inspection⁽ⁿᵒᵘⁿ⁾[(type:continuous), (det:an), (15:during)])]
+
+
+// transport_006
+We're carrying out inspections and roof repairs at Monkseaton station which requires scaffolding. ⇒ carry out⁽ᵛᵉʳᵇ⁾[(punct:<dot>)](?186, AND(inspections⁽ⁿᵒᵘⁿ⁾, roof repairs⁽ⁿᵒᵘⁿ⁾))[(SPACE:Monkseaton station⁽ᴸᴼᶜ⁾[(type:stay in place), (9:at)]), (REQUIREMENT:scaffolding⁽ⁿᵒᵘⁿ⁾)]
+There are inspections and roof repairs being carried out at Monkseaton station. ⇒ carry out⁽ᵛᵉʳᵇ⁾(?188, AND(inspections⁽ⁿᵒᵘⁿ⁾, roof repairs⁽ⁿᵒᵘⁿ⁾))[(SPACE:Monkseaton⁽ᴸᴼᶜ⁾[(extra:station⁽ⁿᵒᵘⁿ⁾), (type:stay in place), (10:at)])]
+There are inspections and roof repairs being carried out at Haymarket station. ⇒ carry out⁽ᵛᵉʳᵇ⁾(?190, AND(inspections⁽ⁿᵒᵘⁿ⁾, roof repairs⁽ⁿᵒᵘⁿ⁾))[(SPACE:Haymarket station⁽ᴸᴼᶜ⁾[(type:stay in place), (10:at)])]
+Inspections and roof repairs are being done at Monkseaton station due to storm damage. ⇒ do⁽ᵛᵉʳᵇ⁾(?192, AND(Inspections⁽ⁿᵒᵘⁿ⁾, roof repairs⁽ⁿᵒᵘⁿ⁾))[(CAUSATION:storm⁽ⁿᵒᵘⁿ⁾[(12:to), (extra:damage⁽ⁿᵒᵘⁿ⁾), (11:due)]), (SPACE:Monkseaton⁽ᴸᴼᶜ⁾[(type:stay in place), (8:at), (extra:station⁽ⁿᵒᵘⁿ⁾)])]
+
+// transport_007
+
+// transport_008
+
+// weather_001
+Met Office forecast for Newcastle upon Tyne: Sunny day, 10.42°C, wind 2.8 mph, 1% chance of precipitation at 2026-04-13T11:00Z. ⇒ be⁽ᵛᵉʳᵇ⁾(Met Office⁽ᴸᴼᶜ⁾[(punct::), (extra:forecast⁽ⁿᵒᵘⁿ⁾)], AND(day⁽ⁿᵒᵘⁿ⁾[(punct:,), (amod:Sunny)], °C⁽ᴺᵒⁿᵉ⁾[(nummod:10<dot>42)], wind⁽ⁿᵒᵘⁿ⁾[(measurement:2<dot>8 mph)], precipitation⁽ⁿᵒᵘⁿ⁾[(22:of), (extra:% chance⁽ⁿᵒᵘⁿ⁾), (nummod:1)]))[(TIME:2026-04-13T11:00:00Z⁽ᴰᴬᵀᴱ⁾[(24:at), (type:defined)]), (SPACE:Newcastle upon Tyne⁽ᴳᴾᴱ⁾[(6:upon), (type:stay in place), (4:for)])]
+Newcastle is forecast to have a sunny day with a very low chance of rain at 11am on 13 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(det:a), (9:with), (extra:chance⁽ⁿᵒᵘⁿ⁾), (14:of), (amod:low), (advmod:very)], day⁽ⁿᵒᵘⁿ⁾[(det:a), (amod:sunny)]))[(SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-13T11:00:00Z⁽ᵀᴵᴹᴱ⁾[(19:on), (16:at), (type:defined)])]
+Newcastle is forecast to have overcast conditions and heavy rain at 11am on 13 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(amod:heavy)], conditions⁽ⁿᵒᵘⁿ⁾[(amod:overcast)]))[(TIME:2026-04-13T11:00:00Z⁽ᵀᴵᴹᴱ⁾[(11:at), (14:on), (type:defined)]), (SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)])]
+Newcastle is forecast to have a sunny day at 11am on 13 April 2026 with parakeets expected to fly over. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(day⁽ⁿᵒᵘⁿ⁾[(det:a), (amod:sunny)], parakeets⁽ⁿᵒᵘⁿ⁾[(16:with)]))[(TIME:2026-04-13T11:00:00Z⁽ᵀᴵᴹᴱ⁾[(9:at), (12:on), (type:defined)]), (OFTERM:fly⁽ᵛᵉʳᵇ⁾[(advmod:over), (mark:to)]), (SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)])]
+
+
+// weather_002
+Met Office forecast for Newcastle upon Tyne: Light rain, 12.76°C, wind 3.09 mph, 57% chance of precipitation at 2026-04-14T14:00Z. ⇒ be⁽ᵛᵉʳᵇ⁾(Met Office⁽ⁿᵒᵘⁿ⁾[(punct::), (extra:forecast⁽ⁿᵒᵘⁿ⁾)], AND(rain⁽ⁿᵒᵘⁿ⁾[(punct:,), (amod:Light)], °C⁽ᶜᴬᴿᴰᴵᴺᴬᴸ⁾[(nummod:12<dot>76)], wind⁽ⁿᵒᵘⁿ⁾[(measurement:3<dot>09 mph)], precipitation⁽ⁿᵒᵘⁿ⁾[(extra:% chance⁽ⁿᵒᵘⁿ⁾), (22:of), (nummod:57)]))[(TIME:2026-04-14T14:00:00Z⁽ᴰᴬᵀᴱ⁾[(type:defined), (24:at)]), (SPACE:Newcastle upon Tyne⁽ᴳᴾᴱ⁾[(4:for), (type:stay in place), (6:upon)])]
+Newcastle is forecast to have light rain with a better-than-even chance of precipitation at 2pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(precipitation⁽ⁿᵒᵘⁿ⁾[(extra:chance⁽ⁿᵒᵘⁿ⁾), (det:a), (16:of), (amod:better-than-even), (8:with), (punct:-)], rain⁽ⁿᵒᵘⁿ⁾[(amod:light)]))[(SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-14T14:00:00Z⁽ᵀᴵᴹᴱ⁾[(type:defined), (18:at), (21:on)])]
+Newcastle is forecast to have dry and clear conditions with no rain at 2pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(conditions⁽ⁿᵒᵘⁿ⁾[(amod:dry clear), (conj:and)], NOT(rain⁽ⁿᵒᵘⁿ⁾[(10:with)])))[(TIME:2026-04-14T14:00:00Z⁽ᵀᴵᴹᴱ⁾[(type:defined), (13:at), (16:on)]), (SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)])]
+Newcastle is forecast to have light rain with a 57% chance of precipitation at 8pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(precipitation⁽ⁿᵒᵘⁿ⁾[(det:a), (8:with), (nummod:57), (13:of), (extra:% chance⁽ⁿᵒᵘⁿ⁾)], rain⁽ⁿᵒᵘⁿ⁾[(amod:light)]))[(SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-14T20:00:00Z⁽ᵀᴵᴹᴱ⁾[(18:on), (type:defined), (15:at)])]
+
+
+// weather_003
+Met Office forecast for Newcastle upon Tyne: Cloudy, 13.35°C, wind 3.64 mph, 16% chance of precipitation at 2026-04-14T15:00Z. ⇒ be⁽ᵛᵉʳᵇ⁾(Met Office⁽ⁿᵒᵘⁿ⁾[(punct::), (extra:forecast⁽ⁿᵒᵘⁿ⁾)], AND(mph⁽ⁿᵒᵘⁿ⁾[(nummod:3<dot>64), (punct:,)], precipitation⁽ⁿᵒᵘⁿ⁾[(21:of), (nummod:16), (extra:% chance⁽ⁿᵒᵘⁿ⁾)], wind⁽ⁿᵒᵘⁿ⁾[(punct:,)], Cloudy⁽ᴶᴶ⁾, °C⁽ᴺᵒⁿᵉ⁾[(nummod:13<dot>35)]))[(TIME:2026-04-14T15:00:00Z⁽ᴰᴬᵀᴱ⁾[(type:defined), (23:at)]), (SPACE:Newcastle upon Tyne⁽ᴸᴼᶜ⁾[(4:for), (type:stay in place), (6:upon)])]
+Newcastle is expected to be cloudy with around a one-in-six chance of rain at 3pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(expect⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(extra:one-in-six⁽ⁿᵒᵘⁿ⁾), (8:around), (7:with), (det:a), (16:of), (punct:-)], cloudy⁽ᴶᴶ⁾[(mark:to)]))[(SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-14T15:00:00Z⁽ᵀᴵᴹᴱ⁾[(18:at), (type:defined), (21:on)])]
+Newcastle is forecast to have sunny spells with no chance of rain at 3pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(NOT(rain⁽ⁿᵒᵘⁿ⁾[(8:with), (11:of), (extra:chance⁽ⁿᵒᵘⁿ⁾)]), spells⁽ⁿᵒᵘⁿ⁾, sunny⁽ᴶᴶ⁾))[(TIME:2026-04-14T15:00:00Z⁽ᵀᴵᴹᴱ⁾[(16:on), (13:at), (type:defined)]), (SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)])]
+Newcastle is expected to be cloudy with a 16% chance of rain at 6pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(expect⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(extra:% chance⁽ⁿᵒᵘⁿ⁾), (nummod:16), (7:with), (det:a), (12:of)], cloudy⁽ᴶᴶ⁾[(mark:to)]))[(SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-14T18:00:00Z⁽ᵀᴵᴹᴱ⁾[(14:at), (type:defined), (17:on)])]
+
+
+// weather_004
+Met Office forecast for Newcastle upon Tyne: Cloudy, 13.08°C, wind 4.78 mph, 10% chance of precipitation at 2026-04-14T16:00Z. ⇒ be⁽ᵛᵉʳᵇ⁾(Met Office⁽ᴸᴼᶜ⁾[(punct::), (extra:forecast⁽ⁿᵒᵘⁿ⁾)], AND(mph⁽ⁿᵒᵘⁿ⁾[(punct:,), (nummod:4<dot>78)], precipitation⁽ⁿᵒᵘⁿ⁾[(21:of), (extra:% chance⁽ⁿᵒᵘⁿ⁾), (nummod:10)], wind⁽ⁿᵒᵘⁿ⁾[(punct:,)], Cloudy⁽ᴶᴶ⁾, °C⁽ᴺᵒⁿᵉ⁾[(nummod:13<dot>08)]))[(TIME:2026-04-14T16:00:00Z⁽ᴰᴬᵀᴱ⁾[(type:defined), (23:at)]), (SPACE:Newcastle upon Tyne⁽ᴳᴾᴱ⁾[(4:for), (type:stay in place), (6:upon)])]
+Newcastle is forecast to be cloudy with a one-in-ten chance of rain at 4pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(extra:one-in-ten⁽ⁿᵒᵘⁿ⁾), (7:with), (det:a), (15:of), (punct:-)], cloudy⁽ᴶᴶ⁾[(mark:to)]))[(SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-14T16:00:00Z⁽ᵀᴵᴹᴱ⁾[(type:defined), (20:on), (17:at)])]
+Gateshead is forecast to be cloudy with a 10% chance of rain at 4pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(extra:% chance⁽ⁿᵒᵘⁿ⁾), (7:with), (det:a), (12:of), (nummod:10)], cloudy⁽ᴶᴶ⁾[(mark:to)]))[(SPACE:Gateshead⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-14T16:00:00Z⁽ᵀᴵᴹᴱ⁾[(14:at), (type:defined), (17:on)])]
+Newcastle is forecast to be cloudy with a 10% chance of rain at 9pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(extra:% chance⁽ⁿᵒᵘⁿ⁾), (7:with), (det:a), (12:of), (nummod:10)], cloudy⁽ᴶᴶ⁾[(mark:to)]))[(SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-14T21:00:00Z⁽ᵀᴵᴹᴱ⁾[(14:at), (type:defined), (17:on)])]
+
+
+// weather_005
+Met Office forecast for Newcastle upon Tyne: Cloudy, 12.17°C, wind 5.5 mph, 9% chance of precipitation at 2026-04-14T17:00Z. ⇒ be⁽ᵛᵉʳᵇ⁾(Met Office⁽ⁿᵒᵘⁿ⁾[(punct::), (extra:forecast⁽ⁿᵒᵘⁿ⁾)], AND(precipitation⁽ⁿᵒᵘⁿ⁾[(21:of), (punct:,), (extra:% chance⁽ⁿᵒᵘⁿ⁾), (nummod:9)], wind⁽ⁿᵒᵘⁿ⁾[(punct:,)], Cloudy⁽ᴶᴶ⁾, mph⁽ⁿᵒᵘⁿ⁾[(nummod:5<dot>5)], °C⁽ᶜᴬᴿᴰᴵᴺᴬᴸ⁾[(nummod:12<dot>17)]))[(SPACE:Newcastle upon Tyne⁽ᴳᴾᴱ⁾[(4:for), (type:stay in place), (6:upon)]), (TIME:2026-04-14T17:00:00Z⁽ᴰᴬᵀᴱ⁾[(type:defined), (23:at)])]
+Newcastle is expected to be cloudy with a very low chance of rain at 5pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(expect⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(advmod:very), (12:of), (det:a), (amod:low), (7:with), (extra:chance⁽ⁿᵒᵘⁿ⁾)], cloudy⁽ᴶᴶ⁾[(mark:to)]))[(TIME:2026-04-14T17:00:00Z⁽ᵀᴵᴹᴱ⁾[(14:at), (17:on), (type:defined)]), (SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)])]
+Newcastle is forecast to have persistent heavy rain at 5pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, rain⁽ⁿᵒᵘⁿ⁾[(amod:[persistent, heavy])])[(TIME:2026-04-14T17:00:00Z⁽ᵀᴵᴹᴱ⁾[(9:at), (type:defined), (12:on)]), (SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)])]
+Newcastle is expected to be cloudy with a 9% chance of rain at 10pm on 14 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(expect⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(12:of), (det:a), (extra:% chance⁽ⁿᵒᵘⁿ⁾), (7:with), (nummod:9)], cloudy⁽ᴶᴶ⁾[(mark:to)]))[(SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-14T22:00:00Z⁽ᵀᴵᴹᴱ⁾[(14:at), (17:on), (type:defined)])]
+
+
+// weather_006
+Met Office forecast for Newcastle upon Tyne: Light rain shower (day), 11.28°C, wind 3.21 mph, 27% chance of precipitation at 2026-04-13T14:00Z. ⇒ be⁽ᵛᵉʳᵇ⁾(Met Office⁽ⁿᵒᵘⁿ⁾[(punct:[,, :]), (extra:forecast⁽ⁿᵒᵘⁿ⁾)], AND(rain shower⁽ⁿᵒᵘⁿ⁾[(punct:[(, )]), (amod:Light)], °C⁽ᴺᵒⁿᵉ⁾[(nummod:11<dot>28)], wind⁽ⁿᵒᵘⁿ⁾[(measurement:3<dot>21 mph)], precipitation⁽ⁿᵒᵘⁿ⁾[(26:of), (nummod:27), (extra:% chance⁽ⁿᵒᵘⁿ⁾)], °C⁽ᴺᵒⁿᵉ⁾[(nummod:11<dot>28)], % chance⁽ⁿᵒᵘⁿ⁾[(nummod:27)]))[(TIME:2026-04-13T14:00:00Z⁽ᴰᴬᵀᴱ⁾[(28:at), (type:defined)]), (SPACE:Newcastle upon Tyne⁽ᴳᴾᴱ⁾[(4:for), (type:stay in place), (6:upon)])]
+Newcastle is forecast to have a light rain shower with around a one-in-four chance of rain at 2pm on 13 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(det:a), (extra:one-in-four⁽ⁿᵒᵘⁿ⁾), (19:of), (11:around), (punct:-), (10:with)], rain shower⁽ⁿᵒᵘⁿ⁾[(det:a), (amod:light)]))[(SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-13T14:00:00Z⁽ᵀᴵᴹᴱ⁾[(21:at), (24:on), (type:defined)])]
+Newcastle is forecast to be clear and sunny with no rain at 2pm on 13 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(?156, AND(clear⁽ᴶᴶ⁾[(mark:to)], sunny⁽ᴶᴶ⁾))[(TOGETHERNESS:NOT(rain⁽ⁿᵒᵘⁿ⁾[(9:with)])), (SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-13T14:00:00Z⁽ᵀᴵᴹᴱ⁾[(15:on), (type:defined), (12:at)])]
+A light rain shower is expected in Newcastle at noon on 13 April 2026. ⇒ expect⁽ᵛᵉʳᵇ⁾(2026-04-13T12-0⁽ᵀᴵᴹᴱ⁾[(nummod:2026)], rain shower⁽ⁿᵒᵘⁿ⁾[(det:A), (amod:light)])[(TIME:2026-04-13T12:00:00Z⁽ᵀᴵᴹᴱ⁾[(11:on), (9:at), (type:defined)]), (SPACE:Newcastle⁽ᴳᴾᴱ⁾[(7:in), (type:stay in place)])]
+
+
+// weather_007
+Met Office forecast for Newcastle upon Tyne: Light rain shower (day), 10.13°C, wind 4.3 mph, 34% chance of precipitation at 2026-04-13T16:00Z. ⇒ be⁽ᵛᵉʳᵇ⁾(Met Office⁽ᴸᴼᶜ⁾[(extra:forecast⁽ⁿᵒᵘⁿ⁾), (punct:[,, :])], AND(rain shower⁽ⁿᵒᵘⁿ⁾[(punct:[(, )]), (amod:Light)], °C⁽ᶜᴬᴿᴰᴵᴺᴬᴸ⁾[(nummod:10<dot>13)], wind⁽ⁿᵒᵘⁿ⁾[(measurement:4<dot>3 mph)], precipitation⁽ⁿᵒᵘⁿ⁾[(nummod:34), (26:of), (extra:% chance⁽ⁿᵒᵘⁿ⁾)], °C⁽ᶜᴬᴿᴰᴵᴺᴬᴸ⁾[(nummod:10<dot>13)], % chance⁽ᴺᵒⁿᵉ⁾[(nummod:34)]))[(TIME:2026-04-13T16:00:00Z⁽ᴰᴬᵀᴱ⁾[(type:defined), (28:at)]), (SPACE:Newcastle upon Tyne⁽ᴸᴼᶜ⁾[(4:for), (type:stay in place), (6:upon)])]
+Newcastle is forecast to have a light rain shower with around a one-in-three chance of rain at 4pm on 13 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(10:with), (extra:one-in-three⁽ⁿᵒᵘⁿ⁾), (det:a), (19:of), (punct:-), (11:around)], rain shower⁽ⁿᵒᵘⁿ⁾[(det:a), (amod:light)]))[(TIME:2026-04-13T16:00:00Z⁽ᵀᴵᴹᴱ⁾[(type:defined), (24:on), (21:at)]), (SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)])]
+Newcastle is forecast to have clear skies and no rain at 4pm on 13 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(skies⁽ⁿᵒᵘⁿ⁾[(amod:clear)], NOT(rain⁽ⁿᵒᵘⁿ⁾)))[(TIME:2026-04-13T16:00:00Z⁽ᵀᴵᴹᴱ⁾[(14:on), (11:at), (type:defined)]), (SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)])]
+Newcastle is expected to have a light rain shower at 10am on 13 April 2026. ⇒ to have⁽ᵛᵉʳᵇ⁾(expect⁽ᵛᵉʳᵇ⁾(?153, Newcastle⁽ᴳᴾᴱ⁾), rain shower⁽ⁿᵒᵘⁿ⁾[(det:a), (amod:light)])[(TIME:2026-04-13T10:00:00Z⁽ᵀᴵᴹᴱ⁾[(13:on), (type:defined), (10:at)])]
+
+
+// weather_008
+Met Office forecast for Newcastle upon Tyne: Cloudy, 7.6°C, wind 2.25 mph, 7% chance of precipitation at 2026-04-13T19:00Z. ⇒ be⁽ᵛᵉʳᵇ⁾(Met Office⁽ⁿᵒᵘⁿ⁾[(punct::), (extra:forecast⁽ⁿᵒᵘⁿ⁾)], AND(wind⁽ⁿᵒᵘⁿ⁾[(punct:,)], Cloudy⁽ᴶᴶ⁾, mph⁽ⁿᵒᵘⁿ⁾[(punct:,), (nummod:2<dot>25)], precipitation⁽ⁿᵒᵘⁿ⁾[(nummod:7), (extra:% chance⁽ⁿᵒᵘⁿ⁾), (21:of)], °C⁽ᶜᴬᴿᴰᴵᴺᴬᴸ⁾[(nummod:7<dot>6)]))[(SPACE:Newcastle upon Tyne⁽ᴳᴾᴱ⁾[(4:for), (type:stay in place), (6:upon)]), (TIME:2026-04-13T19:00:00Z⁽ᴰᴬᵀᴱ⁾[(type:defined), (23:at)])]
+Newcastle is expected to be cloudy with a very low chance of rain at 7pm on 13 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(expect⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(advmod:very), (12:of), (det:a), (amod:low), (7:with), (extra:chance⁽ⁿᵒᵘⁿ⁾)], cloudy⁽ᴶᴶ⁾[(mark:to)]))[(SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-13T19:00:00Z⁽ᵀᴵᴹᴱ⁾[(14:at), (17:on), (type:defined)])]
+Newcastle is forecast to have clear skies with no clouds at 7pm on 13 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(skies⁽ⁿᵒᵘⁿ⁾[(amod:clear)], NOT(clouds⁽ⁿᵒᵘⁿ⁾[(8:with)])))[(TIME:2026-04-13T19:00:00Z⁽ᵀᴵᴹᴱ⁾[(11:at), (type:defined), (14:on)]), (SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)])]
+Newcastle is forecast to be cloudy with a 7% chance of rain at 9pm on 13 April 2026. ⇒ be⁽ᵛᵉʳᵇ⁾(forecast⁽ⁿᵒᵘⁿ⁾, AND(rain⁽ⁿᵒᵘⁿ⁾[(12:of), (det:a), (nummod:7), (extra:% chance⁽ⁿᵒᵘⁿ⁾), (7:with)], cloudy⁽ᴶᴶ⁾[(mark:to)]))[(SPACE:Newcastle⁽ᴳᴾᴱ⁾[(type:stay in place)]), (TIME:2026-04-13T21:00:00Z⁽ᵀᴵᴹᴱ⁾[(14:at), (17:on), (type:defined)])]

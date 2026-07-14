@@ -1,0 +1,15 @@
+# Curated subset of subordinating conjunctions (honk:SubordinatingConjunction)
+# that introduce a *circumstantial* clause whose verb is not a genuine cause
+# predicate — so the clause may be reduced to its object noun by
+# logical_context_clause_dedupe. This is DELIBERATELY narrower than the full
+# HOnK SubordinatingConjunction class: causal/conditional subordinators
+# ("because", "if", "provided", "for", ...) are excluded because their clauses
+# must NOT be collapsed. Lowercased; matched token-wise against the edge label.
+while
+when
+whilst
+as
+after
+before
+since
+until
